@@ -1,0 +1,13 @@
+{
+  "type": "drawer",
+  "opening_width_mm": 564,
+  "opening_height_mm": 300,
+  "opening_depth_mm": 500,
+  "box_height_mm": 150,
+  "panel_thickness_mm": 15,
+  "bottom_thickness_mm": 6,
+  "slide_clearance_left_mm": 13,
+  "slide_clearance_right_mm": 13,
+  "front_setback_mm": 5,
+  "rear_setback_mm": 5
+}
