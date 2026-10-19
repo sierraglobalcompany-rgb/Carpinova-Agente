@@ -24,7 +24,6 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(result["phase"], "GEOMETRY_DRAFT")
         self.assertEqual(result["design"]["dimensions"]["clear_width_mm"], 564)
         self.assertIn("NO apto", messages[0])
-        self.assertIn("fabric", "fabric")  # sanity check
 
     def test_non_numeric_asks_again(self):
         code, result, messages = simulate([
