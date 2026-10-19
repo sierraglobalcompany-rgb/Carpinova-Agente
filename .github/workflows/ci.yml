@@ -28,6 +28,11 @@ jobs:
               assert payload["status"] == "DRAFT_NOT_FOR_CUTTING"
               assert payload["release_blockers"]
           PY
+      - name: Interactive terminal wizard smoke
+        run: |
+          printf 'gabinete\n600\n720\n560\n18\ncostados completos\n' | python -m carpinova_agent.dialogue > /tmp/dialogue.txt
+          grep -q "GEOMETRY_DRAFT" /tmp/dialogue.txt
+          grep -q "DRAFT_NOT_FOR_CUTTING" /tmp/dialogue.txt
       - name: Guided interview and SVG smoke
         run: |
           python -m carpinova_agent.guide_cli --input examples/intake-cabinet-partial.json > /tmp/intake-questions.json
