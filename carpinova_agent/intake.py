@@ -107,8 +107,8 @@ ADVICE = {
         "verificar el formato real del tablero antes de optimizar."
     ),
     "slides": (
-        "No asumir holgura estándar de corredera. Consultar fabricante, "
-        "modelo, espesor, carga, instalación y dibujo acotado."
+        "No asumir holgura estándar de corredera. Consultar la ficha técnica "
+        "del fabricante y modelo exactos: espesor, carga, instalación y dibujo acotado."
     ),
 }
 
@@ -142,10 +142,12 @@ def _require_data(project: Any) -> dict[str, Any]:
             raise DesignError(f"{key} debe ser entero en mm"
                               + (" no negativo." if key in NONNEGATIVE_FIELDS
                                  else " positivo."))
-        if key in CATEGORIES and value not in CATEGORIES[key]:
+        if key in CATEGORIES and (not isinstance(value, str)
+                                  or value not in CATEGORIES[key]):
             raise DesignError(f"{key} debe ser uno de: "
                               + ", ".join(sorted(CATEGORIES[key])))
-        if key == "construction" and value not in CONSTRUCTIONS:
+        if key == "construction" and (not isinstance(value, str)
+                                      or value not in CONSTRUCTIONS):
             raise DesignError("construction: sides_full o top_bottom_full.")
     return project
 
@@ -154,7 +156,9 @@ def guide_project(project: Mapping[str, Any], max_questions: int = 3) -> dict[st
     """Return an actionable next step, or a strictly unapproved geometry draft."""
     if type(max_questions) is not int or not 1 <= max_questions <= 6:
         raise DesignError("max_questions debe ser entero entre 1 y 6.")
-    data = _require_data(project)
+    data = dict(_require_data(project))
+    if "project_type" in data and not data["project_type"].strip():
+        del data["project_type"]
     raw_type = data.get("project_type")
     kind = TYPES.get(_fold(raw_type), None) if raw_type else None
     if raw_type and kind is None:
