@@ -28,3 +28,21 @@ jobs:
               assert payload["status"] == "DRAFT_NOT_FOR_CUTTING"
               assert payload["release_blockers"]
           PY
+      - name: Guided interview and SVG smoke
+        run: |
+          python -m carpinova_agent.guide_cli --input examples/intake-cabinet-partial.json > /tmp/intake-questions.json
+          python -m carpinova_agent.guide_cli --input examples/intake-cabinet-draft.json --output /tmp/intake-design.json --sketch /tmp/carpi-draft.svg
+          python -m carpinova_agent.guide_cli --input examples/intake-closet.json > /tmp/closet.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          partial = json.loads(Path("/tmp/intake-questions.json").read_text())
+          draft = json.loads(Path("/tmp/intake-design.json").read_text())
+          closet = json.loads(Path("/tmp/closet.json").read_text())
+          assert partial["phase"] == "NEEDS_INPUT" and partial["design"] is None
+          assert draft["phase"] == "GEOMETRY_DRAFT"
+          assert draft["design"]["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert closet["phase"] == "CONCEPT_ONLY" and closet["design"] is None
+          ElementTree.parse("/tmp/carpi-draft.svg")
+          PY
