@@ -20,11 +20,11 @@ def _fold(value: str) -> str:
 
 
 ALIASES = {
-    "cabinet": "cabinet", "gabinete": "cabinet", "alacena": "cabinet",
-    "drawer": "drawer", "cajon": "drawer", "cajón": "drawer",
-    "closet": "closet", "clóset": "closet", "armario": "closet",
-    "wardrobe": "closet", "cocina": "kitchen", "kitchen": "kitchen",
-    "nicho": "niche", "niche": "niche", "escritorio": "desk",
+    "cabinet": "cabinet", "gabinete": "cabinet", "gabinetes": "cabinet", "alacena": "cabinet",
+    "drawer": "drawer", "cajon": "drawer", "cajón": "drawer", "cajones": "drawer",
+    "closet": "closet", "closets": "closet", "clóset": "closet", "armario": "closet",
+    "wardrobe": "closet", "cocina": "kitchen", "cocinas": "kitchen", "kitchen": "kitchen",
+    "nicho": "niche", "nichos": "niche", "niche": "niche", "escritorio": "desk",
     "desk": "desk", "biblioteca": "bookcase", "bookcase": "bookcase",
     "mueble de bano": "bathroom", "mueble de baño": "bathroom",
     "bathroom": "bathroom",
@@ -175,6 +175,12 @@ def guide_project(project: Mapping[str, Any], max_questions: int = 3) -> dict[st
     # Reject parameters irrelevant to a model rather than silently disregarding
     # them. Shared installation/design intent is kept as non-fabrication context.
     allowed = set(SHARED) | set(fields)
+    if kind is None:
+        # A person can give dimensions before naming the furniture type.
+        allowed.update(CABINET_FIELDS + DRAWER_FIELDS + SPACE_FIELDS)
+    elif kind not in ("cabinet", "drawer"):
+        # Material information is useful context for later modular design.
+        allowed.add("panel_thickness_mm")
     extra = data.keys() - allowed
     if extra:
         raise DesignError("Campos ajenos a este mueble: " + ", ".join(sorted(extra)))
@@ -241,13 +247,28 @@ def guide_project(project: Mapping[str, Any], max_questions: int = 3) -> dict[st
             ],
         )
 
+    site_keys = ("site_width_top_mm", "site_width_middle_mm", "site_width_bottom_mm")
+    site_missing = ([key for key in site_keys if key not in data]
+                    if data.get("installation") == "built_in" else [])
     context_missing = [key for key in ("installation", "front_style", "back_style",
                                        "grain_direction") if key not in data]
-    response["questions"] = [_question(key) for key in context_missing[:max_questions]]
+    priorities = site_missing + context_missing
+    response["questions"] = [_question(key) for key in priorities[:max_questions]]
     if kind not in ("cabinet", "drawer"):
-        response["questions"] = [
-            {"field": "module_layout", "unit": "description",
-             "question": ("¿Cómo quieres dividir el espacio en módulos, "
-                          "puertas, cajones y zonas de uso?")}
-        ][:max_questions]
+        response["questions"] = (
+            [{"field": "module_layout", "unit": "description",
+              "question": ("¿Cómo quieres dividir el espacio en módulos, "
+                           "puertas, cajones y zonas de uso?")}]
+            + [_question(key) for key in priorities[:max_questions-1]]
+        )[:max_questions]
+    if (data.get("installation") == "built_in"
+            and len(have_site) == 3
+            and kind != "drawer"
+            and "width_mm" in data
+            and data["width_mm"] >= min(have_site)):
+        response["phase"] = "SITE_CONFLICT"
+        response["release_blockers"].insert(
+            0, "Ancho exterior del mueble iguala/supera la menor luz del sitio. "
+               "Revisar cota y holgura de instalación antes de fabricar."
+        )
     return response
