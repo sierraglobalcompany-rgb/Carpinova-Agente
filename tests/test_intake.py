@@ -43,6 +43,23 @@ class IntakeTests(unittest.TestCase):
                          ["panel_thickness_mm", "construction"])
         self.assertIsNone(result["design"])
 
+    def test_empty_type_is_question_not_invalid_concept(self):
+        result = guide_project({"project_type": "  "})
+        self.assertEqual(result["phase"], "NEEDS_INPUT")
+        self.assertEqual(result["questions"][0]["field"], "project_type")
+
+    def test_bad_structured_choice_has_clear_error(self):
+        with self.assertRaises(DesignError):
+            guide_project({**CABINET, "front_style": ["overlay"]})
+
+    def test_drawer_low_wall_height_svg_agrees_with_geometry(self):
+        low = {**DRAWER, "box_height_mm": 7}
+        result = guide_project(low)
+        self.assertEqual(result["phase"], "GEOMETRY_DRAFT")
+        sketch = render_svg(result["design"])
+        ET.fromstring(sketch)
+        self.assertIn("7 mm", sketch)
+
     def test_no_type_asks_type(self):
         result = guide_project({})
         self.assertEqual(result["questions"][0]["field"], "project_type")
