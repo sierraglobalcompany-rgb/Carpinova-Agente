@@ -1,0 +1,12 @@
+{
+  "project_type": "gabinete",
+  "width_mm": 600,
+  "height_mm": 720,
+  "depth_mm": 560,
+  "panel_thickness_mm": 18,
+  "construction": "sides_full",
+  "installation": "freestanding",
+  "front_style": "overlay",
+  "back_style": "applied",
+  "grain_direction": "vertical"
+}
