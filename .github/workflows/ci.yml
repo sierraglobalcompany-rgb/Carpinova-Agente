@@ -1,0 +1,30 @@
+name: Python geometry checks
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python
+        run: python -m compileall -q carpinova_agent tests
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Smoke CLI (does not authorize fabrication)
+        run: |
+          python -m carpinova_agent --input examples/cabinet.json > /tmp/cabinet.json
+          python -m carpinova_agent --input examples/drawer.json > /tmp/drawer.json
+          python - <<'PY'
+          import json
+          for name in ("cabinet", "drawer"):
+              payload = json.load(open(f"/tmp/{name}.json"))
+              assert payload["status"] == "DRAFT_NOT_FOR_CUTTING"
+              assert payload["release_blockers"]
+          PY
