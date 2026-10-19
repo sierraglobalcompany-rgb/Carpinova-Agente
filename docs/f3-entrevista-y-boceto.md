@@ -9,7 +9,7 @@
 - La conversación en lenguaje natural, el render 3D y la búsqueda del libro aún requieren integración posterior; **no son funcionalidades de este MVP**.
 
 ## Ejecución
-```bash
+\nLa entrevista por terminal funciona con preguntas y respuestas manuales; no necesita escribir JSON:\n\n\x60\x60\x60bash\npython -m carpinova_agent.dialogue\n\x60\x60\x60\n\n```bash
 python -m unittest discover -s tests -v
 python -m carpinova_agent.guide_cli --input examples/intake-cabinet-partial.json
 python -m carpinova_agent.guide_cli --input examples/intake-cabinet-draft.json --output /tmp/proyecto.json --sketch /tmp/croquis.svg
@@ -23,7 +23,7 @@ python -m carpinova_agent.guide_cli --input examples/intake-closet.json
 - Mueble multicomponente: medidas generales, división en módulos, obstáculos, anclajes y servicios (requieren diseño posterior).
 - Tras geometría: ubicación, tipo de frente, fondo, veta, herrajes exactos, cantos y control de sitio.
 
-## Advertencias obligatorias
+## Verificación del lugar\n- Si la instalación es `built_in`, se solicitan tres anchos reales de hueco (arriba, medio, abajo).\n- Si el ancho nominal del mueble iguala o supera la menor luz medida, la respuesta indica `SITE_CONFLICT` y bloquea la recomendación de fabricar; no inventa una holgura para hacerlo encajar.\n- Si la persona aporta cotas antes de indicar tipo de mueble, quedan preservadas para la siguiente pregunta.\n\n## Advertencias obligatorias
 - Un *frente aplicado* o *embutido* indica intención; el motor **no** añade una puerta ni calcula luces/bisagras por esa elección.
 - Introducir holguras de corredera NO demuestra que cumplan su ficha técnica; no existe perforación automática.
 - Un dibujo SVG es solo la proyección 2D de un cuerpo geométrico simple. No equivale a plano aprobado para cortar.
