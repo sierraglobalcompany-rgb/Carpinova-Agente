@@ -60,6 +60,44 @@ class IntakeTests(unittest.TestCase):
         ET.fromstring(sketch)
         self.assertIn("7 mm", sketch)
 
+    def test_dimensions_before_type_are_not_discarded(self):
+        initial = {"width_mm": 600, "height_mm": 720, "depth_mm": 560}
+        result = guide_project(initial)
+        self.assertEqual(result["phase"], "NEEDS_INPUT")
+        self.assertEqual(result["questions"][0]["field"], "project_type")
+        self.assertEqual(result["submitted_values"]["width_mm"], 600)
+
+    def test_concept_accepts_material_context(self):
+        result = guide_project({"project_type": "cocina", "width_mm": 2400,
+                                "height_mm": 2400, "depth_mm": 600,
+                                "panel_thickness_mm": 18})
+        self.assertEqual(result["phase"], "CONCEPT_ONLY")
+        self.assertIsNone(result["design"])
+
+    def test_built_in_requests_three_site_measurements(self):
+        result = guide_project({**CABINET, "installation": "built_in"})
+        self.assertEqual([q["field"] for q in result["questions"]],
+                         ["site_width_top_mm", "site_width_middle_mm",
+                          "site_width_bottom_mm"])
+
+    def test_built_in_conflict_does_not_disappear(self):
+        result = guide_project({**CABINET, "installation": "built_in",
+                                "site_width_top_mm": 610,
+                                "site_width_middle_mm": 598,
+                                "site_width_bottom_mm": 595})
+        self.assertEqual(result["phase"], "SITE_CONFLICT")
+        self.assertEqual(result["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertIn("menor luz", result["release_blockers"][0])
+        self.assertEqual(result["design"]["dimensions"]["external_width_mm"], 600)
+
+    def test_built_in_clearance_is_not_assumed(self):
+        result = guide_project({**CABINET, "installation": "built_in",
+                                "site_width_top_mm": 620,
+                                "site_width_middle_mm": 617,
+                                "site_width_bottom_mm": 610})
+        self.assertEqual(result["phase"], "GEOMETRY_DRAFT")
+        self.assertTrue(result["release_blockers"])
+
     def test_no_type_asks_type(self):
         result = guide_project({})
         self.assertEqual(result["questions"][0]["field"], "project_type")
