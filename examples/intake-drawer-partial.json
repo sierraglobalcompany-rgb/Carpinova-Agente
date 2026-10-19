@@ -1,0 +1,9 @@
+{
+  "project_type": "cajón",
+  "opening_width_mm": 564,
+  "opening_height_mm": 240,
+  "opening_depth_mm": 500,
+  "box_height_mm": 150,
+  "panel_thickness_mm": 15,
+  "bottom_thickness_mm": 6
+}
