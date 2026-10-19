@@ -48,8 +48,10 @@ def render_svg(result: dict[str, Any]) -> str:
         raise DesignError("Solo se dibuja gabinete abierto o caja de cajón.")
     if type(width) is not int or type(height) is not int or min(width, height) <= 0:
         raise DesignError("Dimensiones no positivas.")
-    if type(t) is not int or t <= 0 or width <= 2*t or height <= 2*t:
+    if type(t) is not int or t <= 0 or width <= 2*t:
         raise DesignError("Espesores/dimensiones incompatibles con el croquis.")
+    if kind == "open_cabinet" and height <= 2*t:
+        raise DesignError("Alto no admite dos espesores de tapa/base.")
     if kind == "drawer_box_surface_bottom" and (type(bottom_t) is not int or
                                                    bottom_t <= 0 or height <= bottom_t):
         raise DesignError("Fondo incompatible con altura de caja.")
