@@ -32,3 +32,8 @@ Al iniciar una sesión de asistente para muebles, consultar `skills/maestro-carp
 **Nunca** copiar reglas nuevas del libro a motores de fabricación ni transformar cotas normalizadas en milímetros. No crear una segunda fórmula de geometría. Fuente del proyecto: `carpinova_agent.core.design`; fuente de libro: `knowledge_client`; fuente de bisagras candidatas: `hardware`.
 Estado vigente de todas las respuestas F5: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`.
 Las ramas F2/F4 están incorporadas en la rama de **prueba** mediante blobs idénticos; NO consolidar sus PRs ni dejar copias paralelas como estado permanente. Revisar el estado vivo de PR #1/#2/#4/#6 antes de planificar merges, y el PR F5 después.
+
+## F6 — regla de modularidad y acabados
+El único motor nominal de paneles es `carpinova_agent.core.design`. En `carpinova_agent.modular` se crean IDs físicos por rol (4 piezas por gabinete abierto), se ubican módulos y se anotan vetas y bordes; **no duplicar cálculos F1** ni inventar piezas adicionales.
+Para módulo empotrado sin las tres medidas de sitio usar `NEEDS_SITE_MEASUREMENTS`; con choque `SITE_CONFLICT`; si la suma de módulos no coincide con ancho, `NEEDS_LAYOUT_REVISION` y cero piezas de producción. No generar SVG/CSV de revisión en estos estados bloqueados.
+Todos los paneles son NOMINALES, sin compensación por tapacantos. Datos de acabados faltantes se anuncian y se preguntan. Nunca presentar `finished_cut_dimensions_mm=null` como un despiece apto para sierra.
