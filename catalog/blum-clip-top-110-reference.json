@@ -1,0 +1,94 @@
+{
+  "catalog_version": "0.1.0",
+  "updated_date": "2026-10-19",
+  "scope": "REFERENCE_SELECTION_ONLY",
+  "manufacturer": "Blum",
+  "source_references": {
+    "blum_hinges_pdf": {
+      "url": "https://d2.blum.com/services/BEC003/bro024_ep_dok_bsg_%24sen_%24aof_%24v1.pdf",
+      "document_title": "Perfecting your doors with Blum hinges",
+      "review_method": "DIRECT_SOURCE_PDF_VISUAL",
+      "physical_pages": {
+        "hinges": 22,
+        "mounting_plates": 23
+      },
+      "source_freshness": "HISTORICAL_BROCHURE_VERIFY_CURRENT_MODEL_BEFORE_ORDER"
+    },
+    "blum_current_assembly": {
+      "url": "https://www.blum.com/us/en/products/hingesystems/clip-top-blumotion/assembly/",
+      "document_title": "CLIP top BLUMOTION — Assembly & installation",
+      "review_method": "OFFICIAL_MANUFACTURER_HTML",
+      "source_freshness": "CHECKED_2026-10-19"
+    }
+  },
+  "hinges": [
+    {
+      "sku": "71B3550",
+      "series": "CLIP top BLUMOTION 110",
+      "front_style": "overlay",
+      "label_es": "sobrepuesta",
+      "attachment": "screw_on_boss",
+      "opening_angle_deg": 110,
+      "pdf_page": 22,
+      "reference_id": "blum_hinges_pdf"
+    },
+    {
+      "sku": "71B3650",
+      "series": "CLIP top BLUMOTION 110",
+      "front_style": "dual",
+      "label_es": "compartida / semisobrepuesta",
+      "attachment": "screw_on_boss",
+      "opening_angle_deg": 110,
+      "pdf_page": 22,
+      "reference_id": "blum_hinges_pdf"
+    },
+    {
+      "sku": "71B3750",
+      "series": "CLIP top BLUMOTION 110",
+      "front_style": "inset",
+      "label_es": "embutida",
+      "attachment": "screw_on_boss",
+      "opening_angle_deg": 110,
+      "pdf_page": 22,
+      "reference_id": "blum_hinges_pdf"
+    }
+  ],
+  "mounting_plates": [
+    {
+      "sku": "173H7100",
+      "style": "cruciform_cam",
+      "spacing_mm": 0,
+      "hole_line_reference_from_front_mm": 37,
+      "mounting_screw_hole_pitch_mm": 32,
+      "drawing_coordinate_frame": "ILLUSTRATION_ONLY_UNVERIFIED_IN_INSTALLATION",
+      "pdf_page": 23,
+      "reference_id": "blum_hinges_pdf"
+    },
+    {
+      "sku": "173H7130",
+      "style": "cruciform_cam",
+      "spacing_mm": 3,
+      "hole_line_reference_from_front_mm": 37,
+      "mounting_screw_hole_pitch_mm": 32,
+      "drawing_coordinate_frame": "ILLUSTRATION_ONLY_UNVERIFIED_IN_INSTALLATION",
+      "pdf_page": 23,
+      "reference_id": "blum_hinges_pdf"
+    }
+  ],
+  "generic_assembly_reference": {
+    "hinge_cup_boring_depth_mm": 13,
+    "reference_id": "blum_current_assembly",
+    "note": "Valor general de la familia; NO define plantilla ni perforaciones para una combinación concreta."
+  },
+  "not_present": {
+    "hinge_cup_diameter_mm": null,
+    "hinge_cup_edge_offset_mm": null,
+    "hinge_cup_fixing_centres_mm": null,
+    "mounting_plate_screw_pilot_diameter_mm": null,
+    "mounting_plate_pilot_depth_mm": null,
+    "mounting_plate_vertical_location_mm": null,
+    "number_of_hinges_per_door": null,
+    "door_weight_rating_kg": null,
+    "hinge_plate_fitment_authorized": false
+  }
+}

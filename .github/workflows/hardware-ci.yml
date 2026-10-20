@@ -1,0 +1,32 @@
+name: Manufacturer hardware checks
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+jobs:
+  hardware:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile
+        run: python -m compileall -q hardware tests
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p 'test_hardware.py' -v
+      - name: CLI smoke and fail-closed outputs
+        run: |
+          python -m hardware --input examples/hinge-overlay.json > /tmp/hinge.json
+          python -m hardware --input examples/hinge-inset-missing.json > /tmp/inset.json
+          python - <<'PY'
+          import json
+          for item in ("hinge", "inset"):
+              result = json.load(open(f"/tmp/{item}.json"))
+              assert result["status"] == "BLOCKED_HARDWARE_SPEC"
+              assert result["purchase_ready"] is False
+              assert result["drilling_ready"] is False
+              assert result["drilling_coordinates"] == []
+          PY
