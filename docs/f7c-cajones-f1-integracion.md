@@ -55,3 +55,11 @@ python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.jso
 Para `action=modular` con estado `DRAFT_NOT_FOR_CUTTING`, `consult_maestro` pregunta **primero** por los campos pendientes de frente/puerta (`fronts`), fondo (`back`), cajones (`drawers`) y soporte (`support`); después por cada `drawers[].facade="pending"` con material, grosor y holguras explícitas; **al final** por la veta y el canto de la carcasa (`finish`). Esto evita que el límite de tres preguntas oculte una distribución de cajones sin resolver. En un empotrado sin medidas reales, los anchos superior/medio/inferior continúan teniendo prioridad absoluta.
 
 Estas preguntas **no rellenan automáticamente campos** ni seleccionan una guía, bisagra, tornillo o patrón de taladro. La respuesta sigue siendo preliminar y bloqueada para fabricación. El texto genérico del borrador ya no afirma incorrectamente que «no hay cajones» cuando F7C sí los modela.
+
+## Consulta del libro integrada en el diseño modular
+
+`consult_maestro({"action":"modular","module_spec":{...},"query":"bisagras"}, bundle_dir="...")` mantiene **un único resultado** con el modelo modular, preguntas constructivas y búsqueda del libro verificado. `query` es **opcional**: sin él no se carga ni consulta Knowledge; con él, la ruta de lectura es **idéntica** a `action=knowledge`/`action=combined`. No hay indexador, motor de búsqueda ni copia paralela del PDF.
+
+La respuesta devuelve `knowledge.coverage`, los fragmentos encontrados, `source_provenance` con `book`, `content_id`, `pdf_page`, `printed_page` y `review_status`. Si no se entrega `bundle_dir`, **falla explícitamente**; si el corpus es parcial o no hay coincidencias, deja constancia en `blockers`. No considera una coincidencia léxica como una norma técnica comprobada y **no inventa una recomendación de herraje, perforación o anclaje**.
+
+Para probarlo con fuente real, el job `source-backed-full-book` de `.github/workflows/maestro-ci.yml` reconstruye la distribución canónica Knowledge v1.2.0 desde el commit fijado, consulta `bisagras` junto al ejemplo de cocina de **13 piezas** y archiva `maestro-modular-cited-knowledge.json`. Esta función es pedagógica, no habilita `fabrication_ready`, `cutting_ready`, `drilling_ready` o `purchase_ready`.
