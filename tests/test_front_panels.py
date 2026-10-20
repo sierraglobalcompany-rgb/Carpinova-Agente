@@ -138,7 +138,9 @@ class FrontTests(unittest.TestCase):
         d=fixture()
         d["modules"][1]["fronts"]=copy.deepcopy(d["modules"][0]["fronts"])
         d["modules"][0]["fronts"]["right_reveal_mm"]=0
+        d["modules"][0]["fronts"]["left_reveal_mm"]=4
         d["modules"][1]["fronts"]["left_reveal_mm"]=0
+        d["modules"][1]["fronts"]["right_reveal_mm"]=4
         with self.assertRaisesRegex(DesignError,"adyacentes"):
             design_modular_run(d)
 
