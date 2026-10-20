@@ -37,7 +37,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
         "face_plane", "grain_axis", "edgebanding_edges",
         "edgebanding_thickness_mm", "edgebanding_nominal_total_mm",
         "origin_x_mm", "origin_y_mm", "origin_z_mm",
-        "dimension_formula", "production_status", "hinge_side_requested",
+        "dimension_formula", "production_status", "hinge_side_requested", "drawer_id",
     ])
     for piece in draft["parts"]:
         writer.writerow([
@@ -52,7 +52,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
             (piece["edgebanding_nominal_total_mm"] if
              piece["edgebanding_nominal_total_mm"] is not None else "UNCONFIRMED"),
             *piece["nominal_origin_xyz_mm"], piece["source_formula"],
-            "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""),
+            "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""), piece.get("drawer_id",""),
         ])
     return buffer.getvalue()
 
@@ -72,16 +72,17 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     # Rear panels first, carcass next, doors last. No second geometry engine.
     ordered = sorted(draft["parts"], key=lambda p: (
         0 if p["role"].startswith("back_") else
-        2 if p["role"].startswith("front_") else 1
+        2 if p["role"].startswith("front_") or p["role"]=="drawer_facade" else 1
     ))
     for piece in ordered:
         role = piece["role"]
-        if role in ("left_side", "right_side"):
+        if role in ("left_side", "right_side", "drawer_side_left", "drawer_side_right"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
-        elif role in ("top", "bottom"):
+        elif role in ("top", "bottom", "drawer_bottom"):
             pw, ph = piece["nominal_face_x_mm"], piece["thickness_mm"]
         elif role in ("back_full", "back_top", "back_bottom",
-                      "front_single", "front_left", "front_right"):
+                      "front_single", "front_left", "front_right",
+                      "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         else:
             raise DesignError("Rol de panel desconocido.")
@@ -94,7 +95,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
-        panel_class = "front" if role.startswith("front_") else "panel"
+        panel_class = "front" if role.startswith("front_") or role=="drawer_facade" else "panel"
         shapes.append(
             f'<rect x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
             f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
