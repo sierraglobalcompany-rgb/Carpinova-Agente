@@ -196,6 +196,39 @@ class HumanConfirmationCliTests(unittest.TestCase):
             self.assertIn("NO está verificada", err)
             engine.assert_called_once_with(CABINET, bundle_dir=None, max_questions=3)
 
+    def test_approved_tty_executes_real_maestro_only_as_draft(self):
+        # No mocked engine: verify the second action actually re-enters F1/F3
+        # deterministically and retains all four release blocks.
+        with tempfile.TemporaryDirectory() as td:
+            candidate = self._candidate(td)
+            preview = preview_natural_request("Gabinete", CABINET)
+            _, phrase = _confirmation_display(preview)
+            code, out, err = self._invoke([
+                "--utterance", "Gabinete", "--candidate", str(candidate),
+                "--confirm-execute",
+            ], stdin=_FakeTty(phrase + "\n"), stderr=_FakeTty())
+        self.assertEqual(code, 0)
+        response = json.loads(out)
+        self.assertEqual(response["action"], "project")
+        self.assertEqual(response["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertEqual(response["project"]["phase"], "GEOMETRY_DRAFT")
+        self.assertEqual(
+            response["project"]["design"]["dimensions"]["external_width_mm"], 600
+        )
+        for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
+            self.assertFalse(response[flag])
+        self.assertIn("NO está verificada técnicamente", err)
+
+    def test_confirmation_code_changes_with_exact_proposal(self):
+        original = preview_natural_request("Gabinete", CABINET)
+        changed = json.loads(json.dumps(CABINET))
+        changed["project"]["width_mm"] = 601
+        alternative = preview_natural_request("Gabinete", changed)
+        shown1, phrase1 = _confirmation_display(original)
+        shown2, phrase2 = _confirmation_display(alternative)
+        self.assertNotEqual(shown1, shown2)
+        self.assertNotEqual(phrase1, phrase2)
+
     def test_input_candidate_is_snapshot_even_if_file_changes_during_approval(self):
         with tempfile.TemporaryDirectory() as td:
             candidate = self._candidate(td)
