@@ -179,5 +179,32 @@ class ResponsesInterpreterTests(unittest.TestCase):
                     engine.assert_not_called()
 
 
+    def test_malformed_types_fail_as_maestro_error(self):
+        # An untrusted JSON model can return lists/objects despite its schema.
+        for invalid in (
+            {"intent": [], "project_type": "gabinete"},
+            {"intent": {"action": "fabricar"}, "project_type": None},
+            {"intent": "project", "project_type": []},
+            {"intent": "project", "project_type": {"width_mm": 600}},
+        ):
+            out = answer()
+            out["output"][0]["content"][0]["text"] = json.dumps(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(MaestroError):
+                _decode_response(out)
+
+    def test_cli_remote_confirmation_still_requires_tty(self):
+        from carpinova_agent.maestro_cli import main
+        argv = ["maestro_cli", "--utterance", "Gabinete",
+                "--interpret-openai", "--consent-send-text",
+                "--interpret-model", "test-model", "--confirm-execute"]
+        with patch("sys.argv", argv):
+            with patch("carpinova_agent.maestro_cli.interpret_openai_request",
+                       return_value={"action": "project", "project": {}}):
+                with patch("carpinova_agent.maestro_cli.consult_maestro") as engine:
+                    with patch("sys.stdin", io.StringIO()):
+                        with patch("sys.stderr", io.StringIO()):
+                            self.assertEqual(main(), 2)
+                    engine.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

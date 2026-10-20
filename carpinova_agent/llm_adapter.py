@@ -93,8 +93,11 @@ def _decode_response(result: Any) -> dict[str, Any]:
         raise MaestroError("El proveedor rechazó la tarea o no entregó JSON.")
     data = _parse_json(content[0]["text"])
     if (type(data) is not dict or set(data) != {"intent", "project_type"}
+            or type(data["intent"]) is not str
             or data["intent"] not in {"project", "knowledge", "unclear"}
-            or data["project_type"] not in (*PROJECT_TYPES, None)):
+            or (data["project_type"] is not None
+                and (type(data["project_type"]) is not str
+                     or data["project_type"] not in PROJECT_TYPES))):
         raise MaestroError("Clasificación LLM fuera del contrato.")
     if data["intent"] != "project" and data["project_type"] is not None:
         raise MaestroError("Clasificación incoherente de tipo de mueble.")

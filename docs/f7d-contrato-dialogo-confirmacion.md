@@ -1,4 +1,4 @@
-# F7D Task 1–2 — Entrada conversacional y confirmación humana en terminal
+# F7D Tasks 1–3 — Entrada conversacional y aprobación humana en terminal
 
 **Estado:** puente auditable + confirmación interactiva TTY con ejecución de Maestro tras autorización expresa, NO chatbot inteligente ni MCP instalado. Rama F7D derivada del HEAD verde de PR #14. Nada de este módulo autoriza fabricar o fusionar los PR precedentes.
 
@@ -50,6 +50,29 @@ Se permiten `--bundle-dir` y `--output` **solo durante ejecución confirmada**, 
 ## Pruebas y límites de aceptación
 
 - Tests: `tests/test_f7d_natural_intake.py` (texto solo, propuesta, fidelidad de datos, desconocidos, datos no JSON, no ejecución, CLI).
-- No se incluye LLM, extracción de medidas en lenguaje natural, memoria de conversación, sesiones, credenciales ni servidor MCP.
+- Existe un adaptador **opcional** de clasificación con API LLM, pero NO extrae medidas, materiales, herrajes ni cargas, NO almacena historial, NO inicia sesión y NO conecta MCP.
 - **F7D Task 2:** el contrato JSON permite candidatos de cualquier intérprete y la CLI tiene revisión/confirmación humana con rechazo no-TTY. No existe aún una interfaz web/móvil ni proveedor LLM conectado.
-- **NEXT F7D Task 3:** cliente autenticado de chat y evaluación separada de MCP FreeCAD/Blender con fuente/versión/permisos fijos en entorno aislado. Mantener el único `CADExchange` y las verificaciones nativas.
+- **NEXT F7D Task 4:** interfaz de chat autenticada y evaluación separada de MCP FreeCAD/Blender con versiones y permisos fijos. Mantener el único `CADExchange` y las verificaciones nativas.
+
+## F7D Task 3 — intérprete real de intención mediante Responses API (OPCIONAL)
+
+El operador puede elegir enviar **únicamente la frase actual** a la API de OpenAI con consentimiento explícito:
+
+```bash
+# El operador configura OPENAI_API_KEY en su entorno; no en Git.
+# Requiere modelo compatible con Structured Outputs, seleccionado por el operador.
+python -m carpinova_agent.maestro_cli \
+  --utterance "Quiero diseñar un gabinete" \
+  --interpret-openai --consent-send-text --interpret-model MODELO_COMPATIBLE
+
+# La ejecución posterior de Maestro requiere además --confirm-execute,
+# una terminal real TTY y la confirmación exacta de la propuesta completa.
+```
+
+**Privacidad, coste y permisos:** esta opción NO está activada por defecto; cada invocación exige `--consent-send-text`, clave `OPENAI_API_KEY` y `--interpret-model`. Envía únicamente el texto del usuario y una instrucción mínima de clasificación a `https://api.openai.com/v1/responses`. No envía PDFs, contenido de Knowledge, datos de proyectos, historial, fotos ni credenciales de API como texto del mensaje. Se utiliza `store=false`, sin herramientas, sin redirecciones, sin reintentos y sin modelo por defecto. La API puede facturar el uso y está sujeta a las políticas del proveedor.
+
+**Alcance y protección:** Structured Outputs solo permite `intent=project|knowledge|unclear` y `project_type` opcional limitado. El servidor comprueba la estructura de la respuesta, que el tipo figure expresamente en el mensaje según los alias F3 existentes y que el texto de una consulta al libro se conserve exactamente. Si hay dos muebles mencionados, no elige arbitrariamente uno: la entrevista solicita aclaración. Nunca extrae dimensiones, espesores, bisagras, perforaciones, carga, materiales ni hace cálculos. No se crea un segundo motor.
+
+**QA:** todas las pruebas usan respuestas simuladas, sin consumo real de API ni secretos. El adaptador está **implementado, no probado contra la API real ni conectado por defecto**. Si el proveedor rechaza una respuesta, devuelve varios mensajes, omite JSON, presenta campos no permitidos o no está disponible, se bloquea sin ejecución. Para una solicitud clara que genere una propuesta, la única puerta hacia Maestro continúa siendo la confirmación humana TTY previa y la validación determinista posterior.
+
+Documentación de protocolo: [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs). Una futura interfaz web o móvil deberá implementar autenticación real, CSRF/sesiones y permisos; la confirmación TTY **no equivale** a autenticación.
