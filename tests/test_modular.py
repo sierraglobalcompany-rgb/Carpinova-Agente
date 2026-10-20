@@ -6,6 +6,7 @@ import unittest
 
 from carpinova_agent.core import DesignError, design
 from carpinova_agent.modular import design_modular_run
+from carpinova_agent.maestro import consult_maestro, MaestroError
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -234,6 +235,49 @@ class ModularTests(unittest.TestCase):
         spec["width_mm"] = 600
         out = design_modular_run(spec)
         self.assertEqual(out["piece_count"], 4)
+
+
+class ModularMaestroTests(unittest.TestCase):
+    def test_routes_from_maestro_without_recalculating(self):
+        spec = fixture()
+        r = consult_maestro({"action": "modular", "module_spec": spec})
+        self.assertEqual(r["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertEqual(r["modular"]["piece_count"], 8)
+        self.assertFalse(r["fabrication_ready"])
+        self.assertFalse(r["cutting_ready"])
+        self.assertFalse(r["drilling_ready"])
+        self.assertFalse(r["purchase_ready"])
+
+    def test_missing_site_returns_questions(self):
+        spec = fixture()
+        del spec["site_width_mm"]
+        r = consult_maestro({"action": "modular", "module_spec": spec})
+        self.assertEqual(r["status"], "NEEDS_SITE_MEASUREMENTS")
+        self.assertEqual(len(r["questions"]), 3)
+        self.assertEqual(r["questions"][0]["field"], "module_spec.site_width_mm.top")
+
+    def test_unclosed_module_width_asks_fix(self):
+        spec = fixture()
+        spec["modules"][0]["width_mm"] -= 50
+        r = consult_maestro({"action": "modular", "module_spec": spec})
+        self.assertEqual(r["status"], "NEEDS_LAYOUT_REVISION")
+        self.assertEqual(r["modular"]["parts"], [])
+        self.assertEqual(len(r["questions"]), 1)
+
+    def test_unknown_combined_modular_not_silently_ignored(self):
+        with self.assertRaises(MaestroError):
+            consult_maestro({"action": "combined", "project": {},
+                             "module_spec": fixture()})
+
+    def test_missing_modular_payload_fails(self):
+        with self.assertRaises(MaestroError):
+            consult_maestro({"action": "modular"})
+
+    def test_unsupported_module_sketch_fails_closed(self):
+        from carpinova_agent.sketch import render_svg
+        out = design_modular_run(fixture())
+        with self.assertRaises(DesignError):
+            render_svg(out)
 
 
 if __name__ == "__main__":
