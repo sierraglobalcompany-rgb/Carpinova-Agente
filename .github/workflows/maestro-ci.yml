@@ -62,6 +62,19 @@ jobs:
           with Path("/tmp/maestro-modular.csv").open(newline="", encoding="utf-8") as source:
               assert len(list(csv.DictReader(source))) == 8
           PY
+      - name: Attach F6 geometry review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f6-modular-review-evidence
+          retention-days: 14
+          path: |
+            /tmp/modular-closet.json
+            /tmp/modular-kitchen.json
+            /tmp/modular.svg
+            /tmp/modular.csv
+            /tmp/maestro-modular.json
+            /tmp/maestro-modular.svg
+            /tmp/maestro-modular.csv
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
