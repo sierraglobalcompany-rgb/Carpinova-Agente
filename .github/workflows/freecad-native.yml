@@ -3,7 +3,7 @@ on:
   push:
     branches: ["feat/f7-construction-knowledge-cad-contract"]
   pull_request:
-    branches: ["feat/f6-modular-carcase-and-finishes", "feat/f7-construction-knowledge-cad-contract"]
+    branches: ["feat/f6-modular-carcase-and-finishes", "feat/f7-construction-knowledge-cad-contract", "feat/f7c-inset-backs-service-access"]
 permissions:
   contents: read
 
@@ -34,16 +34,16 @@ jobs:
           command -v freecadcmd || command -v FreeCADCmd
       - name: Produce fixed F6 CAD exchange
         run: |
-          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-services.json --output "$RUNNER_TEMP/services-contract.json"
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-door-fronts.json --output "$RUNNER_TEMP/fronts-contract.json"
       - name: Run actual FreeCAD console; compare solid bounds before file save
         env:
-          CARPINOVA_CAD_INPUT: ${{ runner.temp }}/services-contract.json
-          CARPINOVA_FCSTD_OUTPUT: ${{ runner.temp }}/services-native.FCStd
+          CARPINOVA_CAD_INPUT: ${{ runner.temp }}/fronts-contract.json
+          CARPINOVA_FCSTD_OUTPUT: ${{ runner.temp }}/fronts-native.FCStd
         run: |
           FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
           # .FCScript is executed by FreeCADCmd, unlike Python modules that may only be imported.
           timeout 90s "$FC_BIN" integrations/freecad_headless_proof.FCScript 2>&1 | tee "$RUNNER_TEMP/freecad-proof.log"
-          test -s "$RUNNER_TEMP/services-native.FCStd"
+          test -s "$RUNNER_TEMP/fronts-native.FCStd"
           grep -q 'FREECAD_NATIVE_RESULT=' "$RUNNER_TEMP/freecad-proof.log"
           grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/freecad-proof.log"
       - name: Verify actual FCStd archive structure and piece count
@@ -53,22 +53,22 @@ jobs:
           from zipfile import ZipFile
           from xml.etree import ElementTree as ET
           import os
-          p=Path(os.environ["RUNNER_TEMP"])/"services-native.FCStd"
+          p=Path(os.environ["RUNNER_TEMP"])/"fronts-native.FCStd"
           with ZipFile(p) as z:
               assert z.testzip() is None
               names=set(z.namelist())
               assert "Document.xml" in names
               root=ET.fromstring(z.read("Document.xml"))
               objects=root.findall(".//Object")
-              assert len(objects)>=10, f"Expected >=10 objects, got {len(objects)}"
+              assert len(objects)>=13, f"Expected >=13 objects, got {len(objects)}"
               print("FREECAD_FCSTD_REAL=PASS", "objects=", len(objects), "files=", sorted(names)[:8])
           PY
       - name: Preserve real FreeCAD proof
         uses: actions/upload-artifact@v4
         with:
-          name: f7c-native-freecad-back-validation
+          name: f7c-native-freecad-door-validation
           retention-days: 14
           path: |
-            ${{ runner.temp }}/services-contract.json
-            ${{ runner.temp }}/services-native.FCStd
+            ${{ runner.temp }}/fronts-contract.json
+            ${{ runner.temp }}/fronts-native.FCStd
             ${{ runner.temp }}/freecad-proof.log
