@@ -24,7 +24,7 @@ REQUIRED = {
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project"}),
-    "modular": frozenset({"module_spec"}),
+    "modular": frozenset({"module_spec", "query"}),
     "construction": frozenset({"construction"}),
 }
 ALLOWED = {
@@ -190,7 +190,7 @@ def consult_maestro(
         result["construction"]=guidance
         result["questions"].extend(guidance["questions"])
         result["blockers"].extend(guidance["blockers"])
-    if action in ("knowledge", "combined") and "query" in inp:
+    if action in ("knowledge", "combined", "modular") and "query" in inp:
         if bundle_dir is None:
             raise MaestroError(
                 "Se requiere un bundle Knowledge validado para responder "
