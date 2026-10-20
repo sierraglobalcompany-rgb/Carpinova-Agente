@@ -29,3 +29,6 @@ Devuelve máximo tres preguntas por turno, recomendaciones condicionales, refere
 
 ## Prohibido
 Atribuir métodos de pegado a todos los cantos; asumir «flexible=PVC» y «rígido=ABS»; taladrar sin patrón del modelo exacto; fijar muebles a drywall solo por dimensiones de un folleto; fusionar piezas en el render y no en el despiece. Mantener KISS, anti-ruido y anti-parches.
+
+## F7C — fondo posterior calculado cuando el usuario ya tomó la decisión
+El asesor conceptual de fondos se conserva; si el usuario quiere materializar la opción, el motor F6 recibe `module.back` de tipo `inset_full` o `inset_two_strips`. Exigir estado real de instalaciones, espesor/material de fondo y medidas explícitas de las dos franjas; no dibujar **agujeros** si faltan ubicación y tamaño reales de las tuberías. La salida siempre conserva dimensiones NOMINALES y flags de fabricación en falso. Ver `docs/f7c-fondos-servicios.md`.
