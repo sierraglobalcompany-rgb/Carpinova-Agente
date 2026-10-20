@@ -56,3 +56,6 @@ Ver `docs/ARQUITECTURA_V2_AUDITORIA.md` para revisión y pasos siguientes.
 
 ## F7C — clóset y cocina con fondos posteriores explícitos
 El `action=modular` ya puede aceptar `module.back` como objeto `inset_full` o `inset_two_strips`; reutiliza `design_modular_run`, `modular_bom_csv`, `modular_front_svg` y `cad_exchange`. Para pregunta por tubos, solicitar ubicación y dimensiones reales antes de concluir que la abertura libre resuelve instalaciones. No inventar cortes circulares o ranuras, ni presentar la zona libre entre franjas como perforación detallada. `back=none|pending` mantiene compatibilidad anterior. Ver `docs/f7c-fondos-servicios.md`.
+
+## F7C Task 2 — frentes geométricos, no selección de bisagra
+Con `module.fronts=overlay|inset` se exige estilo, ancho/alto del módulo F1, espesor/material del frente, datos individuales de luces de borde (sin asumir valores), cantidad de hojas (1 o 2), `hinge_sides`, separación central obligatoria para dos hojas y acabados si se conocen. Preguntar por apertura contra paredes, aparatos y módulos antes de elegir herraje. El motor bloquea solapes/tacto nominal de frentes adyacentes y exige dos hojas iguales en mm enteros. Nunca deducir de `hinge_sides` una bisagra adecuada ni dónde perforar: hace falta SKU/placa y ficha actual del fabricante. Croquis/CAD son borradores; consultar `docs/f7c-frentes-holguras-vetas.md`.
