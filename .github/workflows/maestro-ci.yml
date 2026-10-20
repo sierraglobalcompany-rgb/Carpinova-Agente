@@ -279,6 +279,44 @@ jobs:
           ElementTree.parse("/tmp/cabinet-draft.svg")
           print("FULL_BOOK_1_2_0=PASS; MAESTRO_COMBINED=PASS; FABRICATION_RELEASED=NO")
           PY
+      - name: Explicit modular + verified full-book question (source page retained)
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from carpinova_agent.maestro import consult_maestro
+          source = Path("examples/modular-kitchen-door-fronts.json")
+          request = {
+              "action": "modular",
+              "module_spec": json.loads(source.read_text(encoding="utf-8")),
+              "query": "bisagras",
+          }
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          answer = consult_maestro(request, bundle_dir=bundle)
+          assert answer["modular"]["piece_count"] == 13
+          assert answer["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert answer["knowledge"]["coverage"] == "FULL_BOOK"
+          assert answer["knowledge"]["total_matches"] > 0
+          assert answer["knowledge"]["source_pdf_bytes_verified"] is False
+          assert len(answer["source_provenance"]) > 0
+          assert all(
+              type(p["pdf_page"]) is int
+              and p["book"] == "cpnc-2025"
+              and p["fabrication_authority"] is False
+              for p in answer["source_provenance"]
+          )
+          assert all(answer[k] is False for k in (
+              "fabrication_ready", "cutting_ready",
+              "drilling_ready", "purchase_ready"))
+          assert answer["hardware"] is None  # No guessed bisagra/SKU
+          assert any("referencia educativa" in b for b in answer["blockers"])
+          Path("/tmp/maestro-modular-cited-knowledge.json").write_text(
+              json.dumps(answer, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8")
+          print("MODULAR_REAL_BOOK=PASS; SOURCE_PAGES=VERIFIED_BUNDLE; "
+                "FABRICATION_AUTHORITY=NO")
+          PY
       - name: Audit book topic retrieval without claiming semantic completeness
         run: |
           python -m knowledge_client.coverage_audit --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/knowledge-topic-coverage.json
@@ -302,6 +340,7 @@ jobs:
             /tmp/knowledge-topic-coverage.json
             /tmp/knowledge-qa.json
             /tmp/book-build-manifest.json
+            /tmp/maestro-modular-cited-knowledge.json
 
   native-blender-proof:
     name: Native Blender headless proof (F7B, no MCP)
