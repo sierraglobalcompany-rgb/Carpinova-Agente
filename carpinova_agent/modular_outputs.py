@@ -69,12 +69,16 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     y0 = 130+(max_h-scaled_h)/2
 
     shapes = []
-    for piece in draft["parts"]:
+    # Rear panels appear behind front carcass outlines in this elevation.
+    ordered = sorted(draft["parts"], key=lambda p: 0 if p["role"].startswith("back_") else 1)
+    for piece in ordered:
         role = piece["role"]
         if role in ("left_side", "right_side"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
         elif role in ("top", "bottom"):
             pw, ph = piece["nominal_face_x_mm"], piece["thickness_mm"]
+        elif role in ("back_full", "back_top", "back_bottom"):
+            pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         else:
             raise DesignError("Rol de panel desconocido.")
         origin = piece["nominal_origin_xyz_mm"]
@@ -113,7 +117,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'<text x="45" y="37" font-size="25" font-weight="bold">CarpiNova F6 — {name}</text>'
         '<text x="45" y="74" class="bad">BORRADOR: NO CORTAR NI FABRICAR</text>'
         '<text x="45" y="99" class="note">Elevación frontal geométrica, paneles '
-        'independientes; sin frentes, fondos ni herrajes.</text>'
+        'independientes; sin puertas, cajones ni herrajes.</text>'
         + "".join(shapes) + "".join(titles) +
         f'<path class="dim" d="M {x0:.3f} {y0-17:.3f} v 14 '
         f'M {x0+scaled_w:.3f} {y0-17:.3f} v 14 '
