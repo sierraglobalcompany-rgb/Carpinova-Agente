@@ -1,23 +1,56 @@
-"""Strict one-time resolution of the documented F4/F5 README merge conflict.
+"""Fail-closed F4/F5 README reconciliation for an isolated no-push stack rehearsal.
 
-This helper is used ONLY by an isolated no-push merge rehearsal. It cannot
-merge branches, change GitHub refs or reconcile any other file/conflict.
+An edited README introduction is permitted, but BOTH upstream F4/F5 sections
+must survive byte-for-byte as logical Markdown sections in the final F7C README.
+The audited final README is restored only for the known F5 README conflict.
+No other conflicting path, branch ref, or protected branch is modified.
 """
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
 
 
+HARDWARE_HEADING = "## Catálogo de herrajes (desarrollo F4)"
+MAESTRO_HEADING = "## CarpiNova Maestro — interfaz unificada (F5)"
+
+
+def _section(source: str, heading: str) -> str:
+    lines = source.splitlines(keepends=True)
+    positions = [i for i, line in enumerate(lines) if line.rstrip("\r\n") == heading]
+    if len(positions) != 1:
+        raise ValueError(f"Expected exactly one section {heading!r}; got {len(positions)}.")
+    start = positions[0]
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")),
+        len(lines),
+    )
+    return "".join(lines[start:end]).rstrip()
+
+
 def reconcile(f4: str, f5: str, f7: str) -> str:
-    hardware = "## Catálogo de herrajes (desarrollo F4)"
-    maestro = "## CarpiNova Maestro — interfaz unificada (F5)"
-    if hardware not in f4 or hardware in f5 or maestro not in f5:
-        raise ValueError("Unexpected source README; abort documented reconciliation.")
-    section = f4[f4.index(hardware):].rstrip() + "\n\n"
-    resolved = f5.replace(maestro, section + maestro, 1)
-    if not f7.startswith(resolved):
-        raise ValueError("Final F7 README does not preserve BOTH source documents.")
-    return resolved
+    if (
+        HARDWARE_HEADING not in f4
+        or HARDWARE_HEADING in f5
+        or MAESTRO_HEADING not in f5
+        or MAESTRO_HEADING in f4
+    ):
+        raise ValueError("Unexpected source READMEs; abort documented reconciliation.")
+    if not f7.startswith("# CarpiNova Agente\n"):
+        raise ValueError("Unexpected final F7C README identity.")
+    if any(marker in f7 for marker in ("<<<<<<<", "=======", ">>>>>>>")):
+        raise ValueError("Unresolved conflict markers in final F7C README.")
+    for label, source, heading in (
+        ("F4", f4, HARDWARE_HEADING),
+        ("F5", f5, MAESTRO_HEADING),
+    ):
+        if _section(source, heading) != _section(f7, heading):
+            raise ValueError(f"Final F7C README does not preserve the exact {label} section.")
+    if f7.index(HARDWARE_HEADING) > f7.index(MAESTRO_HEADING):
+        raise ValueError("Final F7C README has reversed source section order.")
+    # Return the already-audited feature README: previous source sections match
+    # exactly, while editorial changes in the earlier introductory text remain.
+    return f7
 
 
 def main() -> int:
@@ -34,6 +67,7 @@ def main() -> int:
     )
     args.output.write_text(output, encoding="utf-8")
     print("KNOWN_F5_README_CONFLICT=RESOLVED_IN_REHEARSAL_ONLY")
+    print("F4_F5_SOURCE_SECTIONS_EXACT=YES")
     print("OWNER_REVIEW_REQUIRED=YES")
     return 0
 
