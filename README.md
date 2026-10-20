@@ -51,3 +51,12 @@ python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg
 python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/closet-maestro.svg --csv /tmp/piezas-maestro.csv
 ```
 El SVG y CSV son **BORRADORES**, no datos de corte autorizados: no incluyen medidas ajustadas por tapacanto, uniones, puertas, cajones, fondos o anclajes. Para parámetros, limitaciones y ejemplos consultar [F6 módulos/vetas/cantos](docs/f6-modulos-vetas-cantos.md).
+
+## Auditoría V2 / F7A (rama de integración)
+Se añadió un asesor consultivo de canto, fondos, patas/zócalo, soportes a pared y uniones, además de un intercambio CAD único en milímetros con adaptadores **opcionales** para FreeCAD y Blender. No hay instalación ni sesión MCP confirmada.
+```bash
+python -m carpinova_agent.maestro_cli --input examples/construction-bathroom.json
+python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output /tmp/closet-cad.json
+python -m unittest discover -s tests -v
+```
+El `/tmp/closet-cad.json` puede abrirse mediante los adaptadores locales tras instalar FreeCAD/Blender por separado. Solo muestra paneles nominales, sin puertas/fondos/cajones/perforaciones. Consulte [auditoría y arquitectura](docs/ARQUITECTURA_V2_AUDITORIA.md), [skill constructiva](skills/tecnicas-constructivas/SKILL.md) y [piloto de ejecución CAD](docs/PILOTO_FREECAD_BLENDER.md).
