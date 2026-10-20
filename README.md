@@ -5,7 +5,7 @@ Agente especialista en diseño, enseñanza y preparación de fabricación de mue
 ## Objetivo
 Ayudar a diseñar cocinas, clósets, cajones, nichos, escritorios y mobiliario personalizado desde necesidades iniciales hasta entregables verificables: requerimientos, esquema 2D, lista de piezas, dirección de veta, cantos, herrajes, ubicaciones de perforación, compras y procedimiento de ensamblaje.
 
-**Estado:** repositorio de especificación inicial. No existe todavía un motor geométrico de producción, CAD verificado ni recomendador certificado de herrajes. No usar las salidas narrativas como planos liberados a fabricación.
+**Estado de desarrollo (pila F1–F7C aún sin fusionar):** hay cálculo geométrico **nominal** de carcasas, fondos, puertas y cajones, despiece de revisión y archivos FreeCAD/Blender comprobados mediante ejecución nativa en CI. No hay MCP interactivos conectados ni validación industrial de fabricación, cargas, herrajes o taladros. Ninguna salida autoriza cortar, perforar o comprar.
 
 ## Arquitectura KISS
 1. Agente orquestador e interrogatorio mínimo por proyecto.
@@ -60,7 +60,7 @@ Cocinas y clósets se pueden estructurar como filas de gabinetes abiertos indepe
 python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/closet.svg --csv /tmp/piezas-revision.csv
 python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/closet-maestro.svg --csv /tmp/piezas-maestro.csv
 ```
-El SVG y CSV son **BORRADORES**, no datos de corte autorizados: no incluyen medidas ajustadas por tapacanto, uniones, puertas, cajones, fondos o anclajes. Para parámetros, limitaciones y ejemplos consultar [F6 módulos/vetas/cantos](docs/f6-modulos-vetas-cantos.md).
+El SVG y CSV son **BORRADORES**, no datos de corte autorizados: F6 básico exporta carcasas abiertas; la ampliación F7C puede añadir **fondos, puertas y cajones nominales** según el contrato y los datos aportados. Ningún modo compensa aún todas las dimensiones de corte por canto, uniones, tolerancias o anclajes. Para parámetros, limitaciones y ejemplos consultar [F6 módulos/vetas/cantos](docs/f6-modulos-vetas-cantos.md) y los contratos F7C posteriores.
 
 ## Auditoría V2 / F7A (rama de integración)
 Se añadió un asesor consultivo de canto, fondos, patas/zócalo, soportes a pared y uniones, además de un intercambio CAD único en milímetros con adaptadores **opcionales** para FreeCAD y Blender. No hay instalación ni sesión MCP confirmada.
@@ -69,7 +69,7 @@ python -m carpinova_agent.maestro_cli --input examples/construction-bathroom.jso
 python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output /tmp/closet-cad.json
 python -m unittest discover -s tests -v
 ```
-El `/tmp/closet-cad.json` puede abrirse mediante los adaptadores locales tras instalar FreeCAD/Blender por separado. Solo muestra paneles nominales, sin puertas/fondos/cajones/perforaciones. Consulte [auditoría y arquitectura](docs/ARQUITECTURA_V2_AUDITORIA.md), [skill constructiva](skills/tecnicas-constructivas/SKILL.md) y [piloto de ejecución CAD](docs/PILOTO_FREECAD_BLENDER.md).
+El `/tmp/closet-cad.json` puede abrirse mediante los adaptadores locales tras instalar FreeCAD/Blender por separado. **Este ejemplo F6** solo contiene paneles abiertos; los ejemplos **F7C** sí incorporan fondos, frentes y cajones nominales cuando se solicitan. Ninguno incluye perforaciones de fabricación autorizadas. Consulte [auditoría y arquitectura](docs/ARQUITECTURA_V2_AUDITORIA.md), [skill constructiva](skills/tecnicas-constructivas/SKILL.md) y [piloto de ejecución CAD](docs/PILOTO_FREECAD_BLENDER.md).
 
 ### Prueba real de Blender (F7B)
 GitHub Actions instaló Blender 4.0.2 en runner Ubuntu y generó `.blend` de 8 paneles, validando bbox real por pieza contra el `CADExchange` sellado. Resultado: `NATIVE_GEOMETRY_MATCH` y máximo error de 0.00012589 mm con tolerancia de verificación de 0.05 mm; [artefacto y log](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39355333219). No significa que exista MCP conectado ni que el mueble pueda fabricarse. La prueba posterior de FreeCAD real también está aprobada, como se documenta abajo.

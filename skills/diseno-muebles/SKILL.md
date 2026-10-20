@@ -29,10 +29,10 @@ No abrumar con preguntas; para una consulta conceptual dar explicación directa.
 ## Herramientas ejecutables disponibles (MVP)
 - Para **gabinete abierto** o **caja básica de cajón**, utilizar `carpinova_agent.intake.guide_project(proyecto)`. Conserva datos del usuario sin suponer dimensiones. Si devuelve `NEEDS_INPUT`, presentar solo las preguntas necesarias.
 - Si devuelve `GEOMETRY_DRAFT`, las piezas derivan del cálculo de `carpinova_agent.core.design`; usar `carpinova_agent.sketch.render_svg(resultado["design"])` para un croquis **frontal ortográfico**, nunca como patrón de corte.
-- Para **cocina, clóset, nicho** u otros muebles complejos, el resultado actual es `CONCEPT_ONLY`: definir módulos, servicios y anclajes, sin inventar despieces finales.
+- Para **cocina, clóset o nicho** con módulos compatibles con F6/F7C, usar `carpinova_agent.maestro.consult_maestro` con `action=modular` y `module_spec`: permite carcasas, fondos, puertas y cajones nominales según contrato. Para tipologías o detalles no implementados, mantener `CONCEPT_ONLY`; nunca inventar despieces finales, taladros o anclajes.
 - La CLI `python -m carpinova_agent.dialogue` es un cuestionario por terminal, NO un chatbot de lenguaje natural. `python -m carpinova_agent.guide_cli` sirve para entradas JSON.
-- El lector de libro está desarrollado por separado en PR #2. No declarar integración real ni citar páginas sin haber consultado/validado sus bundles.
-- Nunca informar que un proyecto es apto para fabricación solo porque el croquis o el JSON se generaron.
+- La integración del lector Knowledge con Maestro existe **en la pila de PR de desarrollo**, no aún en `main`: requiere bundle real validado por SHA y permite citar fuentes con página y estado. No declarar disponibilidad en `main` antes de fusionar los PR ni citar páginas que no se hayan recuperado y verificado.
+- Ningún SVG, CSV, JSON, `.FCStd` o `.blend` autoriza fabricar: `fabrication_ready`, `cutting_ready`, `drilling_ready` y `purchase_ready` siguen falsos hasta revisión física, fichas de fabricante, tolerancias y taller.
 - Si el usuario habla de "pata externa" o "tapa interna" de forma ambigua, confirmar si se refiere a costados completos, tapa/base completa, frente o zócalo. No traducir jerga ambigua a geometría automáticamente.
 
 ## Formato de respuesta al usuario
