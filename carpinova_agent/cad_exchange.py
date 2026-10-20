@@ -20,6 +20,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     w,h,d=(draft["dimensions_mm"][k] for k in ("width","height","depth"))
     seen=set()
     has_fronts=any(p["role"].startswith("front_") for p in draft["parts"])
+    has_drawers=any(p["role"].startswith("drawer_") for p in draft["parts"])
     # Overlay leaves extend in front of the F6 z=0 carcass plane.
     # Translate ALL pieces by the same amount for nonnegative CAD coordinates.
     front_shift=max((p["thickness_mm"] for p in draft["parts"]
@@ -39,9 +40,16 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
             size=[fx,t,fy]  # panel in XZ plane: thickness Y; face_x -> width X
             grain_world={"face_x":"X","face_y":"Z","none":"none"}
         elif role in ("back_full", "back_bottom", "back_top",
-                      "front_single", "front_left", "front_right"):
+                      "front_single", "front_left", "front_right",
+                      "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             size=[fx,fy,t]  # back/door planes XY, thickness Z
             grain_world={"face_x":"X","face_y":"Y","none":"none"}
+        elif role in ("drawer_side_left", "drawer_side_right"):
+            size=[t,fy,fx]  # XY? no: YZ side box with depth along Z
+            grain_world={"face_x":"Z","face_y":"Y","none":"none"}
+        elif role == "drawer_bottom":
+            size=[fx,t,fy]  # XZ bottom under drawer walls
+            grain_world={"face_x":"X","face_y":"Z","none":"none"}
         else:
             raise DesignError("Rol no soportado en intercambio CAD.")
         z += front_shift
@@ -68,7 +76,8 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     has_backs=any(b["role"].startswith("back_") for b in boxes)
     payload={
         "schema_version":"0.1.0",
-        "source_engine":("F7C_EXPLICIT_FRONTS_FROM_F6" if has_fronts else
+        "source_engine":("F7C_DRAWER_BOXES_FROM_F1" if has_drawers else
+                         "F7C_EXPLICIT_FRONTS_FROM_F6" if has_fronts else
                          "F7C_INSET_BACKS_FROM_F6" if has_backs else
                          "F6_OPEN_MODULES_FROM_F1"),
         "unit":"mm",
@@ -82,7 +91,10 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         "boxes":boxes,
         "hardware_included":False,
         "finished_panel_edges_included":False,
-        "cad_warning":("Nominal carcass and front leaf boxes. "
+        "cad_warning":("Nominal drawers from F1 and optional inset facades. "
+                       "Slides, joins, bores, face mounting and load capacity NOT certified."
+                       if has_drawers else
+                       "Nominal carcass and front leaf boxes. "
                        "All boxes share an explicit forward-Z CAD shift. "
                        "No hinges, drilling, sweeps, hardware or finished cut authority."
                        if has_fronts else
@@ -106,7 +118,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         raise DesignError("Contrato CAD incompatible.")
     if data.get("source_engine") not in (
             "F6_OPEN_MODULES_FROM_F1", "F7C_INSET_BACKS_FROM_F6",
-            "F7C_EXPLICIT_FRONTS_FROM_F6"):
+            "F7C_EXPLICIT_FRONTS_FROM_F6", "F7C_DRAWER_BOXES_FROM_F1"):
         raise DesignError("Fuente de geometría no canónica.")
     if data.get("status")!="DRAFT_NOT_FOR_CUTTING":
         raise DesignError("Solo se admite geometría preliminar.")
@@ -120,7 +132,10 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         "fabrication_ready","cutting_ready","drilling_ready","manufacturing_holes",
         "bounds_xyz_mm","boxes","hardware_included","finished_panel_edges_included",
         "cad_warning","geometry_sha256"))
-    if data["source_engine"]=="F7C_EXPLICIT_FRONTS_FROM_F6":
+    if (data["source_engine"]=="F7C_EXPLICIT_FRONTS_FROM_F6"
+            or (data["source_engine"]=="F7C_DRAWER_BOXES_FROM_F1"
+                and any(p.get("role", "").startswith("front_") for p in data.get("boxes", []) 
+                        if isinstance(p,dict)))):
         expected.add("front_shift_mm")
         shift=data.get("front_shift_mm")
         if type(shift) is not int or shift<0:
@@ -154,7 +169,10 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         names.add(name)
         if item["role"] not in ("left_side","right_side","top","bottom",
                                 "back_full","back_bottom","back_top",
-                                "front_single","front_left","front_right"):
+                                "front_single","front_left","front_right",
+                                "drawer_side_left","drawer_side_right",
+                                "drawer_front_wall","drawer_rear_wall",
+                                "drawer_bottom","drawer_facade"):
             raise DesignError("Rol CAD no soportado.")
         a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
         if (not isinstance(a,list) or not isinstance(b,list)
