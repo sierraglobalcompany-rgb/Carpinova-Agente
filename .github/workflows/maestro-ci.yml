@@ -30,6 +30,28 @@ jobs:
           assert data["project"]["design"] is None
           assert data["fabrication_ready"] is False
           PY
+      - name: F6 module composition smoke (no cutting authority)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-closet.json > /tmp/modular-closet.json
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen.json > /tmp/modular-kitchen.json
+          python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json > /tmp/maestro-modular.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          closet = json.loads(Path("/tmp/modular-closet.json").read_text())
+          kitchen = json.loads(Path("/tmp/modular-kitchen.json").read_text())
+          maestro = json.loads(Path("/tmp/maestro-modular.json").read_text())
+          assert closet["piece_count"] == 8
+          assert closet["total_module_width_mm"] == 2000
+          assert closet["modules"][0]["clear_width_mm"] == 914
+          assert kitchen["piece_count"] == 8
+          assert all(p["finished_cut_dimensions_mm"] is None for p in closet["parts"])
+          assert maestro["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert maestro["modular"]["total_module_width_mm"] == 1200
+          assert maestro["fabrication_ready"] is False
+          assert maestro["cutting_ready"] is False
+          assert maestro["drilling_ready"] is False
+          PY
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
