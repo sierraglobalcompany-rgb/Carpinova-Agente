@@ -185,6 +185,43 @@ jobs:
             /tmp/f7c-fronts.csv
             /tmp/f7c-fronts.json
             /tmp/f7c-fronts-cad.json
+      - name: F7C integrated F1 drawer-box evidence (no slide holes)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-two-drawers-inset.json --svg /tmp/f7c-drawers.svg --csv /tmp/f7c-drawers.csv > /tmp/f7c-drawers.json
+          python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output /tmp/f7c-drawers-cad.json
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-drawers.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-drawers-cad.json").read_text()))
+          assert model["piece_count"] == 17
+          assert cad["source_engine"] == "F7C_DRAWER_BOXES_FROM_F1"
+          assert len(cad["boxes"]) == 17
+          assert cad["manufacturing_holes"] == []
+          assert cad["fabrication_ready"] is False
+          assert cad["drilling_ready"] is False
+          with Path("/tmp/f7c-drawers.csv").open(encoding="utf-8",newline="") as source:
+              rows=list(csv.DictReader(source))
+          assert len(rows)==17
+          assert sum(r["role"]=="drawer_facade" for r in rows)==2
+          assert all(r["production_status"]=="BORRADOR_NO_CORTAR" for r in rows)
+          root=ElementTree.parse("/tmp/f7c-drawers.svg").getroot()
+          rects=root.findall("{http://www.w3.org/2000/svg}rect")
+          assert len(rects)==17
+          print("F7C_DRAWER_MODULES=PASS; SLIDE_SKU=UNVERIFIED; CUTTING_READY=NO")
+          PY
+      - name: Archive F7C drawer evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-drawer-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-drawers.svg
+            /tmp/f7c-drawers.csv
+            /tmp/f7c-drawers.json
+            /tmp/f7c-drawers-cad.json
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
@@ -285,24 +322,24 @@ jobs:
           blender --version | head -n 2
       - name: Create source-sealed cabinet modules CAD exchange
         run: |
-          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-door-fronts.json --output "$RUNNER_TEMP/fronts-contract.json"
+          python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output "$RUNNER_TEMP/drawers-contract.json"
       - name: Build .blend with Blender real Python runtime and measure actual meshes
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           blender --background --factory-startup --python-use-system-env --python-exit-code 12 \
             --python integrations/blender_from_contract.py -- \
-            --input "$RUNNER_TEMP/fronts-contract.json" \
-            --output "$RUNNER_TEMP/fronts-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
-          test -s "$RUNNER_TEMP/fronts-native.blend"
+            --input "$RUNNER_TEMP/drawers-contract.json" \
+            --output "$RUNNER_TEMP/drawers-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
+          test -s "$RUNNER_TEMP/drawers-native.blend"
           grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/blender-proof.log"
           grep -q 'VISUAL_PREVIEW_NOT_FOR_FABRICATION' "$RUNNER_TEMP/blender-proof.log"
       - name: Archive independently inspectable real Blender proof
         uses: actions/upload-artifact@v4
         with:
-          name: f7c-native-blender-door-validation
+          name: f7c-native-blender-drawer-validation
           retention-days: 14
           path: |
-            ${{ runner.temp }}/fronts-contract.json
-            ${{ runner.temp }}/fronts-native.blend
+            ${{ runner.temp }}/drawers-contract.json
+            ${{ runner.temp }}/drawers-native.blend
             ${{ runner.temp }}/blender-proof.log
