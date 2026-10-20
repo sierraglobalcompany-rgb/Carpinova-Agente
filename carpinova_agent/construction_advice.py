@@ -19,7 +19,7 @@ MATERIALS={"abs","pvc","melamine","wood_veneer","unknown"}
 SUBSTRATES={"masonry","concrete","drywall","wood_studs","unknown"}
 ALLOWED={"application","edge_variant","edge_workflow","edge_adhesive","edge_material",
          "edge_exposure","back_style","has_services","support","wall_substrate",
-         "joint","water_exposure","edge_banding_present"}
+         "joint","water_exposure"}
 SOURCES={
     "edge_egger": "https://www.egger.com/en/furniture-interior-design/range/products/pvcedging?country=US",
     "edge_rehau": "https://interior.rehau.com/en-en/products/raukantex-furniture-edgebands/standard-stock-range/hot-melt-adhesives",
@@ -71,7 +71,7 @@ def construction_advice(request: dict[str, Any], max_questions: int=3)->dict[str
     support=_enum(request,"support",SUPPORTS)
     substrate=_enum(request,"wall_substrate",SUBSTRATES)
     joint=_enum(request,"joint",JOINTS)
-    for key in ("has_services","water_exposure","edge_banding_present"):
+    for key in ("has_services","water_exposure"):
         if key in request and type(request[key]) is not bool:
             raise AdviceError(f"{key}: se requiere verdadero o falso.")
     needs=[]; recommendations=[]; blockers=[]; evidence=[]
