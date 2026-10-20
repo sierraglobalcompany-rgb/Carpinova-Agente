@@ -110,3 +110,18 @@ Se ejecutó la prueba nativa Linux headless con **Blender 4.0.2**, archivo `.ble
 FreeCAD **0.19.2 real** se ejecutó en runner Ubuntu 22.04 mediante consola sin add-on/MCP de terceros: `Part::Feature` por pieza, medición real `Shape.BoundBox`, verificación `NATIVE_GEOMETRY_MATCH` (8 piezas, máximo error **0.0 mm**) y creación de `.FCStd` con XML/forma BRep validados. CI run [39356003860](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39356003860), artefacto `f7b-native-freecad-validation`. Modelo SHA-256 común a Blender: `0e6b713db071e2c4fdc63fb7b3c63ac93b4ac05f2aa74aadac905860f661af6d`. La coincidencia es de **cuerpos geométricos básicos**, no de puertas, cajones, cantos aplicados, carga ni instrucciones de fabricación.
 
 Con ello FreeCAD y Blender nativos pasan pruebas automatizadas separadas; **ambos MCP permanecen sin instalar**, falta revisión humana visual de archivos y pilotos en el equipo real. El plan KISS pasa a reconciliar PR dependientes y seguir F7C de fondos/frentes/cajones sobre un único modelo, evitando nueva lógica CAD duplicada.
+
+## Ensayo de consolidación real (F1→F7) — 20 octubre 2026
+
+Se añadió `.github/workflows/pr-stack-rehearsal.yml` con permisos **solo de lectura**. El workflow parte de `main` en SHA fijo y utiliza `git merge --no-ff` local para siete PR, sin `git push`. Después exige igualdad del árbol final con el HEAD F7 y ejecuta toda la suite Python.
+
+### Resultado verificable
+- Primera pasada **RED** en F5: conflicto real y único `README.md` al intentar fusionar F4 y F5; F5 se creó desde F3 y no había incorporado el párrafo de F4 sobre herrajes. Este hallazgo no está relacionado con motores geométricos ni fichas.
+- Se corrigió la omisión en el README de la rama F7, restaurando **literalmente** la sección F4 sin perder la sección F5.
+- `scripts/reconcile_stack_readme.py` es un resolutor **exclusivamente del ensayo local**, no toca ramas remotas: acepta solo F4/F5/F7 esperados, incorpora el párrafo completo F4 a F5, comprueba que F7 inicia con el README combinado y falla si aparece otro conflicto o contenido divergente.
+- Segunda pasada **GREEN**: `KNOWN_F5_README_CONFLICT=RESOLVED_ONLY_IN_LOCAL_REHEARSAL`, `STACK_TREE_EQUAL_TO_F7_HEAD=YES` y **233 pruebas**; ver [run #39357441793](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39357441793), artifact `carpinova-pr-stack-rehearsal`.
+- La resolución se debe revisar/aplicar en el **merge real**. Un CI verde del ensayo no es permiso para fusionar ni significa que F5 sea conflict-free automáticamente. Si cambian los SHAs de upstream o las bases, actualizar las referencias y repetir el ensayo, sin saltar verificaciones.
+- El árbol lógico ya está consolidado en F7, pero no existe todavía una secuencia aprobada de commits fusionados en `main` ni revisión humana de fabricación.
+
+### Siguiente acción
+Solicitar revisión/aprobación de PR #1, #2, #4, #6 y después actualizar la base de F5 para que los archivos ya integrados salgan de su diff; preservar el README combinado durante la transición. Luego reconciliar F6 y F7, volver a ejecutar suite/FreeCAD/Blender desde HEAD final de `main` sin recrear fuentes de geometría, y solo entonces avanzar con F7C (fondos, frentes y cajones).
