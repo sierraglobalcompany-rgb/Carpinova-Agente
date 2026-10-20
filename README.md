@@ -43,3 +43,11 @@ python -m unittest discover -s tests -v
 El modo pregunta libre es **búsqueda documental**, no una IA generativa. El modo proyecto aún es entrada JSON (más un cuestionario básico por terminal F3). No exporta planos liberados para taller. El workflow `.github/workflows/maestro-ci.yml` genera y verifica Knowledge **completo** con SHA de origen fijo en CI.
 
 Consultar [skill principal](skills/maestro-carpintero/SKILL.md) y [manual de integración](docs/f5-maestro-integracion.md). No fusionar PRs pendientes sin revisión; el estado de la ejecución está en GitHub.
+
+## F6 — ensamble modular y despiece nominal revisable (en rama de desarrollo)
+Cocinas y clósets se pueden estructurar como filas de gabinetes abiertos independientes con medidas derivadas del motor F1. Cada panel físico tiene ID, ubicación, material, orientación de veta y bordes a tapacantar expresamente elegidos.
+```bash
+python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/closet.svg --csv /tmp/piezas-revision.csv
+python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/closet-maestro.svg --csv /tmp/piezas-maestro.csv
+```
+El SVG y CSV son **BORRADORES**, no datos de corte autorizados: no incluyen medidas ajustadas por tapacanto, uniones, puertas, cajones, fondos o anclajes. Para parámetros, limitaciones y ejemplos consultar [F6 módulos/vetas/cantos](docs/f6-modulos-vetas-cantos.md).
