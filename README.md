@@ -76,3 +76,6 @@ GitHub Actions instaló Blender 4.0.2 en runner Ubuntu y generó `.blend` de 8 p
 
 ### Prueba real de FreeCAD (F7B)
 Se ejecutó FreeCAD 0.19.2 sin interfaz en GitHub Actions, creó `.FCStd` y midió ocho sólidos `Part::Feature` de la escena real. Verificación `NATIVE_GEOMETRY_MATCH`, **8/8** y `max_abs_error_mm=0.0` con el mismo `geometry_sha256` usado por Blender. [Archivo y evidencia de FreeCAD](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39356003860) → Artifacts → `f7b-native-freecad-validation`. Aún no hay MCP conectados, verificación humana de escenas ni planos de fabricación listos.
+
+### F7C — fondos de revisión con paso de instalaciones
+Se pueden modelar fondos embutidos completos (sin instalaciones) o **dos franjas** con un espacio posterior entre ellas explícitamente dimensionado. Un único proyecto alimenta despiece CSV, elevación SVG y la escena CAD de FreeCAD/Blender. Se trata de un **borrador de paneles nominales**, no de un registro de tubería validado ni de una lista apta para cortar. Véanse [contrato F7C](docs/f7c-fondos-servicios.md) y [ejemplo cocina](examples/modular-kitchen-services.json).
