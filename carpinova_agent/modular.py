@@ -155,6 +155,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             "schema_version": "0.1.0", "type": "modular_run",
             "application": d["application"], "status": "NEEDS_LAYOUT_REVISION",
             "fabrication_ready": False, "cutting_ready": False,
+            "drilling_ready": False, "purchase_ready": False,
             "parts": [], "modules": [], "total_module_width_mm": total,
             "run_width_mm": width, "site": site, "blockers": blockers,
         }
