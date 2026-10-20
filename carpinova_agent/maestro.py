@@ -24,7 +24,7 @@ REQUIRED = {
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project"}),
-    "modular": frozenset({"module_spec", "query"}),
+    "modular": frozenset({"module_spec"}),
     "construction": frozenset({"construction"}),
 }
 ALLOWED = {
@@ -32,7 +32,7 @@ ALLOWED = {
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project", "query", "hardware", "construction"}),
-    "modular": frozenset({"module_spec"}),
+    "modular": frozenset({"module_spec", "query"}),
     "construction": frozenset({"construction"}),
 }
 
