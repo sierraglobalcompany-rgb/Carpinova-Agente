@@ -32,6 +32,16 @@ Leer Knowledge por SHA fijo, diseñar modelo paramétrico de gabinete rectangula
 
 Consulta [AGENTS.md](AGENTS.md), [skill de diseño](skills/diseno-muebles/SKILL.md) y [contrato de entrega](docs/contrato-fabricacion.md).
 
+## Catálogo de herrajes (desarrollo F4)
+Existe un módulo **referencial** de selección por configuración de puerta, revisado contra documentación Blum. En esta rama:
+```bash
+python -m hardware --input examples/hinge-overlay.json
+python -m unittest discover -s tests -p 'test_hardware.py' -v
+```
+La salida **nunca** autoriza perforaciones ni compras (`BLOCKED_HARDWARE_SPEC`); no reemplaza la revisión de una ficha actualizada ni valida un sistema bisagra+base. Consulta [skill de selección](skills/seleccion-herrajes/SKILL.md) y [documentación F4](docs/f4-hardware-source-policy.md).
+
+El módulo de herrajes es independiente de F1/F2/F3 mientras se revisan sus PR.
+
 ## CarpiNova Maestro — interfaz unificada (F5)
 La interfaz F5 coordina en una sola solicitud el cálculo preliminar F1, las preguntas F3, la recuperación con citas F2 y la sugerencia de bisagras F4:
 ```bash
