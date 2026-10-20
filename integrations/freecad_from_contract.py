@@ -11,6 +11,7 @@ from pathlib import Path
 
 from carpinova_agent.cad_exchange import validate_exchange
 from integrations.cad_native import native_boxes
+from integrations.geometry_audit import verify_native_boxes
 
 
 def build_freecad(input_path: Path, output_path: Path)->dict:
@@ -22,19 +23,31 @@ def build_freecad(input_path: Path, output_path: Path)->dict:
         raise ValueError("Output must have .FCStd suffix.")
     data=validate_exchange(json.loads(input_path.read_text(encoding="utf-8")))
     doc=App.newDocument("CarpiNovaPreview")
+    measured = []
     for piece in native_boxes(data):
         name=piece["piece_id"]
         x,y,z=piece["native_origin_xyz_mm"]
         dx,dy,dz=piece["native_size_xyz_mm"]
-        feature=doc.addObject("PartDesign::Feature", "Panel")
+        feature=doc.addObject("Part::Feature", "Panel")
         feature.Label=name
         feature.Shape=Part.makeBox(dx,dy,dz,App.Vector(x,y,z))
         if feature.Shape.isNull():
             raise ValueError("Null geometry for "+name)
+        bb = feature.Shape.BoundBox
+        measured.append({
+            "piece_id": name,
+            "native_origin_xyz_mm": [bb.XMin, bb.YMin, bb.ZMin],
+            "native_size_xyz_mm": [bb.XLength, bb.YLength, bb.ZLength],
+        })
     doc.recompute()
+    verification = verify_native_boxes(data, measured)
     doc.saveAs(str(output_path))
-    return {"geometry_sha256":data["geometry_sha256"],"parts":len(data["boxes"]),
-            "status":"CAD_PREVIEW_NOT_FOR_CUTTING"}
+    return {
+        "geometry_sha256": data["geometry_sha256"],
+        "parts": len(measured),
+        "status": "CAD_PREVIEW_NOT_FOR_CUTTING",
+        "native_measurements": verification,
+    }
 
 
 def main()->None:
