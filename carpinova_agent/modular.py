@@ -10,6 +10,7 @@ import re
 from typing import Any, Mapping
 
 from .core import DesignError, design
+from .back_panels import back_panels
 
 ROLES = ("left_side", "right_side", "top", "bottom")
 EDGES = frozenset(("x_min", "x_max", "y_min", "y_max"))
@@ -133,8 +134,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{module_id}: estructura no admitida.")
         if module.get("fronts") not in ("none", "pending"):
             raise DesignError(f"{module_id}: indicar fronts=none o pending.")
-        if module.get("back") not in ("none", "pending"):
-            raise DesignError(f"{module_id}: indicar back=none o pending.")
+        if module.get("back") not in ("none", "pending") and not isinstance(module.get("back"), dict):
+            raise DesignError(f"{module_id}: back requiere none, pending u objeto documentado.")
         if module.get("support") not in ("floor", "wall", "pending"):
             raise DesignError(f"{module_id}: indicar support=floor, wall o pending.")
         prepared.append((module, _finish(module.get("finish"), module_id)))
@@ -144,7 +145,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     blockers = [
         "Paneles nominales: sin compensación por tapacantos, sierra, cola o mecanizado.",
         "Verificar cara vista, vetas, cantos, uniones, cargas, vuelco y anclajes.",
-        "Sin puertas, cajones, fondo, patas, zócalo ni taladros de producción modelados.",
+        "No hay puertas, cajones, patas, zócalo ni taladros de producción modelados; fondos solo por especificación explícita.",
     ]
     if total != width:
         blockers.insert(
@@ -210,6 +211,14 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "source_engine": "F1_CORE_CABINET",
                 "source_formula": part["calculation"],
             })
+        rear_parts, rear_blockers = back_panels(
+            module["back"], module_id=module["module_id"],
+            module_width_mm=w, module_height_mm=height,
+            module_depth_mm=depth, carcase_thickness_mm=t,
+            start_x_mm=x_offset,
+        )
+        all_parts.extend(rear_parts)
+        blockers.extend(rear_blockers)
         if finish is None:
             blockers.append(f"{module['module_id']}: definir veta y cuatro lados de canto por pieza.")
         if module["fronts"] == "pending":
@@ -224,7 +233,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             "external_depth_mm": depth, "clear_width_mm": geometry["dimensions"]["clear_width_mm"],
             "clear_height_mm": geometry["dimensions"]["clear_height_mm"],
             "construction": module["construction"], "part_ids":
-                [module["module_id"] + "-" + role.upper() for role in ROLES],
+                [module["module_id"] + "-" + role.upper() for role in ROLES] +
+                [piece["piece_id"] for piece in rear_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
         })
