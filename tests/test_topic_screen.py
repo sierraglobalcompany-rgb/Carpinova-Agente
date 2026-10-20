@@ -104,6 +104,16 @@ class TopicScreenTests(unittest.TestCase):
         with self.assertRaises(BundleError):
             screen_topic_results(sample({"content_id":None}),"edge_banding")
 
+    def test_large_window_returns_only_five_references(self):
+        items=[record(f"EDGE-{i}","Cantos en tableros.",page=70+i)
+               for i in range(16)]
+        outcome=screen_topic_results(sample(*items),"edge_banding")
+        self.assertEqual(len(outcome["results"]),5)
+        self.assertEqual(outcome["relevance_review"]["candidate_count_in_sample"],16)
+        self.assertEqual(outcome["relevance_review"]["returned_candidate_count"],5)
+        self.assertEqual(outcome["relevance_review"]["sampled_result_count"],16)
+        self.assertEqual(outcome["total_matches"],98)
+
     def test_source_record_is_not_mutated(self):
         base=sample(record("A","Fondo detrás de tubería."),
                     record("B","Tornillos y escuadras."))
