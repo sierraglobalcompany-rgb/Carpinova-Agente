@@ -140,21 +140,45 @@ def consult_maestro(
                 "unit": "mm",
             })
         if modular["status"] == "DRAFT_NOT_FOR_CUTTING":
-            for module in inp["module_spec"]["modules"]:
+            modules = inp["module_spec"]["modules"]
+            # Structural decisions come first; cosmetic finishing must not
+            # hide an unresolved drawer/door/support when max_questions=3.
+            for module in modules:
                 module_id = module["module_id"]
-                if "finish" not in module or module["finish"] is None:
-                    result["questions"].append({
-                        "field": f"module_spec.modules.{module_id}.finish",
-                        "question": f"¿Qué veta y cantos lleva cada una de las cuatro piezas de {module_id}?",
-                        "unit": "per_panel",
-                    })
-                for key in ("fronts", "back", "support"):
-                    if module[key] == "pending":
+                for key in ("fronts", "back", "drawers", "support"):
+                    if module.get(key) == "pending":
                         result["questions"].append({
                             "field": f"module_spec.modules.{module_id}.{key}",
                             "question": f"Falta definir {key} del módulo {module_id}.",
                             "unit": "construction_choice",
                         })
+                drawers = module.get("drawers")
+                if isinstance(drawers, list):
+                    for drawer in drawers:
+                        if drawer.get("facade") == "pending":
+                            result["questions"].append({
+                                "field": (
+                                    f"module_spec.modules.{module_id}.drawers."
+                                    f"{drawer['drawer_id']}.facade"
+                                ),
+                                "question": (
+                                    f"Definir frente decorativo embutido del cajón "
+                                    f"{drawer['drawer_id']} en {module_id}: "
+                                    "material, espesor y cuatro holguras."
+                                ),
+                                "unit": "construction_choice",
+                            })
+            for module in modules:
+                if module.get("finish") is None:
+                    module_id = module["module_id"]
+                    result["questions"].append({
+                        "field": f"module_spec.modules.{module_id}.finish",
+                        "question": (
+                            f"¿Qué veta y cantos lleva cada una de las "
+                            f"cuatro piezas de {module_id}?"
+                        ),
+                        "unit": "per_panel",
+                    })
         result["questions"] = result["questions"][:max_questions]
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
