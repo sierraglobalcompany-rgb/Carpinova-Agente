@@ -31,3 +31,15 @@ La ingeniería de muebles nueva se incorporará mediante reglas explícitas vali
 Leer Knowledge por SHA fijo, diseñar modelo paramétrico de gabinete rectangular y un cajón, generar despiece con test de cierre dimensional y representar vistas 2D con cotas. Sin bibliotecas CAD pesadas hasta que las pruebas lo justifiquen.
 
 Consulta [AGENTS.md](AGENTS.md), [skill de diseño](skills/diseno-muebles/SKILL.md) y [contrato de entrega](docs/contrato-fabricacion.md).
+
+## CarpiNova Maestro — interfaz unificada (F5)
+La interfaz F5 coordina en una sola solicitud el cálculo preliminar F1, las preguntas F3, la recuperación con citas F2 y la sugerencia de bisagras F4:
+```bash
+python -m carpinova_agent.maestro_cli --input examples/maestro-questions.json
+python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir /ruta/al/knowledge-1.2.0 --sketch /tmp/croquis.svg
+python -m carpinova_agent.maestro_cli --question "bisagras" --bundle-dir /ruta/al/knowledge-1.2.0
+python -m unittest discover -s tests -v
+```
+El modo pregunta libre es **búsqueda documental**, no una IA generativa. El modo proyecto aún es entrada JSON (más un cuestionario básico por terminal F3). No exporta planos liberados para taller. El workflow `.github/workflows/maestro-ci.yml` genera y verifica Knowledge **completo** con SHA de origen fijo en CI.
+
+Consultar [skill principal](skills/maestro-carpintero/SKILL.md) y [manual de integración](docs/f5-maestro-integracion.md). No fusionar PRs pendientes sin revisión; el estado de la ejecución está en GitHub.
