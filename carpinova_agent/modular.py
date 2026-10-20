@@ -147,7 +147,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     blockers = [
         "Paneles nominales: sin compensación por tapacantos, sierra, cola o mecanizado.",
         "Verificar cara vista, vetas, cantos, uniones, cargas, vuelco y anclajes.",
-        "Puertas/fondos solo por especificación explícita; no hay cajones, patas, zócalos ni taladros de producción modelados.",
+        "Puertas, fondos y cajones solo por especificación explícita; patas, zócalos y taladros de producción no modelados.",
     ]
     if total != width:
         blockers.insert(
