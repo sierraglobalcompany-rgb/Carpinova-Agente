@@ -60,3 +60,6 @@ python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output 
 python -m unittest discover -s tests -v
 ```
 El `/tmp/closet-cad.json` puede abrirse mediante los adaptadores locales tras instalar FreeCAD/Blender por separado. Solo muestra paneles nominales, sin puertas/fondos/cajones/perforaciones. Consulte [auditoría y arquitectura](docs/ARQUITECTURA_V2_AUDITORIA.md), [skill constructiva](skills/tecnicas-constructivas/SKILL.md) y [piloto de ejecución CAD](docs/PILOTO_FREECAD_BLENDER.md).
+
+### Prueba real de Blender (F7B)
+GitHub Actions instaló Blender 4.0.2 en runner Ubuntu y generó `.blend` de 8 paneles, validando bbox real por pieza contra el `CADExchange` sellado. Resultado: `NATIVE_GEOMETRY_MATCH` y máximo error de 0.00012589 mm con tolerancia de verificación de 0.05 mm; [artefacto y log](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39355333219). No significa que exista MCP conectado, que FreeCAD haya pasado la prueba o que el mueble pueda fabricarse.
