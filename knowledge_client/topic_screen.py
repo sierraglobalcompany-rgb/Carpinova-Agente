@@ -43,6 +43,15 @@ TOPIC_TERMS: dict[str, tuple[frozenset[str], ...]] = {
         frozenset({"pata", "patas", "banquero", "zocalo", "zocalos",
                    "pedestal", "pedestales", "base", "bases"}),
     ),
+    # This category documents SITE SURVEY context, not a construction
+    # method for backs, cutouts or plumbing connections.
+    "site_survey": (
+        frozenset({"levantamiento", "medidas", "medicion", "obra",
+                   "croquis", "esquema", "replanteo"}),
+        frozenset({"instalaciones", "hidrosanitarios", "hidrosanitarias",
+                   "electricos", "electricas", "tuberias", "tuberia",
+                   "desague", "desagues", "puntos"}),
+    ),
 }
 
 
