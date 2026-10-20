@@ -48,3 +48,13 @@ El clóset ilustrativo es 2000×2400×600 mm, con dos cuerpos de 950 y 1050 mm, 
 6. Reorganizar PRs #1/#2/#4/#6/#7 antes de merge, evitando que F6 arrastre duplicación histórica.
 
 Sin autorización de fabricación hasta validación de producto real y documentación completa. KISS/anti-ruido/anti-parches.
+
+## Exportación de revisión
+- `--svg /ruta/archivo.svg` dibuja una elevación frontal proporcional con las coordenadas generadas por F6, no a partir de números copiados a mano.
+- `--csv /ruta/archivo.csv` contiene una fila por panel, medidas nominales de cara, ejes, veta, cantos, material, origen y fórmula; cada fila se rotula `BORRADOR_NO_CORTAR`.
+- El CLI de Maestro acepta `--sketch` (SVG) y `--csv` con `action=modular`.
+- Las funciones de exportación rechazan modelos con distribución incompleta, hueco incompatible o estado falsamente autorizado. El SVG no reemplaza un plano estructural, detalle de junta, lista de bisagras ni optimización de corte.
+```bash
+python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/closet.svg --csv /tmp/despiece-revision.csv
+python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/maestro-modulos.svg --csv /tmp/maestro-desglose.csv
+```
