@@ -239,13 +239,6 @@ jobs:
           ref: 4df02ef54562fac5a820cbad92b0edee547c310b
           path: knowledge-src
           persist-credentials: false
-      - name: TEMP cross-repo probe — checkout candidate Knowledge PR 115
-        uses: actions/checkout@v4
-        with:
-          repository: sierraglobalcompany-rgb/CarpiNova-Knowledge
-          ref: 052129a58136a3ab0dea6e062f155f9a521ad6ac
-          path: knowledge-candidate-src
-          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -255,87 +248,6 @@ jobs:
       - name: Generate deterministic full-book 1.2.0 bundle
         run: |
           uv run --project knowledge-src python -m carpinova_knowledge build-book-dist --root knowledge-src --book-id cpnc-2025 --out "$RUNNER_TEMP/knowledge-1.2.0" > /tmp/book-build-manifest.json
-      - name: TEMP cross-repo probe — build candidate from exact PR 115 SHA
-        run: |
-          uv run --project knowledge-candidate-src python -m carpinova_knowledge validate --root knowledge-candidate-src > /tmp/knowledge-candidate-qa.json
-          uv run --project knowledge-candidate-src python -m carpinova_knowledge build-book-dist --root knowledge-candidate-src --book-id cpnc-2025 --out "$RUNNER_TEMP/knowledge-candidate-1.2.0" > /tmp/knowledge-candidate-manifest.json
-      - name: TEMP cross-repo probe — real Maestro verifies only p192 changed
-        run: |
-          python - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          from carpinova_agent.maestro import consult_maestro
-          from knowledge_client import load_bundle
-          root=Path(os.environ["RUNNER_TEMP"])
-          old=load_bundle(root/"knowledge-1.2.0")
-          new=load_bundle(root/"knowledge-candidate-1.2.0")
-          old_items={i["content_id"]:i for i in old["knowledge"]["content"]}
-          new_items={i["content_id"]:i for i in new["knowledge"]["content"]}
-          key="CONTENT-CPNC-2025-P0192-001"
-          assert old_items.keys()==new_items.keys()
-          differing=[cid for cid in old_items if old_items[cid]!=new_items[cid]]
-          assert differing==[key], differing
-          original=old_items[key]
-          revised=new_items[key]
-          assert original["source"]==revised["source"]
-          assert original["source_transcription"]==revised["source_transcription"]
-          assert original["learning_text"]==revised["learning_text"]
-          assert {k:v for k,v in original.items() if k!="normalized_text"}=={
-              k:v for k,v in revised.items() if k!="normalized_text"}
-          assert "puntos eléctricos e hidrosanitarios" not in original["normalized_text"]
-          assert "puntos eléctricos e hidrosanitarios" in revised["normalized_text"]
-          assert revised["source"]["pdf_page"]==192
-          assert revised["source"]["printed_page"]==170
-          for x in ("figures.bundle.json","lessons.bundle.json"):
-              a=(root/"knowledge-1.2.0"/x).read_bytes()
-              b=(root/"knowledge-candidate-1.2.0"/x).read_bytes()
-              assert a==b, x
-          assert old["manifest"]["source_manifest_sha256"]==new["manifest"]["source_manifest_sha256"]
-          assert old["manifest"]["counts"]==new["manifest"]["counts"]
-          spec=json.loads(Path("examples/modular-kitchen-door-fronts.json").read_text())
-          request={
-              "action":"modular","module_spec":spec,
-              "query":"hidrosanitarios","evidence_topic":"site_survey"
-          }
-          answers={
-              "main":consult_maestro(request,bundle_dir=root/"knowledge-1.2.0"),
-              "candidate":consult_maestro(request,bundle_dir=root/"knowledge-candidate-1.2.0"),
-          }
-          def provenance(ans):
-              return [p for p in ans["source_provenance"] if p["pdf_page"]==192]
-          # Old Knowledge can find p192 by broad "installations" and
-          # "levantamiento" terms. The actual fix is the visible wording,
-          # not false claims that the page was previously undiscoverable.
-          def page_text(ans):
-              return [r["text"] for r in ans["knowledge"]["results"]
-                      if r["pdf_page"] == 192]
-          assert len(provenance(answers["candidate"]))==1
-          assert provenance(answers["candidate"])[0]["printed_page"]==170
-          assert len(page_text(answers["candidate"]))==1
-          assert "hidrosanitarios" in page_text(answers["candidate"])[0]
-          assert all("hidrosanitarios" not in text for text in page_text(answers["main"]))
-          assert all(answers[x]["modular"]["piece_count"]==13 for x in answers)
-          assert all(not answers[x][k] for x in answers
-                     for k in ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
-          assert all(not answers[x]["knowledge"]["relevance_review"]["technical_suitability_verified"]
-                     for x in answers)
-          result={
-              "proof":"EXACT_KNOWLEDGE_PR115_WITH_EXACT_AGENT_PR14",
-              "agent_feature_baseline_sha":"64bc559899e75241ee2d3725533c29460db00ae5",
-              "knowledge_main_sha":"4df02ef54562fac5a820cbad92b0edee547c310b",
-              "knowledge_candidate_sha":"052129a58136a3ab0dea6e062f155f9a521ad6ac",
-              "only_content_record_changed":differing,
-              "source_pages":[192],"printed_pages":[170],
-              "old_text_includes_hidrosanitarios":False,
-              "candidate_text_includes_hidrosanitarios":True,
-              "bundle_hash_verified":True,"technical_authority":False,
-              "geometry_panels":13,
-              "canonical_pin_unmodified":True
-          }
-          Path("/tmp/p0192-cross-consumer-proof.json").write_text(
-              json.dumps(result,indent=2,ensure_ascii=False)+"\n")
-          print("CROSS_REPO_P0192_CONSUMER_PROOF=PASS")
-          PY
       - name: Verify full-book retrieval and integrated furniture request
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/maestro-full.json --sketch /tmp/cabinet-draft.svg
@@ -489,7 +401,6 @@ jobs:
             /tmp/book-build-manifest.json
             /tmp/maestro-modular-cited-knowledge.json
             /tmp/maestro-topic-context-audit.json
-            /tmp/p0192-cross-consumer-proof.json
 
   native-blender-proof:
     name: Native Blender headless proof (F7B, no MCP)
