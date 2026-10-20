@@ -22,7 +22,7 @@ Maestro ya dispone de seis acciones estructuradas: `project`, `knowledge`, `hard
 ```bash
 python -m carpinova_agent.maestro_cli --utterance "Quiero diseñar un gabinete"
 python -m carpinova_agent.maestro_cli --utterance "Gabinete de 60 cm" \
-  --candidate examples/maestro-project.json --output /tmp/f7d-preview.json
+  --candidate examples/maestro-questions.json --output /tmp/f7d-preview.json
 ```
 
 En este modo se rechazan `--sketch`, `--csv` y `--bundle-dir`, porque serían señales engañosas de ejecución real. Para ejecutar el proyecto confirmado se sigue usando `--input` con el JSON validado, **en otra acción**.
