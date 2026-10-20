@@ -14,22 +14,24 @@ from knowledge_client import load_bundle, search_content
 
 from .intake import guide_project
 from .modular import design_modular_run
+from .construction_advice import construction_advice
 
 
-ACTIONS = frozenset({"project", "knowledge", "hardware", "combined", "modular"})
-FIELDS = frozenset({"action", "project", "query", "hardware", "module_spec"})
+ACTIONS = frozenset({"project", "knowledge", "hardware", "combined", "modular", "construction"})
+FIELDS = frozenset({"action", "project", "query", "hardware", "module_spec", "construction"})
 REQUIRED = {
     "project": frozenset({"project"}),
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project"}),
     "modular": frozenset({"module_spec"}),
+    "construction": frozenset({"construction"}),
 }
 ALLOWED = {
     "project": frozenset({"project"}),
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
-    "combined": frozenset({"project", "query", "hardware"}),
+    "combined": frozenset({"project", "query", "hardware", "construction"}),
     "modular": frozenset({"module_spec"}),
 }
 
@@ -43,7 +45,7 @@ def _normalize_request(request: Any) -> dict[str, Any]:
         raise MaestroError("La solicitud Maestro debe ser un objeto JSON.")
     action = request.get("action")
     if not isinstance(action, str) or action not in ACTIONS:
-        raise MaestroError("action debe ser project, knowledge, hardware, combined o modular.")
+        raise MaestroError("action debe ser project, knowledge, hardware, combined, modular o construction.")
     provided = set(request) - {"action"}
     unknown = provided - FIELDS
     if unknown:
@@ -54,6 +56,8 @@ def _normalize_request(request: Any) -> dict[str, Any]:
     missing = REQUIRED[action] - provided
     if missing:
         raise MaestroError("Faltan campos: " + ", ".join(sorted(missing)))
+    if "construction" in provided and not isinstance(request["construction"], dict):
+        raise MaestroError("construction debe ser un objeto JSON.")
     if "module_spec" in provided and not isinstance(request["module_spec"], dict):
         raise MaestroError("module_spec debe ser un objeto JSON.")
     if "project" in provided and not isinstance(request["project"], dict):
@@ -94,6 +98,7 @@ def consult_maestro(
         "knowledge": None,
         "hardware": None,
         "modular": None,
+        "construction": None,
         "questions": [],
         "blockers": [],
         "source_provenance": [],
@@ -150,6 +155,11 @@ def consult_maestro(
                             "unit": "construction_choice",
                         })
         result["questions"] = result["questions"][:max_questions]
+    if action in ("construction", "combined") and "construction" in inp:
+        guidance=construction_advice(inp["construction"],max_questions=max_questions)
+        result["construction"]=guidance
+        result["questions"].extend(guidance["questions"])
+        result["blockers"].extend(guidance["blockers"])
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
         result["project"] = project
@@ -212,6 +222,8 @@ def consult_maestro(
             result["status"] = "DRAFT_NOT_FOR_CUTTING"
     elif result["hardware"] is not None:
         result["status"] = "BLOCKED_HARDWARE_SPEC"
+    elif result["construction"] is not None:
+        result["status"] = "ADVISORY_ONLY"
     else:
         result["status"] = "REFERENCE_ONLY"
 
