@@ -1,6 +1,6 @@
-# F7D Task 1 — Entrada conversacional con revisión explícita
+# F7D Task 1–2 — Entrada conversacional y confirmación humana en terminal
 
-**Estado:** primer puente auditable, NO chatbot inteligente ni MCP instalado. Rama F7D derivada del HEAD verde de PR #14. Nada de este módulo autoriza fabricar o fusionar los PR precedentes.
+**Estado:** puente auditable + confirmación interactiva TTY con ejecución de Maestro tras autorización expresa, NO chatbot inteligente ni MCP instalado. Rama F7D derivada del HEAD verde de PR #14. Nada de este módulo autoriza fabricar o fusionar los PR precedentes.
 
 ## Problema
 
@@ -25,11 +25,31 @@ python -m carpinova_agent.maestro_cli --utterance "Gabinete de 60 cm" \
   --candidate examples/maestro-questions.json --output /tmp/f7d-preview.json
 ```
 
-En este modo se rechazan `--sketch`, `--csv` y `--bundle-dir`, porque serían señales engañosas de ejecución real. Para ejecutar el proyecto confirmado se sigue usando `--input` con el JSON validado, **en otra acción**.
+Sin `--confirm-execute`, el modo anterior continúa siendo **solo previsualización** y rechaza `--sketch`, `--csv` y `--bundle-dir`.
+
+## F7D Task 2 — confirmación interactiva y ejecución explícita de Maestro
+
+```bash
+# 1. Revisar primero la propuesta no confiable (puede provenir de cualquier intérprete):
+python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \\
+  --candidate examples/maestro-questions.json
+
+# 2. Solo el operador humano, EN TERMINAL INTERACTIVA:
+python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \\
+  --candidate examples/maestro-questions.json --confirm-execute
+```
+
+El segundo comando exige stdin y stderr conectados a **TTY**, imprime el texto original y **todo el JSON propuesto** y pide escribir `CONFIRMAR <código>` calculado sobre lo mostrado. Respuestas diferentes, EOF, pipelines/no-TTY o ausencia de `--candidate` bloquean la llamada al motor y no escriben archivos de salida. El código corto es solamente un comprobante visual de que se revisa la propuesta exacta, **NO** una firma, autenticación ni permiso de fabricación.
+
+Tras la confirmación, la CLI llama una sola vez a `consult_maestro` con la copia revisada y deja que el **único** motor existente revalide datos, fuentes y bloqueos. El archivo de entrada se lee una sola vez y se protege contra duplicados de claves, JSON no finito y carga excesiva. Si el proveedor externo modifica su archivo después de mostrar la propuesta, la ejecución usa únicamente la instantánea revisada.
+
+Se permiten `--bundle-dir` y `--output` **solo durante ejecución confirmada**, y `--sketch`/`--csv` siguen bloqueados en esta ruta. Para exportaciones de revisión se utiliza el flujo estructurado anterior como segundo paso separado. Ningún flag convierte geometría nominal en planos de taller. La CLI **no** tiene API de LLM ni MCP: el adaptador universal de intérprete es exclusivamente el JSON candidato recibido.
+
+**Límite de autenticidad:** una TTY interactiva no es identidad/autenticación fuerte. Una futura interfaz web/móvil requiere usuario autenticado y control de aprobación propio del cliente; no debe tratar el texto o `confirmed=true` propuesto por un modelo como aprobación humana.
 
 ## Pruebas y límites de aceptación
 
 - Tests: `tests/test_f7d_natural_intake.py` (texto solo, propuesta, fidelidad de datos, desconocidos, datos no JSON, no ejecución, CLI).
 - No se incluye LLM, extracción de medidas en lenguaje natural, memoria de conversación, sesiones, credenciales ni servidor MCP.
-- **NEXT F7D Task 2:** conectar un intérprete intercambiable y una UI de confirmación real, con evidencia de usuario y pruebas adversariales; no crear un segundo motor geométrico ni extraer Knowledge por fuera del bundle.
-- **NEXT F7D Task 3:** evaluar MCP FreeCAD/Blender con fuente/version/permiso fijo en entorno aislado. Mantener el único `CADExchange` y las verificaciones nativas.
+- **F7D Task 2:** el contrato JSON permite candidatos de cualquier intérprete y la CLI tiene revisión/confirmación humana con rechazo no-TTY. No existe aún una interfaz web/móvil ni proveedor LLM conectado.
+- **NEXT F7D Task 3:** cliente autenticado de chat y evaluación separada de MCP FreeCAD/Blender con fuente/versión/permisos fijos en entorno aislado. Mantener el único `CADExchange` y las verificaciones nativas.
