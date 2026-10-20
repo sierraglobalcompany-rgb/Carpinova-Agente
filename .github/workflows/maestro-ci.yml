@@ -32,9 +32,9 @@ jobs:
           PY
       - name: F6 module composition smoke (no cutting authority)
         run: |
-          python -m carpinova_agent.modular_cli --input examples/modular-closet.json > /tmp/modular-closet.json
+          python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/modular.svg --csv /tmp/modular.csv > /tmp/modular-closet.json
           python -m carpinova_agent.modular_cli --input examples/modular-kitchen.json > /tmp/modular-kitchen.json
-          python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json > /tmp/maestro-modular.json
+          python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/maestro-modular.svg --csv /tmp/maestro-modular.csv > /tmp/maestro-modular.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -51,6 +51,16 @@ jobs:
           assert maestro["fabrication_ready"] is False
           assert maestro["cutting_ready"] is False
           assert maestro["drilling_ready"] is False
+          import csv
+          from xml.etree import ElementTree
+          ElementTree.parse("/tmp/modular.svg")
+          ElementTree.parse("/tmp/maestro-modular.svg")
+          with Path("/tmp/modular.csv").open(newline="", encoding="utf-8") as source:
+              rows = list(csv.DictReader(source))
+          assert len(rows) == 8
+          assert all(row["production_status"] == "BORRADOR_NO_CORTAR" for row in rows)
+          with Path("/tmp/maestro-modular.csv").open(newline="", encoding="utf-8") as source:
+              assert len(list(csv.DictReader(source))) == 8
           PY
       - name: Hardware remains blocked
         run: |
