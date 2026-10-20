@@ -1,0 +1,15 @@
+{
+  "action": "construction",
+  "construction": {
+    "application": "kitchen",
+    "edge_variant": "rigid",
+    "edge_workflow": "cut_shop",
+    "edge_material": "abs",
+    "edge_exposure": "visible",
+    "back_style": "no_back",
+    "has_services": true,
+    "support": "floor_legs",
+    "joint": "visible_screws",
+    "water_exposure": true
+  }
+}
