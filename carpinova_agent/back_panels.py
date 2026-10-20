@@ -43,8 +43,9 @@ def _panel(module_id: str, role: str, material: str,
     }
 
 
-def back_panels(back: Any, *, module_id: str, module_width_mm: int,
+def back_panels(back: Any, *, module_id: str,
                 module_height_mm: int, module_depth_mm: int,
+                clear_width_mm: int, clear_height_mm: int,
                 carcase_thickness_mm: int, start_x_mm: int
                 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Geometry of user-selected inset back(s), inside the F1 clear aperture."""
@@ -79,8 +80,9 @@ def back_panels(back: Any, *, module_id: str, module_width_mm: int,
     grain = back.get("grain_axis", "UNCONFIRMED")
     if not isinstance(grain, str) or (grain != "UNCONFIRMED" and grain not in GRAINS):
         raise DesignError(f"{module_id}.back.grain_axis no reconocido.")
-    inner_width = module_width_mm - 2 * carcase_thickness_mm
-    inner_height = module_height_mm - 2 * carcase_thickness_mm
+    # F1 already calculated these dimensions: use the same numbers as
+    # the carcass, do not reimplement its two-thickness subtraction.
+    inner_width, inner_height = clear_width_mm, clear_height_mm
     if min(inner_width, inner_height) <= 0:
         raise DesignError(f"{module_id}: no hay abertura libre para el fondo.")
     x = start_x_mm + carcase_thickness_mm
