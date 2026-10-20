@@ -15,6 +15,7 @@ from hardware import HardwareError
 from knowledge_client import BundleError
 from .core import DesignError
 from .maestro import MaestroError, consult_maestro
+from .natural_intake import preview_natural_request
 from .sketch import render_svg
 from .modular_outputs import modular_front_svg, modular_bom_csv
 
@@ -27,6 +28,10 @@ def main() -> int:
     inputs.add_argument("--input", type=Path, help="Solicitud estructurada JSON")
     inputs.add_argument("--question", type=str,
                         help="Consulta libre solo para buscar en el libro")
+    inputs.add_argument("--utterance", type=str,
+                        help="F7D: texto natural, SOLO previsualización sin ejecutar herramientas")
+    parser.add_argument("--candidate", type=Path,
+                        help="JSON propuesto por intérprete externo; requiere --utterance")
     parser.add_argument("--bundle-dir", type=Path,
                         help="Carpeta de bundle Knowledge completo, ya compilado")
     parser.add_argument("--output", type=Path, help="Salida JSON")
@@ -36,6 +41,24 @@ def main() -> int:
     parser.add_argument("--max-questions", type=int, default=3)
     args = parser.parse_args()
     try:
+        if args.utterance is not None:
+            if args.bundle_dir is not None or args.sketch is not None or args.csv is not None:
+                raise MaestroError(
+                    "F7D previsualización no admite bundle, SVG ni CSV: no ejecuta herramientas."
+                )
+            candidate = (
+                json.loads(args.candidate.read_text(encoding="utf-8"))
+                if args.candidate is not None else None
+            )
+            preview = preview_natural_request(args.utterance, candidate)
+            output = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
+            if args.output is not None:
+                args.output.write_text(output, encoding="utf-8")
+            else:
+                sys.stdout.write(output)
+            return 0
+        if args.candidate is not None:
+            raise MaestroError("--candidate solo se admite con --utterance.")
         if args.input is not None:
             inp = json.loads(args.input.read_text(encoding="utf-8"))
         else:
