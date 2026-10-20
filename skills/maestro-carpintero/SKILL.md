@@ -38,3 +38,13 @@ Explicar lo que se entendió, enseñar brevemente la alternativa constructiva, p
 - `fabrication_ready=false`, `drilling_ready=false`, `cutting_ready=false` y `purchase_ready=false` son límites deliberados.
 - No usar LLM para calcular matemáticas de fabricación si existe un motor determinista; no inventar tamaños de piezas, agujeros ni recomendaciones comerciales.
 - KISS, anti-ruido, anti-parches, fidelidad y trazabilidad. Un solo cálculo y una sola fuente de verdad.
+
+## F6 — módulos abiertos de clósets, cocinas y muebles compuestos
+- `carpinova_agent.modular.design_modular_run(spec)` compone una fila de uno a doce módulos **abiertos** desde F1; reutiliza el único cálculo de pieza. Use `action=modular` con `module_spec` en `consult_maestro`, no traduzca automáticamente consultas naturales a JSON inexistente.
+- Exigir ancho/alto/profundidad exterior, instalación, ancho de cada módulo, material, espesor real, estructura, `fronts`, `back` y `support`. Para empotrados medir hueco en tres alturas.
+- Los laterales de módulos adyacentes se mantienen **independientes**; nunca fusionar costados por apariencia visual.
+- Cada pieza física lleva `grain_axis` sobre el plano de cara y `edgebanding_edges`. El canto opcional exige espesor conocido; si faltan, mostrar `UNCONFIRMED`, jamás asumir. `finished_cut_dimensions_mm=null` hasta cálculo validado de acabados.
+- `carpinova_agent.modular_outputs.modular_front_svg` y `modular_bom_csv` exportan boceto y lista de revisión, no planos de corte. Invocar solo si `DRAFT_NOT_FOR_CUTTING`, nunca si hay `SITE_CONFLICT` o `NEEDS_LAYOUT_REVISION`.
+- `python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/modular.svg --csv /tmp/modular.csv`. Maestro CLI acepta `--sketch` y `--csv` para `action=modular`.
+- Frentes, cajones, fondos, zócalos, herrajes, estufa y fregadero no forman parte del modelo F6; si la persona los solicita, conservarlos como requisitos y bloquear fabricación hasta implementarlos explícitamente.
+- Ver [contrato F6](../../docs/f6-modulos-vetas-cantos.md).
