@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from .core import DesignError, design
 from .back_panels import back_panels
 from .front_panels import front_panels, check_adjacent_fronts
+from .drawer_modules import module_drawers
 
 ROLES = ("left_side", "right_side", "top", "bottom")
 EDGES = frozenset(("x_min", "x_max", "y_min", "y_max"))
@@ -22,7 +23,7 @@ ROOT_FIELDS = frozenset(("type", "application", "width_mm", "height_mm",
                          "depth_mm", "installation", "site_width_mm", "modules"))
 MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "material_id", "construction", "fronts", "back",
-                           "support", "finish"))
+                           "support", "finish", "drawers"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -230,6 +231,16 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         )
         all_parts.extend(doors)
         blockers.extend(door_blockers)
+        drawer_parts, drawer_blockers, drawer_ids = module_drawers(
+            module.get("drawers", "none"), module_id=module["module_id"],
+            start_x_mm=x_offset, carcase_thickness_mm=t,
+            clear_width_mm=geometry["dimensions"]["clear_width_mm"],
+            clear_height_mm=geometry["dimensions"]["clear_height_mm"],
+            module_depth_mm=depth, back_parts=rear_parts,
+            has_doors=bool(doors),
+        )
+        all_parts.extend(drawer_parts)
+        blockers.extend(drawer_blockers)
         if finish is None:
             blockers.append(f"{module['module_id']}: definir veta y cuatro lados de canto por pieza.")
         if module["fronts"] == "pending":
@@ -246,11 +257,15 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             "construction": module["construction"], "part_ids":
                 [module["module_id"] + "-" + role.upper() for role in ROLES] +
                 [piece["piece_id"] for piece in rear_parts] +
-                [piece["piece_id"] for piece in doors],
+                [piece["piece_id"] for piece in doors] +
+                [piece["piece_id"] for piece in drawer_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
+            "drawer_ids": drawer_ids,
         })
         x_offset += w
+    if len(all_parts) > 72:
+        raise DesignError("Se excedió el límite seguro de 72 piezas CAD; dividir el proyecto.")
     check_adjacent_fronts(out_modules, all_parts)
     if installation == "wall_mounted":
         blockers.insert(0, "Mueble suspendido: carga, muro y anclajes requieren cálculo competente.")
