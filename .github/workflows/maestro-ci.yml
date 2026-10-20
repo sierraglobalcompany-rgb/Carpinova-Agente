@@ -144,6 +144,47 @@ jobs:
             /tmp/f7c-services.csv
             /tmp/f7c-services.json
             /tmp/f7c-services-cad.json
+      - name: F7C explicit overlay and inset front review (no drill authority)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen-door-fronts.json --svg /tmp/f7c-fronts.svg --csv /tmp/f7c-fronts.csv > /tmp/f7c-fronts.json
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-door-fronts.json --output /tmp/f7c-fronts-cad.json
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-fronts.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-fronts-cad.json").read_text()))
+          assert model["piece_count"] == 13
+          assert cad["source_engine"] == "F7C_EXPLICIT_FRONTS_FROM_F6"
+          assert cad["front_shift_mm"] == 18
+          assert cad["bounds_xyz_mm"] == [1200,720,578]
+          assert len(cad["boxes"]) == 13
+          assert cad["manufacturing_holes"] == []
+          assert cad["drilling_ready"] is False
+          assert cad["fabrication_ready"] is False
+          assert cad["cutting_ready"] is False
+          with Path("/tmp/f7c-fronts.csv").open(encoding="utf-8",newline="") as handle:
+              rows=list(csv.DictReader(handle))
+          assert len(rows)==13
+          assert sum(1 for r in rows if r["role"].startswith("front_"))==3
+          assert all(r["production_status"]=="BORRADOR_NO_CORTAR" for r in rows)
+          svg=ElementTree.parse("/tmp/f7c-fronts.svg").getroot()
+          rects=svg.findall("{http://www.w3.org/2000/svg}rect")
+          assert len(rects)==13
+          assert sum(1 for r in rects if r.get("class")=="front")==3
+          print("F7C_FRONTS_REVIEW=PASS; HINGE_HOLES=NOT_MODELED; CUT=NO")
+          PY
+      - name: Archive F7C doors review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-door-fronts-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-fronts.svg
+            /tmp/f7c-fronts.csv
+            /tmp/f7c-fronts.json
+            /tmp/f7c-fronts-cad.json
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
@@ -244,24 +285,24 @@ jobs:
           blender --version | head -n 2
       - name: Create source-sealed cabinet modules CAD exchange
         run: |
-          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-services.json --output "$RUNNER_TEMP/services-contract.json"
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-door-fronts.json --output "$RUNNER_TEMP/fronts-contract.json"
       - name: Build .blend with Blender real Python runtime and measure actual meshes
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           blender --background --factory-startup --python-use-system-env --python-exit-code 12 \
             --python integrations/blender_from_contract.py -- \
-            --input "$RUNNER_TEMP/services-contract.json" \
-            --output "$RUNNER_TEMP/services-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
-          test -s "$RUNNER_TEMP/services-native.blend"
+            --input "$RUNNER_TEMP/fronts-contract.json" \
+            --output "$RUNNER_TEMP/fronts-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
+          test -s "$RUNNER_TEMP/fronts-native.blend"
           grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/blender-proof.log"
           grep -q 'VISUAL_PREVIEW_NOT_FOR_FABRICATION' "$RUNNER_TEMP/blender-proof.log"
       - name: Archive independently inspectable real Blender proof
         uses: actions/upload-artifact@v4
         with:
-          name: f7c-native-blender-back-validation
+          name: f7c-native-blender-door-validation
           retention-days: 14
           path: |
-            ${{ runner.temp }}/services-contract.json
-            ${{ runner.temp }}/services-native.blend
+            ${{ runner.temp }}/fronts-contract.json
+            ${{ runner.temp }}/fronts-native.blend
             ${{ runner.temp }}/blender-proof.log
