@@ -59,6 +59,16 @@ class FrontTests(unittest.TestCase):
         for k in old:
             self.assertEqual(current[k],old[k])
     
+    def test_formula_provenance_has_single_center_gap(self):
+        d=design_modular_run(fixture())
+        panels={p["piece_id"]:p for p in d["parts"]}
+        dual=panels["SINK-FRONT_LEFT"]["source_formula"]
+        one=panels["STORAGE-FRONT_SINGLE"]["source_formula"]
+        self.assertEqual(dual.count("fronts.center_gap_mm"),1)
+        self.assertEqual(one.count("fronts.center_gap_mm"),0)
+        self.assertIn("F1.clear_width_mm",one)
+        self.assertIn("fronts.leaf_count",dual)
+
     def test_explicit_grain_and_edges(self):
         d=fixture()
         r=design_modular_run(d)
