@@ -133,6 +133,16 @@ class FrontTests(unittest.TestCase):
         self.assertEqual(len([r for r in rects if r.get("class")=="front"]),3)
         self.assertIn("NO CORTAR",svg)
 
+    def test_svg_contains_opaque_white_canvas_without_extra_piece(self):
+        svg=modular_front_svg(design_modular_run(fixture()))
+        root=ElementTree.fromstring(svg)
+        ns="{http://www.w3.org/2000/svg}"
+        bg=[p for p in root.findall(f"{ns}path")
+            if p.get("fill")=="#ffffff"]
+        self.assertEqual(len(bg),1)
+        self.assertEqual(bg[0].get("d"),"M0 0H1000V790H0Z")
+        self.assertEqual(len(root.findall(f"{ns}rect")),13)
+
     def test_no_auto_drill_or_hinge_sku(self):
         out=design_modular_run(fixture())
         self.assertTrue(any("bisagra SKU" in b for b in out["blockers"]))
