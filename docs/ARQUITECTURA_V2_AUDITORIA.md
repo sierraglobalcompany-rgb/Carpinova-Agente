@@ -92,3 +92,11 @@ Cada habilidad responde combinando **cita real** (book_id, SHA Knowledge, page_i
 **F7E:** liberación humana de piezas solo tras geometría, cantos, tolerancias, herrajes y carga.
 
 No iniciar una reextracción del libro ni añadir motores de cálculo/retrieval alternativos hasta demostrar que el actual falla una consulta concreta.
+
+## Auditoría posterior de integración: rama F7B, sin nuevos motores
+
+Revisado el árbol exacto: PR #2 y #6 contienen módulos Knowledge/Hardware cuyos blobs Git en PR #7 son **idénticos** (SHA de cada archivo). Por tanto, no son versiones divergentes, sino copias de ensayo de integración. **Estrategia de consolidación:** merge solo con aprobación, primero F1+F3 y F2+F4 (dos cadenas independientes), luego F5 sobre main para que esos archivos desaparezcan del diff. Después F6 y finalmente F7. No cherry-pick repetido ni duplicar funciones; si cambia un upstream hay que regenerar QA del árbol final, no aplicar «parches de compatibilidad».
+
+El problema específico de las salidas nativas era que comprobar el CADExchange previo no demostraba la geometría resultante. Ya se añadió `integrations.geometry_audit.verify_native_boxes` y medición de `Shape.BoundBox` (FreeCAD) / `obj.bound_box` con matriz global (Blender). Estas lecturas se comparan antes de guardar; 16 pruebas unitarias cubren deriva, faltantes y manipulación. Se necesita **ejecución de apps real** para cerrar el gate. El máximo error informático tolerado para comparar escenas es 0,05 mm, sin relación con tolerancia industrial de corte.
+
+No añadir un segundo despiece CAD, un segundo catálogo de cantos, una segunda extracción del libro o nuevos PR de gobernanza. Documentar hallazgos en el PR activo; los tests y el Git history son la evidencia permanente.
