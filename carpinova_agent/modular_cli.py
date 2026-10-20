@@ -19,6 +19,8 @@ def main() -> int:
     try:
         data = json.loads(options.input.read_text(encoding="utf-8"))
         result = design_modular_run(data)
+        svg = modular_front_svg(result) if options.svg else None
+        csv_data = modular_bom_csv(result) if options.csv else None
         output = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
         if options.output:
             options.output.write_text(output, encoding="utf-8")
