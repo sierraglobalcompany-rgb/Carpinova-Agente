@@ -1,4 +1,6 @@
 """Regression tests for one coordinated, explicitly nonmanufacturing agent."""
+import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -35,6 +37,61 @@ FOUND = {
 
 
 class MaestroRoutingTests(unittest.TestCase):
+    def test_modular_asks_drawers_before_finishes(self):
+        example = (Path(__file__).resolve().parent.parent /
+                   "examples/modular-two-drawers-inset.json")
+        data = json.loads(example.read_text(encoding="utf-8"))
+        module = data["modules"][0]
+        module["fronts"] = "pending"
+        module["back"] = "pending"
+        module["drawers"] = "pending"
+        module["support"] = "pending"
+        r = consult_maestro({"action": "modular", "module_spec": data})
+        self.assertEqual(r["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertEqual([q["field"] for q in r["questions"]], [
+            "module_spec.modules.BASE.fronts",
+            "module_spec.modules.BASE.back",
+            "module_spec.modules.BASE.drawers",
+        ])
+        self.assertFalse(r["cutting_ready"])
+
+    def test_modular_asks_pending_decorative_drawer_facade(self):
+        example = (Path(__file__).resolve().parent.parent /
+                   "examples/modular-two-drawers-inset.json")
+        data = json.loads(example.read_text(encoding="utf-8"))
+        data["modules"][0]["drawers"][0]["facade"] = "pending"
+        r = consult_maestro({"action": "modular", "module_spec": data},
+                            max_questions=2)
+        self.assertEqual([q["field"] for q in r["questions"]], [
+            "module_spec.modules.BASE.drawers.TOP.facade",
+            "module_spec.modules.BASE.finish",
+        ])
+        self.assertIn("embutido", r["questions"][0]["question"])
+        self.assertFalse(r["fabrication_ready"])
+        self.assertFalse(r["drilling_ready"])
+
+    def test_modular_real_drawers_not_incorrectly_marked_absent(self):
+        example = (Path(__file__).resolve().parent.parent /
+                   "examples/modular-two-drawers-inset.json")
+        data = json.loads(example.read_text(encoding="utf-8"))
+        r = consult_maestro({"action": "modular", "module_spec": data})
+        self.assertEqual(r["modular"]["piece_count"], 17)
+        self.assertFalse(any("no hay cajones" in b for b in r["blockers"]))
+
+    def test_modular_site_measurements_still_take_priority(self):
+        example = (Path(__file__).resolve().parent.parent /
+                   "examples/modular-two-drawers-inset.json")
+        data = json.loads(example.read_text(encoding="utf-8"))
+        data["installation"] = "built_in"
+        data["modules"][0]["drawers"] = "pending"
+        r = consult_maestro({"action": "modular", "module_spec": data})
+        self.assertEqual(r["status"], "NEEDS_SITE_MEASUREMENTS")
+        self.assertEqual([q["field"] for q in r["questions"]], [
+            "module_spec.site_width_mm.top",
+            "module_spec.site_width_mm.middle",
+            "module_spec.site_width_mm.bottom",
+        ])
+
     def test_project_missing_data(self):
         r = consult_maestro({
             "action": "project",
