@@ -213,9 +213,10 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             })
         rear_parts, rear_blockers = back_panels(
             module["back"], module_id=module["module_id"],
-            module_width_mm=w, module_height_mm=height,
-            module_depth_mm=depth, carcase_thickness_mm=t,
-            start_x_mm=x_offset,
+            module_height_mm=height, module_depth_mm=depth,
+            clear_width_mm=geometry["dimensions"]["clear_width_mm"],
+            clear_height_mm=geometry["dimensions"]["clear_height_mm"],
+            carcase_thickness_mm=t, start_x_mm=x_offset,
         )
         all_parts.extend(rear_parts)
         blockers.extend(rear_blockers)
