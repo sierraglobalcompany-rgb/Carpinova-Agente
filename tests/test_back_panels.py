@@ -92,6 +92,20 @@ class BackPanelTests(unittest.TestCase):
         self.assertIn("SINK-BACK_TOP",svg)
         self.assertIn("NO CORTAR",svg)
 
+    def test_svg_labels_have_separate_vertical_zones(self):
+        svg=modular_front_svg(design_modular_run(spec()))
+        root=ElementTree.fromstring(svg)
+        ns="{http://www.w3.org/2000/svg}"
+        texts=[((item.text or "").strip(),float(item.get("y")))
+               for item in root.findall(f"{ns}text") if item.get("y")]
+        legend=next(y for t,y in texts if t.startswith("Elevación frontal"))
+        width=next(y for t,y in texts if t=="1200 mm")
+        module_ends=[y for t,y in texts if "SINK ·" in t or "STORAGE ·" in t]
+        footer=next(y for t,y in texts if t.startswith("Veta y canto"))
+        self.assertGreater(width-legend,25)
+        self.assertGreater(footer-max(module_ends),45)
+        self.assertIn("fijaciones ni verificación estructural",svg)
+
     def test_all_missing_edges_unconfirmed(self):
         r=design_modular_run(spec())
         for part in r["parts"]:
