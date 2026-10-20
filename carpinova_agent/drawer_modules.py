@@ -40,7 +40,7 @@ def _id(value: Any, label: str) -> str:
     return value
 
 
-def _finish(facade: dict[str, Any], drawer_id: str) -> tuple[str, str | list[str], int | None, int | None]:
+def _finish(facade: dict[str, Any], drawer_id: str) -> tuple[str, str | list[str], int | None]:
     grain = facade.get("grain_axis", "UNCONFIRMED")
     if type(grain) is not str or grain not in GRAINS | {"UNCONFIRMED"}:
         raise DesignError(f"{drawer_id}: veta de frente inválida.")
@@ -49,7 +49,7 @@ def _finish(facade: dict[str, Any], drawer_id: str) -> tuple[str, str | list[str
     if edges == "UNCONFIRMED":
         if thickness is not None:
             raise DesignError(f"{drawer_id}: espesor de canto sin bordes.")
-        return grain, "UNCONFIRMED", None, None
+        return grain, "UNCONFIRMED", None
     if (type(edges) is not list or any(type(e) is not str or e not in EDGES for e in edges)
             or len(edges) != len(set(edges))):
         raise DesignError(f"{drawer_id}: bordes del frente inválidos.")
@@ -57,7 +57,7 @@ def _finish(facade: dict[str, Any], drawer_id: str) -> tuple[str, str | list[str
         _mm(thickness, "edgeband_thickness_mm")
     elif thickness is not None:
         raise DesignError(f"{drawer_id}: espesor de canto sin bordes.")
-    return grain, sorted(edges), thickness, 0
+    return grain, sorted(edges), thickness
 
 
 def _part(module_id: str, drawer_id: str, role: str, material: str,
@@ -109,7 +109,7 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
             f"{drawer_id}: retranqueo de caja debe superar espesor del frente "
             "para que no ocupen el mismo volumen."
         )
-    grain, edges, band_t, _ = _finish(data, drawer_id)
+    grain, edges, band_t = _finish(data, drawer_id)
     face = _part(
         module_id, drawer_id, "drawer_facade", material, fx, fy, thick,
         "XY", [opening_x+gaps["left_clearance_mm"],
@@ -220,8 +220,6 @@ def module_drawers(drawers: Any, *, module_id: str,
             "SIN validar SKU, longitud, capacidad, fijación, cotas de taladros "
             "ni resistencia del fondo aplicado."
         )
-        if front_setback := request["front_setback_mm"]:
-            pass  # no implicit slide specification from this dimension
     sorted_openings = sorted(openings)
     if any(a[1] >= b[0] for a, b in zip(sorted_openings, sorted_openings[1:])):
         raise DesignError(f"{module_id}: aperturas verticales se solapan o tocan.")
