@@ -77,6 +77,8 @@ def consult_maestro(
     bundle_dir points to prebuilt, verified Knowledge consumer bundles.
     The tool does not silently search the network or ignore book questions.
     """
+    if type(max_questions) is not int or not 1 <= max_questions <= 6:
+        raise MaestroError("max_questions debe ser entero entre 1 y 6.")
     inp = _normalize_request(request)
     action = inp["action"]
     result: dict[str, Any] = {
@@ -125,6 +127,29 @@ def consult_maestro(
                 "question": "Ajusta anchos de módulos para sumar el ancho total sin inventar rellenos.",
                 "unit": "mm",
             })
+        elif modular["status"] == "SITE_CONFLICT":
+            result["questions"].append({
+                "field": "module_spec.width_mm",
+                "question": "El ancho no cabe en la menor luz medida: ¿qué nueva medida propones?",
+                "unit": "mm",
+            })
+        if modular["status"] == "DRAFT_NOT_FOR_CUTTING":
+            for module in inp["module_spec"]["modules"]:
+                module_id = module["module_id"]
+                if "finish" not in module or module["finish"] is None:
+                    result["questions"].append({
+                        "field": f"module_spec.modules.{module_id}.finish",
+                        "question": f"¿Qué veta y cantos lleva cada una de las cuatro piezas de {module_id}?",
+                        "unit": "per_panel",
+                    })
+                for key in ("fronts", "back", "support"):
+                    if module[key] == "pending":
+                        result["questions"].append({
+                            "field": f"module_spec.modules.{module_id}.{key}",
+                            "question": f"Falta definir {key} del módulo {module_id}.",
+                            "unit": "construction_choice",
+                        })
+        result["questions"] = result["questions"][:max_questions]
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
         result["project"] = project
