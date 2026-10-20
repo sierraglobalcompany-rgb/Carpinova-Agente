@@ -48,3 +48,8 @@ Explicar lo que se entendió, enseñar brevemente la alternativa constructiva, p
 - `python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/modular.svg --csv /tmp/modular.csv`. Maestro CLI acepta `--sketch` y `--csv` para `action=modular`.
 - Frentes, cajones, fondos, zócalos, herrajes, estufa y fregadero no forman parte del modelo F6; si la persona los solicita, conservarlos como requisitos y bloquear fabricación hasta implementarlos explícitamente.
 - Ver [contrato F6](../../docs/f6-modulos-vetas-cantos.md).
+
+## Decisiones constructivas y CAD (F7A)
+Si el usuario pregunta cómo decidir cantos, pegado en taller/casa, fondo parcial por tuberías, patas, zócalo («banquero» ambiguo), suspensión francesa/rieles o uniones ocultas: aplicar `skills/tecnicas-constructivas/SKILL.md` y `consult_maestro({"action":"construction","construction":...})`. No sustituir una ficha de adhesivo/herraje por el texto del libro.
+Para generar FreeCAD o Blender, usar **un único** `CADExchange` obtenido mediante `carpinova_agent.cad_exchange.cad_exchange` del resultado F6, verificado con `validate_exchange`. La conversión física X→X, Y alto→Z, Z profundidad→-Y es compartida. FreeCAD es edición técnica; Blender es visualización. Ningún MCP está conectado en este chat; solo existen adaptadores locales no certificados con runtime real.
+Ver `docs/ARQUITECTURA_V2_AUDITORIA.md` para revisión y pasos siguientes.
