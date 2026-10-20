@@ -164,3 +164,26 @@ jobs:
           ElementTree.parse("/tmp/cabinet-draft.svg")
           print("FULL_BOOK_1_2_0=PASS; MAESTRO_COMBINED=PASS; FABRICATION_RELEASED=NO")
           PY
+      - name: Audit book topic retrieval without claiming semantic completeness
+        run: |
+          python -m knowledge_client.coverage_audit --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/knowledge-topic-coverage.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          v=json.loads(Path("/tmp/knowledge-topic-coverage.json").read_text())
+          assert v["scope"]=="FULL_BOOK"
+          assert v["not_semantic_coverage_proof"] is True
+          assert len(v["query_groups"])>=5
+          zero=[f"{g}:{x['term']}" for g,rows in v["query_groups"].items()
+                for x in rows if x["matched_content_records"]==0]
+          print("LEXICAL_ZERO_MATCH_TERMS_NEED_HUMAN_REVIEW=",zero)
+          PY
+      - name: Archive F7 real full-book retrieval matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-book-domain-retrieval-evidence
+          retention-days: 14
+          path: |
+            /tmp/knowledge-topic-coverage.json
+            /tmp/knowledge-qa.json
+            /tmp/book-build-manifest.json
