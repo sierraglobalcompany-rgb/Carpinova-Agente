@@ -125,7 +125,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'<text x="45" y="37" font-size="25" font-weight="bold">CarpiNova — boceto modular · {name}</text>'
         '<text x="45" y="74" class="bad">BORRADOR: NO CORTAR NI FABRICAR</text>'
         '<text x="45" y="99" class="note">Elevación frontal geométrica; '
-        'puertas sólo si están especificadas, sin bisagras ni mecanizados.</text>'
+        'frentes sólo si están especificados; sin bisagras, correderas ni mecanizados.</text>'
         + "".join(shapes) + "".join(titles) +
         f'<path class="dim" d="M {x0:.3f} {y0-17:.3f} v 14 '
         f'M {x0+scaled_w:.3f} {y0-17:.3f} v 14 '
