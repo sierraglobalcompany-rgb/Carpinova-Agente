@@ -79,3 +79,6 @@ Se ejecutó FreeCAD 0.19.2 sin interfaz en GitHub Actions, creó `.FCStd` y midi
 
 ### F7C — fondos de revisión con paso de instalaciones
 Se pueden modelar fondos embutidos completos (sin instalaciones) o **dos franjas** con un espacio posterior entre ellas explícitamente dimensionado. Un único proyecto alimenta despiece CSV, elevación SVG y la escena CAD de FreeCAD/Blender. Se trata de un **borrador de paneles nominales**, no de un registro de tubería validado ni de una lista apta para cortar. Véanse [contrato F7C](docs/f7c-fondos-servicios.md) y [ejemplo cocina](examples/modular-kitchen-services.json).
+
+### F7C Task 2 — puertas sobrepuestas y embutidas (borrador)
+`module.fronts` ahora admite un frente de 1 o 2 hojas, con `style=overlay|inset`, holguras o revelados explícitos, separación central, material, veta, canto e intención de giro. Los paneles se integran en el mismo modelo que la carcasa/fondos y alimentan CSV/SVG/FreeCAD/Blender desde un solo contrato CAD. La puerta sobrepuesta queda físicamente al frente (Z nominal negativo; CAD incluye translación común `front_shift_mm`). **No** hay cálculo de bisagras, perforaciones ni giros certificados. Ver [contrato Task 2](docs/f7c-frentes-holguras-vetas.md) y [cocina con puertas](examples/modular-kitchen-door-fronts.json).
