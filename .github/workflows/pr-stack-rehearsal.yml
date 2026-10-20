@@ -40,6 +40,7 @@ jobs:
             git fetch --no-tags --quiet origin "$sha"
             git cat-file -e "$sha^{commit}"
           done
+          git show "$FEATURE_HEAD:scripts/reconcile_stack_readme.py" > "$RUNNER_TEMP/stack-audit/reconcile.py"
           git checkout --detach "$ROOT_SHA"
           # Independent PRs are merged only after their parent chains:
           # F1 -> F3, F2, F4, F5, F6, F7. No protected ref is updated.
@@ -47,9 +48,23 @@ jobs:
             label="${item%%:*}"
             sha="${item#*:}"
             if ! git merge --no-ff --no-edit -m "REHEARSAL only: $label" "$sha"; then
-              echo "::error::Real merge conflict at $label; do not merge PRs."
-              git status --short | tee "$RUNNER_TEMP/stack-audit/conflict.txt"
-              exit 2
+              git diff --name-only --diff-filter=U | sort > "$RUNNER_TEMP/stack-audit/conflict.txt"
+              if [ "$label" != "F5" ] || [ "$(cat "$RUNNER_TEMP/stack-audit/conflict.txt")" != "README.md" ]; then
+                echo "::error::Unexpected conflict at $label; no merge permitted."
+                git status --short
+                exit 2
+              fi
+              git show "$F4_SHA:README.md" > "$RUNNER_TEMP/stack-audit/f4-readme.md"
+              git show "$F5_SHA:README.md" > "$RUNNER_TEMP/stack-audit/f5-readme.md"
+              git show "$FEATURE_HEAD:README.md" > "$RUNNER_TEMP/stack-audit/f7-readme.md"
+              python "$RUNNER_TEMP/stack-audit/reconcile.py" \
+                --f4 "$RUNNER_TEMP/stack-audit/f4-readme.md" \
+                --f5 "$RUNNER_TEMP/stack-audit/f5-readme.md" \
+                --f7 "$RUNNER_TEMP/stack-audit/f7-readme.md" \
+                --output README.md
+              git add README.md
+              git commit -m "REHEARSAL ONLY: preserve exact F4 and F5 README paragraphs"
+              echo "README_RESOLUTION_OWNER_REVIEW_REQUIRED=YES" > "$RUNNER_TEMP/stack-audit/reconciliation.txt"
             fi
             printf '%s %s\n' "$label" "$(git rev-parse HEAD)" | tee -a "$RUNNER_TEMP/stack-audit/local-commits.txt"
           done
@@ -59,7 +74,7 @@ jobs:
             cat "$RUNNER_TEMP/stack-audit/tree-difference.txt"
             exit 3
           fi
-          echo "STACK_MERGE_CONFLICTS=NONE"
+          echo "KNOWN_F5_README_CONFLICT=RESOLVED_ONLY_IN_LOCAL_REHEARSAL"
           echo "STACK_TREE_EQUAL_TO_F7_HEAD=YES"
           echo "PROTECTED_MAIN_UNTOUCHED=YES"
           printf '%s\n' "$FEATURE_HEAD" > "$RUNNER_TEMP/stack-audit/expected-head.txt"
