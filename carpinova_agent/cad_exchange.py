@@ -107,7 +107,12 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     if has_fronts:
         payload["front_shift_mm"]=front_shift
     signature=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(",",":"))
-    return {**payload,"geometry_sha256":hashlib.sha256(signature.encode("utf-8")).hexdigest()}
+    # One canonical integrity check before FreeCAD, Blender or CSV clients
+    # can consume the model, including physical solid intersections.
+    return validate_exchange({
+        **payload, "geometry_sha256":hashlib.sha256(
+            signature.encode("utf-8")).hexdigest(),
+    })
 
 
 def validate_exchange(data: Any) -> dict[str,Any]:
@@ -181,4 +186,19 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                 or min(a)<0 or min(b)<=0 or any(
                     a[i]+b[i]>limits[i] for i in range(3))):
             raise DesignError("Caja CAD excede límites físicos.")
+    # A butt joint may share a face (zero overlap), but two physical panels
+    # must never have strictly positive intersecting volumes. Reuse the
+    # already-standardized CAD boxes instead of a parallel geometry engine.
+    for idx, first in enumerate(boxes):
+        f0, fs = first["origin_xyz_mm"], first["size_xyz_mm"]
+        for second in boxes[idx+1:]:
+            s0, ss = second["origin_xyz_mm"], second["size_xyz_mm"]
+            if all(max(f0[axis], s0[axis]) <
+                   min(f0[axis]+fs[axis], s0[axis]+ss[axis])
+                   for axis in range(3)):
+                raise DesignError(
+                    "Tableros CAD ocupan el mismo volumen: "
+                    + first["piece_id"] + " / " + second["piece_id"]
+                    + "; corregir la geometría original antes de fabricar."
+                )
     return data
