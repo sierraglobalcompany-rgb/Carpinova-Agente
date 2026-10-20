@@ -127,8 +127,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         w = _positive(module.get("width_mm"), f"{module_id}.width_mm")
         _positive(module.get("panel_thickness_mm"), f"{module_id}.panel_thickness_mm")
         material = module.get("material_id")
-        if not isinstance(material, str) or not material.strip():
-            raise DesignError(f"{module_id}: material_id obligatorio.")
+        if not isinstance(material, str) or not NAME_RE.fullmatch(material):
+            raise DesignError(f"{module_id}: material_id debe ser identificador seguro y no vacío.")
         if module.get("construction") not in ("sides_full", "top_bottom_full"):
             raise DesignError(f"{module_id}: estructura no admitida.")
         if module.get("fronts") not in ("none", "pending"):
