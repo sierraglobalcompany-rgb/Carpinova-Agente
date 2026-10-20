@@ -37,3 +37,8 @@ Las ramas F2/F4 están incorporadas en la rama de **prueba** mediante blobs idé
 El único motor nominal de paneles es `carpinova_agent.core.design`. En `carpinova_agent.modular` se crean IDs físicos por rol (4 piezas por gabinete abierto), se ubican módulos y se anotan vetas y bordes; **no duplicar cálculos F1** ni inventar piezas adicionales.
 Para módulo empotrado sin las tres medidas de sitio usar `NEEDS_SITE_MEASUREMENTS`; con choque `SITE_CONFLICT`; si la suma de módulos no coincide con ancho, `NEEDS_LAYOUT_REVISION` y cero piezas de producción. No generar SVG/CSV de revisión en estos estados bloqueados.
 Todos los paneles son NOMINALES, sin compensación por tapacantos. Datos de acabados faltantes se anuncian y se preguntan. Nunca presentar `finished_cut_dimensions_mm=null` como un despiece apto para sierra.
+
+## V2 (F7A) — técnicas y CAD
+Leer `docs/ARQUITECTURA_V2_AUDITORIA.md` y `skills/tecnicas-constructivas/SKILL.md` al tratar cantos, fondos, soportes, uniones y acabados. Usar `carpinova_agent.construction_advice` para orientar sin patrones inventados; conocimiento factual del libro se consulta en Knowledge con página y estado.
+El **único** recorrido dimensional CAD es `F1 -> F6 -> cad_exchange -> integrations/cad_native -> FreeCAD/Blender`. Jamás permitir que una app de render cambie el despiece. El hash de CAD es una suma de comprobación de reproducibilidad, NO identidad/firma confiable.
+Sin FreeCAD/Blender/MCP en ejecución no declarar archivos CAD ni renders reales validados. Mantener CAD de vista preliminar sin agujeros, ajustes finales, cargas o autorizaciones.
