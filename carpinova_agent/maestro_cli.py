@@ -17,6 +17,7 @@ from knowledge_client import BundleError
 from .core import DesignError
 from .maestro import MaestroError, consult_maestro
 from .natural_intake import MAX_CANDIDATE_UTF8_BYTES, preview_natural_request
+from .llm_adapter import interpret_openai_request
 from .sketch import render_svg
 from .modular_outputs import modular_front_svg, modular_bom_csv
 
@@ -48,10 +49,14 @@ def _load_untrusted_candidate(path: Path) -> object:
 
 
 def _confirmation_display(preview: dict) -> tuple[str, str]:
+    display = {
+        "texto_original": preview["utterance"],
+        "propuesta_no_verificada": preview["proposed_request"],
+    }
+    if "interpreter" in preview:
+        display["origen_no_confiable"] = preview["interpreter"]
     payload = json.dumps(
-        {"texto_original": preview["utterance"],
-         "propuesta_no_verificada": preview["proposed_request"]},
-        indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False,
+        display, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False,
     )
     # This short checksum is ONLY an anti-accidental-approval cue, not
     # authentication, a digital signature or manufacturing authority.
@@ -88,6 +93,12 @@ def main() -> int:
                         help="F7D: texto natural, SOLO previsualización sin ejecutar herramientas")
     parser.add_argument("--candidate", type=Path,
                         help="JSON propuesto por intérprete externo; requiere --utterance")
+    parser.add_argument("--interpret-openai", action="store_true",
+                        help="F7D opcional: clasificar la intención, sin cálculos")
+    parser.add_argument("--consent-send-text", action="store_true",
+                        help="Consiente el envío remoto del texto de esta solicitud")
+    parser.add_argument("--interpret-model", type=str,
+                        help="Modelo OpenAI explícito compatible con JSON schema")
     parser.add_argument("--confirm-execute", action="store_true",
                         help="F7D: tras revisión completa, solicitar confirmación humana TTY para Maestro")
     parser.add_argument("--bundle-dir", type=Path,
@@ -108,11 +119,25 @@ def main() -> int:
                 raise MaestroError(
                     "F7D previsualización no admite bundle: no ejecuta herramientas."
                 )
-            candidate = (
-                _load_untrusted_candidate(args.candidate)
-                if args.candidate is not None else None
-            )
+            if args.interpret_openai and args.candidate is not None:
+                raise MaestroError("--candidate y --interpret-openai son incompatibles.")
+            if args.interpret_openai:
+                candidate = interpret_openai_request(
+                    args.utterance, model=args.interpret_model,
+                    consent_send_text=args.consent_send_text,
+                )
+            else:
+                if args.consent_send_text or args.interpret_model is not None:
+                    raise MaestroError("Consentimiento y modelo requieren --interpret-openai.")
+                candidate = (_load_untrusted_candidate(args.candidate)
+                             if args.candidate is not None else None)
             preview = preview_natural_request(args.utterance, candidate)
+            if args.interpret_openai:
+                preview["interpreter"] = {
+                    "provider": "OpenAI Responses API",
+                    "model": args.interpret_model,
+                    "authority": "proposal_only",
+                }
             if args.confirm_execute:
                 if preview["status"] != "NEEDS_USER_CONFIRMATION":
                     raise MaestroError(
@@ -139,8 +164,9 @@ def main() -> int:
             else:
                 sys.stdout.write(output)
             return 0
-        if args.candidate is not None or args.confirm_execute:
-            raise MaestroError("--candidate y --confirm-execute requieren --utterance.")
+        if (args.candidate is not None or args.confirm_execute or args.interpret_openai
+                or args.consent_send_text or args.interpret_model is not None):
+            raise MaestroError("Las opciones F7D requieren --utterance.")
         if args.input is not None:
             inp = json.loads(args.input.read_text(encoding="utf-8"))
         else:
