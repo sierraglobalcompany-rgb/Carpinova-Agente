@@ -145,6 +145,12 @@ class WebReviewTests(unittest.TestCase):
                 with self.assertRaises(MaestroError):
                     gate.stage(None, "Gabinete", CABINET)
 
+    def test_non_ascii_identity_ids_fail_closed_before_comparison(self):
+        # compare_digest is defined only for ASCII text inputs.
+        gate = ReviewGate(authenticated_identity=lambda _: ("usuario-ñ", "session"))
+        with self.assertRaisesRegex(MaestroError, "inválidas"):
+            gate.stage(None, "gabinete", CABINET)
+
     def test_bad_limits_rejected(self):
         for ttl in (0, True, -1, 3601):
             with self.subTest(ttl=ttl), self.assertRaises(MaestroError):
