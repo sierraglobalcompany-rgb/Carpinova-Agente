@@ -33,6 +33,7 @@ ALLOWED = {
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project", "query", "hardware", "construction"}),
     "modular": frozenset({"module_spec"}),
+    "construction": frozenset({"construction"}),
 }
 
 
