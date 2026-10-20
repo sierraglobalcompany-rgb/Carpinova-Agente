@@ -96,7 +96,10 @@ def front_panels(fronts: Any, *, module_id: str, module_width_mm: int,
         x_start = start_x_mm
         y_start = 0
         z_start = -thickness
-        basis = "external_dimensions minus explicit edge reveals"
+        basis = ("module.width_mm - fronts.left_reveal_mm - "
+                 "fronts.right_reveal_mm")
+        height_basis = ("run.height_mm - fronts.top_reveal_mm - "
+                        "fronts.bottom_reveal_mm")
     else:
         left = _int(fronts["left_clearance_mm"], "left_clearance_mm")
         right = _int(fronts["right_clearance_mm"], "right_clearance_mm")
@@ -107,7 +110,10 @@ def front_panels(fronts: Any, *, module_id: str, module_width_mm: int,
         x_start = start_x_mm + panel_thickness_mm
         y_start = panel_thickness_mm
         z_start = 0
-        basis = "F1 clear_aperture minus explicit edge clearances"
+        basis = ("F1.clear_width_mm - fronts.left_clearance_mm - "
+                 "fronts.right_clearance_mm")
+        height_basis = ("F1.clear_height_mm - fronts.top_clearance_mm - "
+                        "fronts.bottom_clearance_mm")
     panel_width = total_width - left - right
     panel_height = total_height - bottom - top
     gap = _int(fronts["center_gap_mm"], "center_gap_mm") if count == 2 else 0
@@ -145,9 +151,9 @@ def front_panels(fronts: Any, *, module_id: str, module_width_mm: int,
             "edgebanding_nominal_total_mm": band_length,
             "finished_cut_dimensions_mm": None,
             "source_engine": "F7C_EXPLICIT_FRONT",
-            "source_formula": basis + (
-                "; width=(available-center_gap_mm)/2" if count == 2 else ""
-            ),
+            "source_formula": ("width=(" + basis +
+                               (" - fronts.center_gap_mm" if count == 2 else "") +
+                               ") / fronts.leaf_count; height=(" + height_basis + ")"),
             "hinge_side_requested": hinge_sides[i],
         })
     blockers = [
