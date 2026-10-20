@@ -31,11 +31,11 @@ Sin `--confirm-execute`, el modo anterior continúa siendo **solo previsualizaci
 
 ```bash
 # 1. Revisar primero la propuesta no confiable (puede provenir de cualquier intérprete):
-python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \\
+python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \
   --candidate examples/maestro-questions.json
 
 # 2. Solo el operador humano, EN TERMINAL INTERACTIVA:
-python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \\
+python -m carpinova_agent.maestro_cli --utterance "Quiero un gabinete de 600 mm" \
   --candidate examples/maestro-questions.json --confirm-execute
 ```
 

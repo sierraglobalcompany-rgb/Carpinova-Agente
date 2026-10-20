@@ -168,7 +168,7 @@ class HumanConfirmationCliTests(unittest.TestCase):
                 code, out, err = self._invoke([
                     "--utterance", "Gabinete", "--candidate", str(path),
                     "--confirm-execute", "--output", str(outfile),
-                ], stdin=_FakeTty("si\\n"), stderr=_FakeTty())
+                ], stdin=_FakeTty("si\n"), stderr=_FakeTty())
             self.assertEqual(code, 2)
             self.assertEqual(out, "")
             self.assertIn("cancelado", err)
@@ -189,7 +189,7 @@ class HumanConfirmationCliTests(unittest.TestCase):
                 code, out, err = self._invoke([
                     "--utterance", "Gabinete", "--candidate", str(candidate),
                     "--confirm-execute",
-                ], stdin=_FakeTty(phrase + "\\n"), stderr=_FakeTty())
+                ], stdin=_FakeTty(phrase + "\n"), stderr=_FakeTty())
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(out), result)
             self.assertIn(visible, err)
@@ -211,7 +211,7 @@ class HumanConfirmationCliTests(unittest.TestCase):
                 code, _, _ = self._invoke([
                     "--utterance", "Gabinete", "--candidate", str(candidate),
                     "--confirm-execute",
-                ], stdin=MutatingTty(phrase + "\\n"), stderr=_FakeTty())
+                ], stdin=MutatingTty(phrase + "\n"), stderr=_FakeTty())
             self.assertEqual(code, 0)
             engine.assert_called_once_with(CABINET, bundle_dir=None, max_questions=3)
 
@@ -221,7 +221,7 @@ class HumanConfirmationCliTests(unittest.TestCase):
             with patch("carpinova_agent.maestro_cli.consult_maestro") as engine:
                 code, out, _ = self._invoke([
                     "--utterance", "Gabinete", "--candidate", str(p)
-                ], stdin=_FakeTty("CONFIRMAR evil\\n"), stderr=_FakeTty())
+                ], stdin=_FakeTty("CONFIRMAR evil\n"), stderr=_FakeTty())
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(out)["status"], "NEEDS_USER_CONFIRMATION")
             engine.assert_not_called()
@@ -292,7 +292,7 @@ class HumanConfirmationCliTests(unittest.TestCase):
                 code, out, _ = self._invoke([
                     "--utterance", "Buscar bisagras", "--candidate", str(path),
                     "--bundle-dir", td, "--confirm-execute",
-                ], stdin=_FakeTty(phrase + "\\n"), stderr=_FakeTty())
+                ], stdin=_FakeTty(phrase + "\n"), stderr=_FakeTty())
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(out)["status"], "REFERENCE_ONLY")
             engine.assert_called_once_with(
