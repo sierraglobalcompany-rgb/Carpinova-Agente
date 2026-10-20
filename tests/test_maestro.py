@@ -92,6 +92,76 @@ class MaestroRoutingTests(unittest.TestCase):
             "module_spec.site_width_mm.bottom",
         ])
 
+    def _modular_knowledge_example(self):
+        src = (Path(__file__).resolve().parent.parent /
+               "examples/modular-kitchen-door-fronts.json")
+        return json.loads(src.read_text(encoding="utf-8"))
+
+    def test_modular_with_explicit_knowledge_query(self):
+        request = {
+            "action": "modular",
+            "module_spec": self._modular_knowledge_example(),
+            "query": "bisagras",
+        }
+        with patch("carpinova_agent.maestro.load_bundle",
+                   return_value={"verified": True}) as load:
+            with patch("carpinova_agent.maestro.search_content",
+                       return_value=FOUND) as search:
+                response = consult_maestro(request, bundle_dir="/tmp/verified")
+        load.assert_called_once_with("/tmp/verified")
+        search.assert_called_once_with({"verified": True}, "bisagras")
+        self.assertEqual(response["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertEqual(response["modular"]["piece_count"], 13)
+        self.assertEqual(response["knowledge"]["coverage"], "FULL_BOOK")
+        self.assertEqual(response["source_provenance"][0]["pdf_page"], 110)
+        self.assertEqual(response["source_provenance"][0]["printed_page"], 88)
+        self.assertFalse(response["source_provenance"][0]["fabrication_authority"])
+        for key in ("fabrication_ready", "cutting_ready",
+                    "drilling_ready", "purchase_ready"):
+            self.assertFalse(response[key], key)
+        self.assertTrue(any("referencia educativa" in text
+                            for text in response["blockers"]))
+
+    def test_modular_query_requires_verified_bundle(self):
+        request = {"action": "modular",
+                   "module_spec": self._modular_knowledge_example(),
+                   "query": "bisagras"}
+        with self.assertRaisesRegex(MaestroError, "bundle Knowledge"):
+            consult_maestro(request)
+
+    def test_modular_without_query_does_not_lookup_book(self):
+        request = {"action": "modular",
+                   "module_spec": self._modular_knowledge_example()}
+        with patch("carpinova_agent.maestro.load_bundle") as load:
+            response = consult_maestro(request, bundle_dir="/tmp/unused")
+        load.assert_not_called()
+        self.assertIsNone(response["knowledge"])
+        self.assertEqual(response["source_provenance"], [])
+
+    def test_modular_book_no_matches_stays_explicitly_uncertain(self):
+        data = {**FOUND, "results": [], "total_matches": 0}
+        request = {"action": "modular",
+                   "module_spec": self._modular_knowledge_example(),
+                   "query": "xxxxx"}
+        with patch("carpinova_agent.maestro.load_bundle", return_value={}):
+            with patch("carpinova_agent.maestro.search_content", return_value=data):
+                response = consult_maestro(request, bundle_dir="/tmp/verified")
+        self.assertEqual(response["source_provenance"], [])
+        self.assertTrue(any("No se encontró" in x for x in response["blockers"]))
+        self.assertFalse(response["cutting_ready"])
+
+    def test_modular_partial_book_never_claims_full_coverage(self):
+        request = {"action": "modular",
+                   "module_spec": self._modular_knowledge_example(),
+                   "query": "bisagras"}
+        limited = {**FOUND, "coverage": "PARTIAL_CORPUS"}
+        with patch("carpinova_agent.maestro.load_bundle", return_value={}):
+            with patch("carpinova_agent.maestro.search_content", return_value=limited):
+                response = consult_maestro(request, bundle_dir="/tmp/pilot")
+        self.assertEqual(response["knowledge"]["coverage"], "PARTIAL_CORPUS")
+        self.assertTrue(any("paquete parcial" in x for x in response["blockers"]))
+        self.assertFalse(response["fabrication_ready"])
+
     def test_project_missing_data(self):
         r = consult_maestro({
             "action": "project",
