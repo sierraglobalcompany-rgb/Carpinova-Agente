@@ -332,6 +332,7 @@ jobs:
               "screws_and_connectors": "tornillos",
               "wall_support": "listón francés pared",
               "floor_support": "patas",
+              "site_survey": "plantilla levantamiento",
           }
           report = {}
           for topic, query in cases.items():
@@ -359,6 +360,10 @@ jobs:
               assert all(answer[x] is False for x in (
                   "fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
               assert answer["hardware"] is None
+              if topic == "site_survey":
+                  # The book form is a site-measurement aid, not a
+                  # recipe for a back cutout or a plumbing drawing.
+                  assert 192 in [p["pdf_page"] for p in answer["source_provenance"]]
               report[topic] = {
                   "query": query,
                   "search_window_count": review["sampled_result_count"],
