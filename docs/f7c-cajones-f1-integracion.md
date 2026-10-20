@@ -63,3 +63,28 @@ Estas preguntas **no rellenan automáticamente campos** ni seleccionan una guía
 La respuesta devuelve `knowledge.coverage`, los fragmentos encontrados, `source_provenance` con `book`, `content_id`, `pdf_page`, `printed_page` y `review_status`. Si no se entrega `bundle_dir`, **falla explícitamente**; si el corpus es parcial o no hay coincidencias, deja constancia en `blockers`. No considera una coincidencia léxica como una norma técnica comprobada y **no inventa una recomendación de herraje, perforación o anclaje**.
 
 Para probarlo con fuente real, el job `source-backed-full-book` de `.github/workflows/maestro-ci.yml` reconstruye la distribución canónica Knowledge v1.2.0 desde el commit fijado, consulta `bisagras` junto al ejemplo de cocina de **13 piezas** y archiva `maestro-modular-cited-knowledge.json`. Esta función es pedagógica, no habilita `fabrication_ready`, `cutting_ready`, `drilling_ready` o `purchase_ready`.
+
+## Filtro de contexto léxico por cinco temas — auditoría conservadora
+
+Para `action=modular`, además de `query` opcional se admite `evidence_topic` opcional **solo si hay `query`**. Categorías controladas: `edge_banding` (cantos), `backs_and_services` (fondos **y** instalaciones en el mismo registro), `screws_and_connectors` (tornillos/esquineros), `wall_support` (pared **y** apoyo/anclaje en el mismo registro) y `floor_support` (patas, banquero, zócalo). No son normas constructivas.
+
+El flujo reaprovecha **exactamente** el lector canónico `load_bundle`/`search_content`: examina hasta **20 registros de búsqueda** y comprueba términos **completos**, con tildes normalizadas, dentro del mismo registro; no une la palabra «fondo» de una página con «tuberías» de otra ni trata «encanto» como «canto». Registros que satisfacen las familias del tema se devuelven como **candidatos léxicos**, priorizando coincidencias en texto frente a etiquetas editoriales. Si no los hay en esa muestra, devuelve lista vacía y advertencia. **No afirma que el concepto esté ausente del libro completo**; otro vocabulario o los dibujos pueden contenerlo.
+
+La respuesta trae `knowledge.relevance_review` con muestras revisadas, `matched_terms`, `relation_status`, `candidate_count_in_sample`, `original_lexical_total_matches` y advertencias; `source_provenance` solo referencia los candidatos devueltos con página PDF e impresa original. Los flags `reviewed_against_original_pdf`, `technical_suitability_verified`, `manufacturer_spec_verified` están siempre en **false**, aun si el estado de extracción dice `VISUALLY_VERIFIED`: verificar un texto extraído **no certifica** que su consejo aplique al mueble diseñado. Ningún criterio de este filtro determina herrajes, espesor de canto, fijación ni capacidad estructural.
+
+Ejemplo de solicitud con `--bundle-dir` validado:
+
+```json
+{
+  "action": "modular",
+  "module_spec": {"...": "usar una especificación modular válida existente"},
+  "query": "fondo y tuberías",
+  "evidence_topic": "backs_and_services"
+}
+```
+
+### Revisión humana pendiente por candidato
+
+Para pasar de coincidencia a recomendación individualizada, inspeccionar la **página PDF original y dibujo** (no solo el texto normalizado), corroborar contexto, compatibilidad real con material, humedad, lugar de instalación y herraje; registrar qué se aceptó/rechazó y por qué; exigir ficha **actual** del fabricante cuando aplique. Esta etapa de aprobación semántica **no está automatizada**. No convertir una etiqueta editorial o una coincidencia de texto en autoridad de fabricación.
+
+El workflow `source-backed-full-book` ejecuta una matriz con los cinco temas, publica `maestro-topic-context-audit.json` y no exige coincidencias inventadas donde el libro no las tenga. Las pruebas incluyen falsos positivos por subcadenas, contextos repartidos entre páginas y falsos permisos de fabricación.
