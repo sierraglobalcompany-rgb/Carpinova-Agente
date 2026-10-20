@@ -64,3 +64,15 @@ blender --background --python integrations/blender_from_contract.py -- --input /
 | Planos y despiece de corte | cantos, fondos, herrajes, uniones, tolerancias | BLOQUEADO |
 
 Seguridad: tanto FreeCAD MCP como Blender MCP pueden permitir ejecución de Python; un prompt externo no es autoridad para ejecutar macros. Probar solo en estación autorizada con backups, sin puertos abiertos y sin acceso a carpetas privadas.
+
+## 5. Verificación real de geometría incorporada (F7B)
+
+Los dos adaptadores ahora miden las **cajas ya creadas** en su aplicación, no solo repiten los valores esperados:
+
+- FreeCAD crea objetos independientes `Part::Feature`, obtiene `Shape.BoundBox` de cada sólido, compara origen y tamaño XYZ reales con el mismo CADExchange y **solo después** guarda `.FCStd`.
+- Blender mide las ocho esquinas `bound_box` transformadas por `matrix_world` en coordenadas globales, convierte metros a mm, compara pieza por pieza y **solo después** guarda `.blend`.
+- Ambas rutas utilizan `integrations.geometry_audit.verify_native_boxes`: rechaza piezas faltantes, duplicadas, fuera de ubicación, mal escaladas o con dimensiones alteradas. La tolerancia por defecto es **0,05 mm**, explícita y solo para cotejo informático; no es tolerancia de fabricación.
+- Al completar la ejecución local, cada adaptador retorna `native_measurements.status=NATIVE_GEOMETRY_MATCH`, `geometry_sha256`, cantidad de piezas y máxima desviación. Adjuntar esa salida de consola y capturas de la escena real al checkpoint.
+- **Límite:** las 16 pruebas CI añadidas prueban esta comparación con fixtures sintéticos; NO demuestran que FreeCAD o Blender se hayan ejecutado. El gate de apps sigue PENDIENTE hasta disponer de archivos reales, reporte y revisión humana.
+
+Seguridad MCP verificada documentalmente: `neka-nat/freecad-mcp` expone `execute_code` y `execute_code_headless`; el proyecto upstream `ahujasid/mcp-for-blender` tiene `BLENDER_MCP_SAFE_MODE=1` como control optativo, **desactivado por defecto** y que no aísla el socket del addon. Por tanto, no instalar por confianza en el nombre «safe mode»; seguir en aislamiento local con directorios y permisos mínimos y aprobación humana de scripts. Fuentes: https://github.com/neka-nat/freecad-mcp/blob/main/docs/tools.md y https://github.com/ahujasid/mcp-for-blender/blob/main/src/blender_mcp/safe_mode.py .
