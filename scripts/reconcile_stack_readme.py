@@ -2,7 +2,8 @@
 
 An edited README introduction is permitted, but BOTH upstream F4/F5 sections
 must survive byte-for-byte as logical Markdown sections in the final F7C README.
-The audited final README is restored only for the known F5 README conflict.
+The final F7C README is audited, but only the historical F4+F5 content is
+written at the F5 stage. Later PRs must introduce their own README changes.
 No other conflicting path, branch ref, or protected branch is modified.
 """
 from __future__ import annotations
@@ -48,9 +49,12 @@ def reconcile(f4: str, f5: str, f7: str) -> str:
             raise ValueError(f"Final F7C README does not preserve the exact {label} section.")
     if f7.index(HARDWARE_HEADING) > f7.index(MAESTRO_HEADING):
         raise ValueError("Final F7C README has reversed source section order.")
-    # Return the already-audited feature README: previous source sections match
-    # exactly, while editorial changes in the earlier introductory text remain.
-    return f7
+    # At this point the rehearsal has merged only F1/F3/F2/F4 and is handling
+    # F5. Writing the FINAL F7C README here would prematurely introduce F6/F7C
+    # edits and cause a false README conflict at F6. Preserve the genuine F5
+    # ancestry here; later PR merges apply the feature README on their turn.
+    f4_section = _section(f4, HARDWARE_HEADING)
+    return f5.replace(MAESTRO_HEADING, f4_section + "\n\n" + MAESTRO_HEADING, 1)
 
 
 def main() -> int:

@@ -27,8 +27,19 @@ class ReadmeReconciliationTest(unittest.TestCase):
             + "## F6 — módulos\nHay geometría nominal.\n"
         )
 
-    def test_allows_updated_introduction_preserving_source_sections(self) -> None:
-        self.assertEqual(reconcile(self.f4, self.f5, self.final), self.final)
+    def test_allows_updated_introduction_but_defers_it_until_f7c(self) -> None:
+        resolved = reconcile(self.f4, self.f5, self.final)
+        self.assertEqual(
+            resolved,
+            self.f5.replace(
+                MAESTRO,
+                HARDWARE + "\nFicha F4 exacta\nNo autoriza perforaciones.\n\n" + MAESTRO,
+                1,
+            ),
+        )
+        self.assertIn("Intro original", resolved)
+        self.assertNotIn("Intro actualizada con estado F7C", resolved)
+        self.assertNotIn("## F6", resolved)
 
     def test_rejects_changed_f4_section(self) -> None:
         with self.assertRaisesRegex(ValueError, "exact F4"):
