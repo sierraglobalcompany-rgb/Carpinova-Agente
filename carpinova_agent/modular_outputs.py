@@ -61,12 +61,12 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     """Scaled elevation. All panel coordinates are from F6, not recalculated."""
     draft = _review_draft(model)
     w, h = draft["dimensions_mm"]["width"], draft["dimensions_mm"]["height"]
-    viewport_w, viewport_h = 1000, 710
+    viewport_w, viewport_h = 1000, 790
     max_w, max_h = 850, 475
     scale = min(max_w / w, max_h / h)
     scaled_w, scaled_h = w*scale, h*scale
     x0 = (viewport_w-scaled_w)/2
-    y0 = 130+(max_h-scaled_h)/2
+    y0 = 160+(max_h-scaled_h)/2
 
     shapes = []
     # Rear panels appear behind front carcass outlines in this elevation.
@@ -107,14 +107,14 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{viewport_w}" '
         f'height="{viewport_h}" viewBox="0 0 {viewport_w} {viewport_h}" '
         'role="img" aria-label="Elevación frontal preliminar de módulos abiertos">'
-        '<style>'
+        '<style>svg{background-color:#ffffff}'
         '.panel{fill:#e2e8f0;stroke:#334155;stroke-width:1.15}'
         'text{font-family:Arial,sans-serif;fill:#1e293b;font-size:18px}'
         '.bad{font-size:25px;fill:#b91c1c;font-weight:bold}'
         '.note{font-size:15px;fill:#475569}.module{font-size:14px}'
         '.dim{stroke:#0f766e;stroke-width:1.1;fill:none}'
         '</style>'
-        f'<text x="45" y="37" font-size="25" font-weight="bold">CarpiNova F6 — {name}</text>'
+        f'<text x="45" y="37" font-size="25" font-weight="bold">CarpiNova — boceto modular · {name}</text>'
         '<text x="45" y="74" class="bad">BORRADOR: NO CORTAR NI FABRICAR</text>'
         '<text x="45" y="99" class="note">Elevación frontal geométrica, paneles '
         'independientes; sin puertas, cajones ni herrajes.</text>'
@@ -129,9 +129,9 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'M {x0-23:.3f} {y0:.3f} V {y0+scaled_h:.3f}"/>'
         f'<text x="{x0-34:.3f}" y="{y0+scaled_h/2:.3f}" text-anchor="middle" '
         f'transform="rotate(-90 {x0-34:.3f} {y0+scaled_h/2:.3f})">{h} mm</text>'
-        '<text x="45" y="665" class="note">Veta y canto están en el CSV de revisión. '
+        '<text x="45" y="730" class="note">Veta y canto están en el CSV de revisión. '
         'Las dimensiones no compensan espesor de tapacanto.</text>'
-        '<text x="45" y="691" class="note">No muestra espesor de juntas, '
-        'fijaciones ni estructura de fondo. Verificar todo en sitio.</text>'
+        '<text x="45" y="755" class="note">No muestra uniones de fondos, '
+        'fijaciones ni verificación estructural. Comprobar en sitio.</text>'
         '</svg>\n'
     )
