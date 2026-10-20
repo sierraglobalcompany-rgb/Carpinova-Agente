@@ -1,0 +1,30 @@
+{
+  "type": "modular_run",
+  "application": "kitchen",
+  "width_mm": 1200,
+  "height_mm": 720,
+  "depth_mm": 560,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "SINK",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_BL_18",
+      "construction": "sides_full",
+      "fronts": "pending",
+      "back": "pending",
+      "support": "pending"
+    },
+    {
+      "module_id": "STORAGE",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_BL_18",
+      "construction": "top_bottom_full",
+      "fronts": "pending",
+      "back": "none",
+      "support": "pending"
+    }
+  ]
+}
