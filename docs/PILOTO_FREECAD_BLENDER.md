@@ -56,7 +56,7 @@ blender --background --python integrations/blender_from_contract.py -- --input /
 | Prueba | Criterio | Estado |
 |---|---|---|
 | JSON firmado por checksum SHA-256 | cálculo reproducible y dimensiones positivas | validado en tests Python |
-| FreeCAD real | .FCStd creado, 8 piezas, bbox correcto | PENDIENTE LOCAL |
+| FreeCAD real (Ubuntu 22.04 CI) | .FCStd creado, 8 piezas, bbox correcto | PASS headless CI #39356003860; revisión humana pendiente |
 | Blender real | .blend creado, 8 piezas, bbox correcto | PENDIENTE LOCAL |
 | FreeCAD MCP | conexión local, lectura y permisos limitados | PENDIENTE |
 | Blender MCP | conexión local autenticada, revisión de seguridad | PENDIENTE |
@@ -81,4 +81,12 @@ Seguridad MCP verificada documentalmente: `neka-nat/freecad-mcp` expone `execute
 
 GitHub Actions `39355333219` ejecutó **Blender 4.0.2** de los paquetes Ubuntu, con `--background --factory-startup --python-use-system-env --python-exit-code 12`. La instalación del paquete no instaló ni habilitó MCP de terceros. Se construyó `closet-native.blend` de ocho paneles y se midieron sus límites a partir de `matrix_world @ Vector(bound_box)` antes del guardado. Resultado registrado: `NATIVE_GEOMETRY_MATCH`, 8 piezas, desviación absoluta máxima **0.00012589 mm** frente al CADExchange, tolerancia informática 0.05 mm. Contrato SHA-256 geométrico: `0e6b713db071e2c4fdc63fb7b3c63ac93b4ac05f2aa74aadac905860f661af6d`.
 
-Descargar evidencia desde https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39355333219 → Artifacts → `f7b-native-blender-validation`, con `.blend`, contrato CAD y log. **No confundir esta prueba en Linux headless con Blender MCP conectado al PC del propietario, render fotorrealista, diseño completo de clóset ni plano de taller.** Faltan validación humana de la escena/archivo, FreeCAD real y piloto MCP.
+Descargar evidencia desde https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39355333219 → Artifacts → `f7b-native-blender-validation`, con `.blend`, contrato CAD y log. **No confundir esta prueba en Linux headless con Blender MCP conectado al PC del propietario, render fotorrealista, diseño completo de clóset ni plano de taller.** Faltan validación humana de la escena/archivo y piloto MCP; FreeCAD real se verificó posteriormente en el apartado 7.
+
+## 7. Evidencia REAL de FreeCAD en runner aislado (F7B)
+
+GitHub Actions [run #39356003860](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39356003860) instaló **FreeCAD 0.19.2** desde Ubuntu 22.04 Jammy (repositorio oficial `universe`) y ejecutó la entrada fija `integrations/freecad_headless_proof.FCScript` con FreeCADCmd (sin MCP). La macro invocó el adaptador aprobado `integrations/freecad_from_contract.py`, creó 8 objetos `Part::Feature`, midió cada `Shape.BoundBox` **desde el sólido real** antes del guardado y generó `closet-native.FCStd`.
+
+Resultado: `NATIVE_GEOMETRY_MATCH`, **8/8 piezas**, desviación `max_abs_error_mm=0.0`, tolerancia de cotejo digital `0.05 mm`; verificación adicional del contenedor ZIP de FreeCAD `FREECAD_FCSTD_REAL=PASS` y sus objetos XML. Misma firma de geometría que Blender: `0e6b713db071e2c4fdc63fb7b3c63ac93b4ac05f2aa74aadac905860f661af6d`.
+
+Artefacto `f7b-native-freecad-validation`: contiene `.FCStd`, `closet-contract.json` y `freecad-proof.log`. Compara con el artefacto Blender: ambas apps comparten ID geométrico y 8 paneles, pero **no** se ha realizado inspección visual humana ni test de uniones/perforaciones. Versiones nativas probadas en CI: FreeCAD 0.19.2 y Blender 4.0.2; validar además versión objetivo de Windows antes de integrar MCP.
