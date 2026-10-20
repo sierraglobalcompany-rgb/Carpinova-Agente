@@ -90,6 +90,18 @@ def consult_maestro(
         "blockers": [],
         "source_provenance": [],
     }
+    if action == "combined" and "hardware" in inp:
+        front = inp["project"].get("front_style")
+        hw_front = inp["hardware"].get("front_style")
+        if front == "none":
+            raise MaestroError(
+                "El proyecto declara frente ninguno, pero solicita bisagra."
+            )
+        if front in {"overlay", "inset"} and hw_front != front:
+            raise MaestroError(
+                "Conflicto de tipo de frente entre proyecto y herraje: "
+                "no seleccionar bisagra hasta aclarar."
+            )
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
         result["project"] = project
