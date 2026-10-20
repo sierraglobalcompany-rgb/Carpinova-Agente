@@ -16,6 +16,7 @@ from knowledge_client import BundleError
 from .core import DesignError
 from .maestro import MaestroError, consult_maestro
 from .sketch import render_svg
+from .modular_outputs import modular_front_svg, modular_bom_csv
 
 
 def main() -> int:
@@ -31,6 +32,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="Salida JSON")
     parser.add_argument("--sketch", type=Path,
                         help="SVG frontal si el proyecto tiene geometría soportada")
+    parser.add_argument("--csv", type=Path, help="BOM de revisión si hay módulo F6")
     parser.add_argument("--max-questions", type=int, default=3)
     args = parser.parse_args()
     try:
@@ -42,14 +44,23 @@ def main() -> int:
             inp, bundle_dir=args.bundle_dir, max_questions=args.max_questions
         )
         if args.sketch:
-            part = response["project"]
-            if part is None or part["design"] is None or part["phase"] != "GEOMETRY_DRAFT":
-                raise MaestroError(
-                    "No es seguro generar un croquis: faltan medidas o hay conflicto."
-                )
-            svg = render_svg(part["design"])
+            if response["modular"] is not None:
+                svg = modular_front_svg(response["modular"])
+            else:
+                part = response["project"]
+                if part is None or part["design"] is None or part["phase"] != "GEOMETRY_DRAFT":
+                    raise MaestroError(
+                        "No es seguro generar un croquis: faltan medidas o hay conflicto."
+                    )
+                svg = render_svg(part["design"])
         else:
             svg = None
+        if args.csv:
+            if response["modular"] is None:
+                raise MaestroError("CSV de revisión F6 solo disponible en modo modular.")
+            csv_data = modular_bom_csv(response["modular"])
+        else:
+            csv_data = None
         output = json.dumps(response, indent=2, ensure_ascii=False) + "\n"
         if args.output:
             args.output.write_text(output, encoding="utf-8")
@@ -57,6 +68,8 @@ def main() -> int:
             sys.stdout.write(output)
         if svg is not None:
             args.sketch.write_text(svg, encoding="utf-8")
+        if csv_data is not None:
+            args.csv.write_text(csv_data, encoding="utf-8")
         return 0
     except (OSError, UnicodeError, ValueError, DesignError, BundleError,
             HardwareError, MaestroError) as exc:
