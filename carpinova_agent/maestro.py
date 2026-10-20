@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from hardware import suggest_hinge
 from knowledge_client import load_bundle, search_content
+from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 
 from .intake import guide_project
 from .modular import design_modular_run
@@ -18,7 +19,7 @@ from .construction_advice import construction_advice
 
 
 ACTIONS = frozenset({"project", "knowledge", "hardware", "combined", "modular", "construction"})
-FIELDS = frozenset({"action", "project", "query", "hardware", "module_spec", "construction"})
+FIELDS = frozenset({"action", "project", "query", "evidence_topic", "hardware", "module_spec", "construction"})
 REQUIRED = {
     "project": frozenset({"project"}),
     "knowledge": frozenset({"query"}),
@@ -32,7 +33,7 @@ ALLOWED = {
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project", "query", "hardware", "construction"}),
-    "modular": frozenset({"module_spec", "query"}),
+    "modular": frozenset({"module_spec", "query", "evidence_topic"}),
     "construction": frozenset({"construction"}),
 }
 
@@ -57,6 +58,12 @@ def _normalize_request(request: Any) -> dict[str, Any]:
     missing = REQUIRED[action] - provided
     if missing:
         raise MaestroError("Faltan campos: " + ", ".join(sorted(missing)))
+    if "evidence_topic" in provided:
+        topic = request["evidence_topic"]
+        if "query" not in provided or type(topic) is not str or topic not in TOPIC_TERMS:
+            raise MaestroError(
+                "evidence_topic exige query y uno de los temas documentados."
+            )
     if "construction" in provided and not isinstance(request["construction"], dict):
         raise MaestroError("construction debe ser un objeto JSON.")
     if "module_spec" in provided and not isinstance(request["module_spec"], dict):
@@ -197,7 +204,13 @@ def consult_maestro(
                 "sobre el libro; no se inventan fuentes."
             )
         bundle = load_bundle(bundle_dir)
-        found = search_content(bundle, inp["query"])
+        if "evidence_topic" in inp:
+            # Use ONLY the existing canonical Knowledge search. Screening
+            # evaluates a bounded retrieval window; it is not semantic proof.
+            found = search_content(bundle, inp["query"], limit=20)
+            found = screen_topic_results(found, inp["evidence_topic"])
+        else:
+            found = search_content(bundle, inp["query"])
         result["knowledge"] = found
         result["source_provenance"] = [
             {
@@ -210,6 +223,17 @@ def consult_maestro(
             }
             for item in found["results"]
         ]
+        if "relevance_review" in found:
+            result["blockers"].append(
+                "Las referencias del tema solo son candidatas léxicas; "
+                "se requiere revisar la página original y su pertinencia "
+                "técnica para este mueble."
+            )
+            if not found["results"]:
+                result["blockers"].append(
+                    "La muestra de búsqueda no contiene una referencia "
+                    "con el contexto completo del tema solicitado."
+                )
         if not found["results"]:
             result["blockers"].append(
                 "No se encontró evidencia textual para esa consulta "
