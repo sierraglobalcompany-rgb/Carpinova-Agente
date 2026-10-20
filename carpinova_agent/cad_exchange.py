@@ -1,0 +1,133 @@
+"""Single CAD exchange contract for FreeCAD and Blender, not an MCP server.
+
+Source of truth is F6 panel geometry; CAD executors/renderers are consumers.
+No geometry is reconstructed by prose or a second model implementation.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any
+
+from .core import DesignError
+from .modular_outputs import _review_draft
+
+
+def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
+    """Stable 3D panel boxes with explicit physical mm coordinates."""
+    draft=_review_draft(model)
+    boxes=[]
+    w,h,d=(draft["dimensions_mm"][k] for k in ("width","height","depth"))
+    seen=set()
+    for p in draft["parts"]:
+        role=p["role"]
+        t=p["thickness_mm"]
+        fx,fy=p["nominal_face_x_mm"],p["nominal_face_y_mm"]
+        x,y,z=p["nominal_origin_xyz_mm"]
+        if type(t) is not int or type(fx) is not int or type(fy) is not int:
+            raise DesignError("Paneles sin cotas físicas enteras.")
+        if role in ("left_side","right_side"):
+            size=[t,fy,fx]  # panel in YZ plane: thickness X; face_x -> depth Z
+            grain_world={"face_x":"Z","face_y":"Y","none":"none"}
+        elif role in ("top","bottom"):
+            size=[fx,t,fy]  # panel in XZ plane: thickness Y; face_x -> width X
+            grain_world={"face_x":"X","face_y":"Z","none":"none"}
+        else:
+            raise DesignError("Rol no soportado en intercambio CAD.")
+        if any(type(n) is not int for n in (x,y,z)) or min([x,y,z]+size)<0:
+            raise DesignError("Panel con origen/medidas no válidos.")
+        if min(size)<=0 or x+size[0]>w or y+size[1]>h or z+size[2]>d:
+            raise DesignError("Panel CAD fuera de dimensiones del mueble.")
+        pid=p["piece_id"]
+        if not isinstance(pid,str) or not pid or pid in seen:
+            raise DesignError("ID de pieza duplicado o inválido.")
+        seen.add(pid)
+        grain=p["grain_axis"]
+        if grain!="UNCONFIRMED" and grain not in grain_world:
+            raise DesignError("Veta no reconocida.")
+        boxes.append({
+            "piece_id":pid,"module_id":p["module_id"],
+            "material_id":p["material_id"],"role":role,
+            "origin_xyz_mm":[x,y,z],"size_xyz_mm":size,
+            "grain_world_axis":(
+                "UNCONFIRMED" if grain=="UNCONFIRMED" else grain_world[grain]
+            ),
+            "construction_geometry":"NOMINAL_PANEL_BOX",
+        })
+    payload={
+        "schema_version":"0.1.0",
+        "source_engine":"F6_OPEN_MODULES_FROM_F1",
+        "unit":"mm",
+        "coordinate_system":"right-handed X width/right, Y height/up, Z depth/back",
+        "status":"DRAFT_NOT_FOR_CUTTING",
+        "fabrication_ready":False,
+        "cutting_ready":False,
+        "drilling_ready":False,
+        "manufacturing_holes":[],
+        "bounds_xyz_mm":[w,h,d],
+        "boxes":boxes,
+        "hardware_included":False,
+        "finished_panel_edges_included":False,
+        "cad_warning":"Only carcass panel boxes. No backs, doors, drawers, machining or anchors.",
+    }
+    signature=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(",",":"))
+    return {**payload,"geometry_sha256":hashlib.sha256(signature.encode("utf-8")).hexdigest()}
+
+
+def validate_exchange(data: Any) -> dict[str,Any]:
+    """Validate an exchange before any external CAD application receives it."""
+    if not isinstance(data,dict):
+        raise DesignError("CAD exchange debe ser un objeto.")
+    if data.get("schema_version")!="0.1.0" or data.get("unit")!="mm":
+        raise DesignError("Contrato CAD incompatible.")
+    if data.get("source_engine")!="F6_OPEN_MODULES_FROM_F1":
+        raise DesignError("Fuente de geometría no canónica.")
+    if data.get("status")!="DRAFT_NOT_FOR_CUTTING":
+        raise DesignError("Solo se admite geometría preliminar.")
+    for flag in ("fabrication_ready","cutting_ready","drilling_ready",
+                 "hardware_included","finished_panel_edges_included"):
+        if data.get(flag) is not False:
+            raise DesignError(f"Bandera prohibida: {flag}")
+    if data.get("manufacturing_holes") != []:
+        raise DesignError("No se admiten patrones de taladro por CAD.")
+    expected=set(("schema_version","source_engine","unit","coordinate_system","status",
+        "fabrication_ready","cutting_ready","drilling_ready","manufacturing_holes",
+        "bounds_xyz_mm","boxes","hardware_included","finished_panel_edges_included",
+        "cad_warning","geometry_sha256"))
+    if set(data)!=expected:
+        raise DesignError("Campos CAD faltantes o inesperados.")
+    h=data["geometry_sha256"]
+    if not isinstance(h,str) or len(h)!=64:
+        raise DesignError("Firma de geometría ausente.")
+    unsealed={k:v for k,v in data.items() if k!="geometry_sha256"}
+    digest=hashlib.sha256(json.dumps(unsealed,sort_keys=True,
+        ensure_ascii=False,separators=(",",":")).encode("utf-8")).hexdigest()
+    if h!=digest:
+        raise DesignError("Contrato CAD modificado después del cálculo F6.")
+    limits=data["bounds_xyz_mm"]
+    if not isinstance(limits,list) or len(limits)!=3 or any(
+        type(n) is not int or n<=0 for n in limits):
+        raise DesignError("Medidas CAD generales inválidas.")
+    boxes=data["boxes"]
+    if not isinstance(boxes,list) or not boxes or len(boxes)>48:
+        raise DesignError("Cantidad de piezas inválida.")
+    names=set()
+    for item in boxes:
+        if not isinstance(item,dict) or set(item)!={
+                "piece_id","module_id","material_id","role","origin_xyz_mm",
+                "size_xyz_mm","grain_world_axis","construction_geometry"}:
+            raise DesignError("Panel CAD inválido.")
+        name=item["piece_id"]
+        if not isinstance(name,str) or not name or name in names:
+            raise DesignError("Identificador CAD repetido.")
+        names.add(name)
+        if item["role"] not in ("left_side","right_side","top","bottom"):
+            raise DesignError("Rol CAD no soportado.")
+        a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
+        if (not isinstance(a,list) or not isinstance(b,list)
+                or len(a)!=3 or len(b)!=3 or any(
+                    type(n) is not int for n in a+b)
+                or min(a)<0 or min(b)<=0 or any(
+                    a[i]+b[i]>limits[i] for i in range(3))):
+            raise DesignError("Caja CAD excede límites físicos.")
+    return data
