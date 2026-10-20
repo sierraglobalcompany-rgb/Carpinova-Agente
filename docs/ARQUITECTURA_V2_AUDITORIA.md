@@ -100,3 +100,7 @@ Revisado el árbol exacto: PR #2 y #6 contienen módulos Knowledge/Hardware cuyo
 El problema específico de las salidas nativas era que comprobar el CADExchange previo no demostraba la geometría resultante. Ya se añadió `integrations.geometry_audit.verify_native_boxes` y medición de `Shape.BoundBox` (FreeCAD) / `obj.bound_box` con matriz global (Blender). Estas lecturas se comparan antes de guardar; 16 pruebas unitarias cubren deriva, faltantes y manipulación. Se necesita **ejecución de apps real** para cerrar el gate. El máximo error informático tolerado para comparar escenas es 0,05 mm, sin relación con tolerancia industrial de corte.
 
 No añadir un segundo despiece CAD, un segundo catálogo de cantos, una segunda extracción del libro o nuevos PR de gobernanza. Documentar hallazgos en el PR activo; los tests y el Git history son la evidencia permanente.
+
+## Resultado comprobado F7B (Blender, no MCP)
+
+Se ejecutó la prueba nativa Linux headless con **Blender 4.0.2**, archivo `.blend` real, ocho paneles coincidentes y desviación máxima de **0.00012589 mm**, CI run #39355333219; evidencia descargable `f7b-native-blender-validation`. Se usó el mismo contrato geométrico F6; no se construyeron frentes/fondos/cajones adicionales. El comparador `verify_native_boxes` garantiza concordancia numérica, **no** inspección visual ni aptitud de taller. **FreeCAD nativo, Blender MCP y FreeCAD MCP: PENDIENTES.** La frase previa de falta de ejecución de Blender debe entenderse como estado inicial anterior al piloto; esta nota refleja la evidencia posterior.
