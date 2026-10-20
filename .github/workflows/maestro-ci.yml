@@ -1,0 +1,89 @@
+name: CarpiNova Maestro F5 integration
+on:
+  push:
+    branches: [main, "feat/f5-**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile all components
+        run: python -m compileall -q carpinova_agent knowledge_client hardware tests
+      - name: Full local suite F1-F5
+        run: python -m unittest discover -s tests -v
+      - name: Maestro CLI preliminary project
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-questions.json > /tmp/questions.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/questions.json").read_text())
+          assert data["status"] == "NEEDS_INPUT"
+          assert data["project"]["design"] is None
+          assert data["fabrication_ready"] is False
+          PY
+      - name: Hardware remains blocked
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
+          grep -q "bundle Knowledge" /tmp/expected_error
+
+  source-backed-full-book:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout agent exact PR branch
+        uses: actions/checkout@v4
+      - name: Checkout pinned canonical Knowledge source
+        uses: actions/checkout@v4
+        with:
+          repository: sierraglobalcompany-rgb/CarpiNova-Knowledge
+          ref: 4df02ef54562fac5a820cbad92b0edee547c310b
+          path: knowledge-src
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate canonical Knowledge repo
+        run: uv run --project knowledge-src python -m carpinova_knowledge validate --root knowledge-src > /tmp/knowledge-qa.json
+      - name: Generate deterministic full-book 1.2.0 bundle
+        run: |
+          uv run --project knowledge-src python -m carpinova_knowledge build-book-dist --root knowledge-src --book-id cpnc-2025 --out "$RUNNER_TEMP/knowledge-1.2.0" > /tmp/book-build-manifest.json
+      - name: Verify full-book retrieval and integrated furniture request
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/maestro-full.json --sketch /tmp/cabinet-draft.svg
+          python -m carpinova_agent.maestro_cli --question "bisagras" --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/maestro-reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from knowledge_client import load_bundle
+          root = Path(__import__("os").environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          knowledge = load_bundle(root)
+          assert knowledge["coverage"] == "FULL_BOOK"
+          assert knowledge["manifest"]["counts"]["pages"] == 252
+          assert knowledge["manifest"]["source_page_count"] == 295
+          combined = json.loads(Path("/tmp/maestro-full.json").read_text())
+          reference = json.loads(Path("/tmp/maestro-reference.json").read_text())
+          assert combined["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert combined["project"]["design"]["dimensions"]["clear_width_mm"] == 564
+          assert combined["hardware"]["candidate_hinge_sku"] == "71B3550"
+          assert combined["hardware"]["drilling_coordinates"] == []
+          assert combined["knowledge"]["coverage"] == "FULL_BOOK"
+          assert combined["knowledge"]["total_matches"] > 0
+          assert len(combined["source_provenance"]) > 0
+          assert all(x["fabrication_authority"] is False for x in combined["source_provenance"])
+          assert reference["status"] == "REFERENCE_ONLY"
+          assert reference["knowledge"]["total_matches"] > 0
+          assert combined["fabrication_ready"] is False
+          assert combined["purchase_ready"] is False
+          ElementTree.parse("/tmp/cabinet-draft.svg")
+          print("FULL_BOOK_1_2_0=PASS; MAESTRO_COMBINED=PASS; FABRICATION_RELEASED=NO")
+          PY
