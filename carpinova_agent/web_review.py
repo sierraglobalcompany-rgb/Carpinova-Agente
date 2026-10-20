@@ -61,7 +61,7 @@ class ReviewGate:
             raise MaestroError("F7D no pudo verificar la identidad autenticada.") from None
         if (type(pair) is not tuple or len(pair) != 2
                 or any(type(v) is not str or not v or len(v) > 128
-                       or v != v.strip() for v in pair)):
+                       or v != v.strip() or not v.isascii() for v in pair)):
             raise MaestroError("F7D identidad y sesión autenticadas inválidas.")
         return pair
 
