@@ -89,3 +89,6 @@ Se pueden modelar fondos embutidos completos (sin instalaciones) o **dos franjas
 ### Preguntar al libro mientras se diseña el mueble
 
 El modo Maestro `action=modular` admite opcionalmente `query` (por ejemplo `"bisagras"`) y `--bundle-dir`: produce la geometría del módulo y referencias de Knowledge con **páginas de PDF y libro impreso** en la misma respuesta. La consulta solo recupera registros del bundle canónico previamente validado; sin fuente falla, no atribuye recomendaciones a páginas no encontradas ni selecciona automáticamente herrajes. **No apto para corte/perforación**. [Contrato detallado](docs/f7c-cajones-f1-integracion.md).
+
+
+La consulta modular opcional también admite un filtro léxico `evidence_topic` para cantos, fondos e instalaciones, tornillos/conectores y soportes. Usa la **misma búsqueda Knowledge**, revisa contexto por registro y muestra máximo cinco referencias con páginas; ninguna se convierte automáticamente en una regla de fabricación. Véase [auditoría temática](docs/f7c-cajones-f1-integracion.md).
