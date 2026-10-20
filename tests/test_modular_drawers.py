@@ -112,7 +112,9 @@ class ModularDrawerTests(unittest.TestCase):
         self.assertEqual({r["drawer_id"] for r in rows if r["role"]=="drawer_facade"},
                          {"TOP","LOW"})
         self.assertTrue(all(r["production_status"]=="BORRADOR_NO_CORTAR" for r in rows))
-        root=ElementTree.fromstring(modular_front_svg(m))
+        svg=modular_front_svg(m)
+        self.assertIn("sin bisagras, correderas ni mecanizados",svg)
+        root=ElementTree.fromstring(svg)
         ns="{http://www.w3.org/2000/svg}"
         self.assertEqual(len(root.findall(f"{ns}rect")),17)
         self.assertEqual(sum(r.get("class")=="front" for r in root.findall(f"{ns}rect")),2)
