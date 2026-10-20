@@ -317,6 +317,57 @@ jobs:
           print("MODULAR_REAL_BOOK=PASS; SOURCE_PAGES=VERIFIED_BUNDLE; "
                 "FABRICATION_AUTHORITY=NO")
           PY
+      - name: Audit five construction topics on real FULL_BOOK without semantic claims
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from carpinova_agent.maestro import consult_maestro
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          spec = json.loads(Path("examples/modular-kitchen-door-fronts.json").read_text())
+          cases = {
+              "edge_banding": "canto",
+              "backs_and_services": "fondo tuberías",
+              "screws_and_connectors": "tornillos",
+              "wall_support": "listón francés pared",
+              "floor_support": "patas",
+          }
+          report = {}
+          for topic, query in cases.items():
+              answer = consult_maestro({
+                  "action": "modular", "module_spec": spec,
+                  "query": query, "evidence_topic": topic,
+              }, bundle_dir=bundle)
+              review = answer["knowledge"]["relevance_review"]
+              assert answer["knowledge"]["coverage"] == "FULL_BOOK"
+              assert answer["modular"]["piece_count"] == 13
+              assert review["topic"] == topic
+              assert review["sampled_result_count"] <= 20
+              assert review["candidate_count_in_sample"] == len(
+                  answer["knowledge"]["results"])
+              assert len(answer["source_provenance"]) == len(
+                  answer["knowledge"]["results"])
+              assert all(type(p["pdf_page"]) is int for p in
+                         answer["source_provenance"])
+              assert review["reviewed_against_original_pdf"] is False
+              assert review["technical_suitability_verified"] is False
+              assert review["manufacturer_spec_verified"] is False
+              assert all(answer[x] is False for x in (
+                  "fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+              assert answer["hardware"] is None
+              report[topic] = {
+                  "query": query,
+                  "search_window_count": review["sampled_result_count"],
+                  "context_candidates": review["candidate_count_in_sample"],
+                  "status": review["status"],
+                  "source_pages": [p["pdf_page"] for p in answer["source_provenance"]],
+                  "technical_suitability_verified": False,
+              }
+          Path("/tmp/maestro-topic-context-audit.json").write_text(
+              json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+          print("F7C_REAL_TOPIC_SCREEN=PASS", json.dumps(report,ensure_ascii=False))
+          PY
       - name: Audit book topic retrieval without claiming semantic completeness
         run: |
           python -m knowledge_client.coverage_audit --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/knowledge-topic-coverage.json
@@ -341,6 +392,7 @@ jobs:
             /tmp/knowledge-qa.json
             /tmp/book-build-manifest.json
             /tmp/maestro-modular-cited-knowledge.json
+            /tmp/maestro-topic-context-audit.json
 
   native-blender-proof:
     name: Native Blender headless proof (F7B, no MCP)
