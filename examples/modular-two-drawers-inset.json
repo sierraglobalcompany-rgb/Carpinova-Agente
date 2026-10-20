@@ -1,0 +1,92 @@
+{
+  "type": "modular_run",
+  "application": "kitchen",
+  "width_mm": 600,
+  "height_mm": 720,
+  "depth_mm": 560,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "BASE",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "WHITE_MELAMINE_18",
+      "construction": "sides_full",
+      "fronts": "none",
+      "back": {
+        "style": "inset_full",
+        "material_id": "HDF_WHITE_6",
+        "thickness_mm": 6,
+        "services_present": false,
+        "grain_axis": "none"
+      },
+      "support": "floor",
+      "drawers": [
+        {
+          "drawer_id": "TOP",
+          "opening_bottom_offset_mm": 0,
+          "opening_height_mm": 300,
+          "opening_depth_mm": 530,
+          "box_height_mm": 230,
+          "panel_thickness_mm": 18,
+          "bottom_thickness_mm": 6,
+          "slide_clearance_left_mm": 13,
+          "slide_clearance_right_mm": 13,
+          "front_setback_mm": 30,
+          "rear_setback_mm": 40,
+          "material_id": "WHITE_MELAMINE_18",
+          "bottom_material_id": "HDF_WHITE_6",
+          "facade": {
+            "style": "inset",
+            "material_id": "OAK_MELAMINE_18",
+            "thickness_mm": 18,
+            "left_clearance_mm": 3,
+            "right_clearance_mm": 3,
+            "top_clearance_mm": 3,
+            "bottom_clearance_mm": 3,
+            "grain_axis": "face_y",
+            "edgebanding_edges": [
+              "x_min",
+              "x_max",
+              "y_min",
+              "y_max"
+            ],
+            "edgeband_thickness_mm": 1
+          }
+        },
+        {
+          "drawer_id": "LOW",
+          "opening_bottom_offset_mm": 344,
+          "opening_height_mm": 300,
+          "opening_depth_mm": 530,
+          "box_height_mm": 230,
+          "panel_thickness_mm": 18,
+          "bottom_thickness_mm": 6,
+          "slide_clearance_left_mm": 13,
+          "slide_clearance_right_mm": 13,
+          "front_setback_mm": 30,
+          "rear_setback_mm": 40,
+          "material_id": "WHITE_MELAMINE_18",
+          "bottom_material_id": "HDF_WHITE_6",
+          "facade": {
+            "style": "inset",
+            "material_id": "OAK_MELAMINE_18",
+            "thickness_mm": 18,
+            "left_clearance_mm": 3,
+            "right_clearance_mm": 3,
+            "top_clearance_mm": 3,
+            "bottom_clearance_mm": 3,
+            "grain_axis": "face_y",
+            "edgebanding_edges": [
+              "x_min",
+              "x_max",
+              "y_min",
+              "y_max"
+            ],
+            "edgeband_thickness_mm": 1
+          }
+        }
+      ]
+    }
+  ]
+}
