@@ -107,6 +107,43 @@ jobs:
             /tmp/assembly-advice.json
             /tmp/kitchen-advice.json
             /tmp/cad-contract.json
+      - name: F7C rear panel geometries are source-backed and never cut-ready
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen-services.json --svg /tmp/f7c-services.svg --csv /tmp/f7c-services.csv > /tmp/f7c-services.json
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-services.json --output /tmp/f7c-services-cad.json
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-services.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-services-cad.json").read_text()))
+          assert model["piece_count"] == 10
+          assert cad["source_engine"] == "F7C_INSET_BACKS_FROM_F6"
+          assert len(cad["boxes"]) == 10
+          assert cad["fabrication_ready"] is False
+          assert cad["cutting_ready"] is False
+          assert cad["manufacturing_holes"] == []
+          assert model["parts"][4]["nominal_origin_xyz_mm"] == [18,18,554]
+          assert model["parts"][5]["nominal_origin_xyz_mm"] == [18,612,554]
+          with Path("/tmp/f7c-services.csv").open(encoding="utf-8",newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows) == 10
+          assert all(r["production_status"] == "BORRADOR_NO_CORTAR" for r in rows)
+          root=ElementTree.parse("/tmp/f7c-services.svg").getroot()
+          assert len(root.findall("{http://www.w3.org/2000/svg}rect")) == 10
+          print("F7C_INSET_BACKS=PASS; REAL_PIPE_HOLES=NOT_MODELED; CUT_RELEASE=NO")
+          PY
+      - name: Archive F7C nominal backs evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-service-back-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-services.svg
+            /tmp/f7c-services.csv
+            /tmp/f7c-services.json
+            /tmp/f7c-services-cad.json
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
@@ -190,7 +227,7 @@ jobs:
 
   native-blender-proof:
     name: Native Blender headless proof (F7B, no MCP)
-    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/f7-')
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/f7')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -207,24 +244,24 @@ jobs:
           blender --version | head -n 2
       - name: Create source-sealed cabinet modules CAD exchange
         run: |
-          python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output "$RUNNER_TEMP/closet-contract.json"
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-services.json --output "$RUNNER_TEMP/services-contract.json"
       - name: Build .blend with Blender real Python runtime and measure actual meshes
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           blender --background --factory-startup --python-use-system-env --python-exit-code 12 \
             --python integrations/blender_from_contract.py -- \
-            --input "$RUNNER_TEMP/closet-contract.json" \
-            --output "$RUNNER_TEMP/closet-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
-          test -s "$RUNNER_TEMP/closet-native.blend"
+            --input "$RUNNER_TEMP/services-contract.json" \
+            --output "$RUNNER_TEMP/services-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
+          test -s "$RUNNER_TEMP/services-native.blend"
           grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/blender-proof.log"
           grep -q 'VISUAL_PREVIEW_NOT_FOR_FABRICATION' "$RUNNER_TEMP/blender-proof.log"
       - name: Archive independently inspectable real Blender proof
         uses: actions/upload-artifact@v4
         with:
-          name: f7b-native-blender-validation
+          name: f7c-native-blender-back-validation
           retention-days: 14
           path: |
-            ${{ runner.temp }}/closet-contract.json
-            ${{ runner.temp }}/closet-native.blend
+            ${{ runner.temp }}/services-contract.json
+            ${{ runner.temp }}/services-native.blend
             ${{ runner.temp }}/blender-proof.log
