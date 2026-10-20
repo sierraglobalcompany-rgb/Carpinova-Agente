@@ -1,0 +1,33 @@
+{
+  "action": "modular",
+  "module_spec": {
+    "type": "modular_run",
+    "application": "closet",
+    "width_mm": 1200,
+    "height_mm": 2100,
+    "depth_mm": 500,
+    "installation": "freestanding",
+    "modules": [
+      {
+        "module_id": "A",
+        "width_mm": 600,
+        "material_id": "TABLERO_MEL_18",
+        "panel_thickness_mm": 18,
+        "construction": "sides_full",
+        "fronts": "none",
+        "back": "none",
+        "support": "floor"
+      },
+      {
+        "module_id": "B",
+        "width_mm": 600,
+        "material_id": "TABLERO_MEL_18",
+        "panel_thickness_mm": 18,
+        "construction": "top_bottom_full",
+        "fronts": "pending",
+        "back": "pending",
+        "support": "pending"
+      }
+    ]
+  }
+}
