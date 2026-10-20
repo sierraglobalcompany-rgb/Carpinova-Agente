@@ -125,3 +125,25 @@ Se añadió `.github/workflows/pr-stack-rehearsal.yml` con permisos **solo de le
 
 ### Siguiente acción
 Solicitar revisión/aprobación de PR #1, #2, #4, #6 y después actualizar la base de F5 para que los archivos ya integrados salgan de su diff; preservar el README combinado durante la transición. Luego reconciliar F6 y F7, volver a ejecutar suite/FreeCAD/Blender desde HEAD final de `main` sin recrear fuentes de geometría, y solo entonces avanzar con F7C (fondos, frentes y cajones).
+
+## Checkpoint de consolidación F1→F7C completo — 20 octubre 2026
+
+El ensayo F1→F7 anterior queda **supersedido para continuidad** por el nuevo workflow `.github/workflows/pr-stack-rehearsal.yml`, ahora ejecutado contra **diez PR**: #1 F1, #4 F3, #2 F2, #6 F4, #7 F5, #9 F6, #11 F7A/B, #12 F7C fondos, #13 F7C puertas y #14 F7C cajones. El orden no representa aprobación de merge: únicamente permite ensayar un grafo equivalente.
+
+- **Prueba GREEN sobre #14** [run #39367658075](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39367658075), HEAD `850da9bbc2ea2937aadf8c3940dca1b24551513c`.
+- Se compararon **las referencias HEAD reales y fijadas de las diez ramas** y `main`; ante cambios de SHA la prueba marca RED, exige actualizar evidencias y no reutiliza aprobaciones antiguas.
+- Merge de diez ramas solamente en un runner temporal, sin credenciales persistidas, sin `git push`, con permiso GitHub `contents: read`.
+- Única intervención permitida: conflicto de `README.md` entre F4 y F5, conservando literalmente ambos bloques y verificando la coincidencia contra el README final. Cualquier conflicto nuevo bloquea el ensayo; no se aplican parches genéricos ni se sustituye el README de origen a ciegas.
+- La comparación de **todo el árbol** del merge simulado con el árbol final del HEAD #14 fue idéntica (lista de diferencias vacía) y se ejecutaron **315 pruebas** en el árbol sintetizado; el artifact `carpinova-full-pr-stack-rehearsal` contiene commits locales, referencias usadas, conflicto y resultado.
+- Las pruebas de FreeCAD, Blender, Knowledge y herrajes del PR #14 son independientes y verificables en sus propios jobs. Compatibilidad geométrica real **no** equivale a conexión MCP ni diseño apto para corte.
+
+### Secuencia propuesta con aprobación del propietario, sin merge todavía
+
+1. Aprobar PR #1 en main; **cambiar explícitamente la base de #4 a main**, certificar diff/CI y aprobar #4. No fusionar #4 en la rama antigua de #1.
+2. Aprobar PR #2 y #6 contra main ya actualizado, verificando que Knowledge y Hardware son módulos únicos.
+3. Reconciliar PR #7: mover su base de #4 a main después de merges previos; los blobs F2/F4 idénticos deben desaparecer del diff. Resolver el conflicto de README preservando ambas secciones, como mostró el ensayo; luego verificar que **su delta real** es solo F5. No auto-merge.
+4. Tras aprobación de #7, retargetar #9, luego #11, #12, #13 y #14 **secuencialmente** a main cuando sus PR padres se hayan integrado; repetir la validación por cada cambio de base/HEAD y ejecutar el ensayo final sobre el árbol resultante.
+5. Con las diez ramas integradas y tests nativos/Knowledge verdes en el SHA de main resultante, retirar o archivar **solo con evidencia** los instrumentos transitorios de integración que ya no aporten validación, actualizar README/skills y definir siguiente NEXT. No borrar pruebas útiles.
+6. Mantener una puerta distinta de **fabricación**: sin aprobación profesional de estructura, referencias reales de bisagras/correderas, anclajes, taladros, vetas/cantos y tolerancias, las banderas `fabrication_ready`, `cutting_ready`, `drilling_ready`, `purchase_ready` continúan falsas. FreeCAD/Blender MCP aún no conectados.
+
+**Situación a este checkpoint:** `main=0bdb386a4875eaf2d1dcab99301348ae4bce7657`, diez PR **OPEN/DRAFT**, ninguna rama fusionada. Esto es una prueba de integración técnica, **no autorización de merge ni entrega de fabricación**.
