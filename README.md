@@ -85,3 +85,7 @@ Se pueden modelar fondos embutidos completos (sin instalaciones) o **dos franjas
 
 ### F7C Task 3 — cajas de cajón desde F1
 `module.drawers` incorpora hasta cuatro cajas por cuerpo, cada una con abertura y holguras de corredera **expresamente suministradas**, cinco paneles calculados por el motor único F1 y frente embutido decorativo opcional. Carcasa, fondo, cajón y fachada comparten IDs, modelo nominal y exportaciones CSV/SVG/FreeCAD/Blender. **No** hay compatibilidad de corredera demostrada, frentes sobrepuestos de cajón, taladros, montaje ni autorización de corte. Véanse [especificación](docs/f7c-cajones-f1-integracion.md) y [ejemplo](examples/modular-two-drawers-inset.json).
+
+### Preguntar al libro mientras se diseña el mueble
+
+El modo Maestro `action=modular` admite opcionalmente `query` (por ejemplo `"bisagras"`) y `--bundle-dir`: produce la geometría del módulo y referencias de Knowledge con **páginas de PDF y libro impreso** en la misma respuesta. La consulta solo recupera registros del bundle canónico previamente validado; sin fuente falla, no atribuye recomendaciones a páginas no encontradas ni selecciona automáticamente herrajes. **No apto para corte/perforación**. [Contrato detallado](docs/f7c-cajones-f1-integracion.md).
