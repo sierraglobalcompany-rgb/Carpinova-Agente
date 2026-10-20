@@ -1,0 +1,48 @@
+{
+  "type": "modular_run",
+  "application": "closet",
+  "width_mm": 900,
+  "height_mm": 1800,
+  "depth_mm": 550,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "WARDROBE",
+      "width_mm": 900,
+      "panel_thickness_mm": 18,
+      "material_id": "OAK_MELAMINE_18",
+      "construction": "sides_full",
+      "fronts": {
+        "style": "inset",
+        "leaf_count": 2,
+        "material_id": "OAK_MELAMINE_18",
+        "thickness_mm": 18,
+        "hinge_sides": [
+          "left",
+          "right"
+        ],
+        "left_clearance_mm": 2,
+        "right_clearance_mm": 2,
+        "top_clearance_mm": 2,
+        "bottom_clearance_mm": 2,
+        "center_gap_mm": 4,
+        "grain_axis": "face_y",
+        "edgebanding_edges": [
+          "x_min",
+          "x_max",
+          "y_min",
+          "y_max"
+        ],
+        "edgeband_thickness_mm": 1
+      },
+      "back": {
+        "style": "inset_full",
+        "material_id": "HDF_OAK_6",
+        "thickness_mm": 6,
+        "services_present": false,
+        "grain_axis": "face_y"
+      },
+      "support": "floor"
+    }
+  ]
+}
