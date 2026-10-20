@@ -13,21 +13,24 @@ from hardware import suggest_hinge
 from knowledge_client import load_bundle, search_content
 
 from .intake import guide_project
+from .modular import design_modular_run
 
 
-ACTIONS = frozenset({"project", "knowledge", "hardware", "combined"})
-FIELDS = frozenset({"action", "project", "query", "hardware"})
+ACTIONS = frozenset({"project", "knowledge", "hardware", "combined", "modular"})
+FIELDS = frozenset({"action", "project", "query", "hardware", "module_spec"})
 REQUIRED = {
     "project": frozenset({"project"}),
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project"}),
+    "modular": frozenset({"module_spec"}),
 }
 ALLOWED = {
     "project": frozenset({"project"}),
     "knowledge": frozenset({"query"}),
     "hardware": frozenset({"hardware"}),
     "combined": frozenset({"project", "query", "hardware"}),
+    "modular": frozenset({"module_spec"}),
 }
 
 
@@ -40,7 +43,7 @@ def _normalize_request(request: Any) -> dict[str, Any]:
         raise MaestroError("La solicitud Maestro debe ser un objeto JSON.")
     action = request.get("action")
     if not isinstance(action, str) or action not in ACTIONS:
-        raise MaestroError("action debe ser project, knowledge, hardware o combined.")
+        raise MaestroError("action debe ser project, knowledge, hardware, combined o modular.")
     provided = set(request) - {"action"}
     unknown = provided - FIELDS
     if unknown:
@@ -51,6 +54,8 @@ def _normalize_request(request: Any) -> dict[str, Any]:
     missing = REQUIRED[action] - provided
     if missing:
         raise MaestroError("Faltan campos: " + ", ".join(sorted(missing)))
+    if "module_spec" in provided and not isinstance(request["module_spec"], dict):
+        raise MaestroError("module_spec debe ser un objeto JSON.")
     if "project" in provided and not isinstance(request["project"], dict):
         raise MaestroError("project debe ser un objeto JSON.")
     if "hardware" in provided and not isinstance(request["hardware"], dict):
@@ -86,6 +91,7 @@ def consult_maestro(
         "project": None,
         "knowledge": None,
         "hardware": None,
+        "modular": None,
         "questions": [],
         "blockers": [],
         "source_provenance": [],
@@ -102,6 +108,23 @@ def consult_maestro(
                 "Conflicto de tipo de frente entre proyecto y herraje: "
                 "no seleccionar bisagra hasta aclarar."
             )
+    if action == "modular":
+        modular = design_modular_run(inp["module_spec"])
+        result["modular"] = modular
+        result["blockers"].extend(modular["blockers"])
+        if modular["status"] == "NEEDS_SITE_MEASUREMENTS":
+            for location in ("top", "middle", "bottom"):
+                result["questions"].append({
+                    "field": f"module_spec.site_width_mm.{location}",
+                    "question": f"Indica ancho del hueco en {location} (mm)",
+                    "unit": "mm",
+                })
+        elif modular["status"] == "NEEDS_LAYOUT_REVISION":
+            result["questions"].append({
+                "field": "module_spec.modules[*].width_mm",
+                "question": "Ajusta anchos de módulos para sumar el ancho total sin inventar rellenos.",
+                "unit": "mm",
+            })
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
         result["project"] = project
@@ -152,7 +175,9 @@ def consult_maestro(
                 "unit": "as_specified",
             })
 
-    if result["project"] is not None:
+    if result["modular"] is not None:
+        result["status"] = result["modular"]["status"]
+    elif result["project"] is not None:
         phase = result["project"]["phase"]
         if phase in {"NEEDS_INPUT", "INVALID_GEOMETRY", "SITE_CONFLICT"}:
             result["status"] = phase
