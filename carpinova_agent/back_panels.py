@@ -53,7 +53,7 @@ def back_panels(back: Any, *, module_id: str, module_width_mm: int,
     if not isinstance(back, dict):
         raise DesignError(f"{module_id}.back: se espera none, pending u objeto.")
     style = back.get("style")
-    if style not in STYLES:
+    if not isinstance(style, str) or style not in STYLES:
         raise DesignError(f"{module_id}.back.style: usar inset_full o inset_two_strips.")
     expected = COMMON | (STRIPS if style == "inset_two_strips" else frozenset())
     unknown = set(back) - expected
@@ -77,7 +77,7 @@ def back_panels(back: Any, *, module_id: str, module_width_mm: int,
             "elegir fondo parcial o sin fondo."
         )
     grain = back.get("grain_axis", "UNCONFIRMED")
-    if grain != "UNCONFIRMED" and grain not in GRAINS:
+    if not isinstance(grain, str) or (grain != "UNCONFIRMED" and grain not in GRAINS):
         raise DesignError(f"{module_id}.back.grain_axis no reconocido.")
     inner_width = module_width_mm - 2 * carcase_thickness_mm
     inner_height = module_height_mm - 2 * carcase_thickness_mm
@@ -116,12 +116,14 @@ def back_panels(back: Any, *, module_id: str, module_width_mm: int,
             _panel(
                 module_id, "back_bottom", material, inner_width, bottom,
                 thickness, [x, origin_y, z], grain,
-                "back.bottom_strip_height_mm (dato explícito de usuario)"
+                "width=module.width_mm - 2*module.panel_thickness_mm; "
+                "height=back.bottom_strip_height_mm (dato explícito)"
             ),
             _panel(
                 module_id, "back_top", material, inner_width, top,
                 thickness, [x, origin_y + bottom + gap, z], grain,
-                "back.top_strip_height_mm (dato explícito de usuario)"
+                "width=module.width_mm - 2*module.panel_thickness_mm; "
+                "height=back.top_strip_height_mm (dato explícito)"
             ),
         ]
         blockers.append(
