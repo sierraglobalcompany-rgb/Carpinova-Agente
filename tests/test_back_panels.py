@@ -138,6 +138,20 @@ class BackPanelTests(unittest.TestCase):
         with self.assertRaises(DesignError):
             design_modular_run(d)
 
+    def test_non_string_styles_fail_cleanly(self):
+        for value in ([], {}, 3, True, None):
+            d=spec()
+            d["modules"][0]["back"]["style"]=value
+            with self.subTest(value=value), self.assertRaises(DesignError):
+                design_modular_run(d)
+
+    def test_non_string_grain_fails_cleanly(self):
+        for value in ([], {}, 3, True, None):
+            d=spec()
+            d["modules"][0]["back"]["grain_axis"]=value
+            with self.subTest(value=value), self.assertRaises(DesignError):
+                design_modular_run(d)
+
     def test_invalid_material_id_fails(self):
         d=spec()
         d["modules"][0]["back"]["material_id"]="=HYPERLINK()"
