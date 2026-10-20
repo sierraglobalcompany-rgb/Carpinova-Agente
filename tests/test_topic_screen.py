@@ -27,7 +27,7 @@ class TopicScreenTests(unittest.TestCase):
     def test_all_declared_topics_have_context(self):
         self.assertEqual(set(TOPIC_TERMS), {
             "edge_banding", "backs_and_services", "screws_and_connectors",
-            "wall_support", "floor_support",
+            "wall_support", "floor_support", "site_survey",
         })
 
     def test_back_and_services_must_share_one_record(self):
@@ -113,6 +113,28 @@ class TopicScreenTests(unittest.TestCase):
         self.assertEqual(outcome["relevance_review"]["returned_candidate_count"],5)
         self.assertEqual(outcome["relevance_review"]["sampled_result_count"],16)
         self.assertEqual(outcome["total_matches"],98)
+
+    def test_site_survey_is_not_back_construction_proof(self):
+        # A traced site-survey form justifies asking WHERE utilities are,
+        # not how to cut a hole or whether a back can be removed.
+        page=record(
+            "CONTENT-CPNC-2025-P0192-001",
+            "Plantilla de levantamiento en obra con medidas e instalaciones.",
+            page=192,
+        )
+        survey=screen_topic_results(sample(page),"site_survey")
+        self.assertEqual([x["pdf_page"] for x in survey["results"]],[192])
+        self.assertFalse(survey["relevance_review"]["technical_suitability_verified"])
+        self.assertFalse(survey["relevance_review"]["reviewed_against_original_pdf"])
+        back=screen_topic_results(sample(page),"backs_and_services")
+        self.assertEqual(back["results"],[])
+
+    def test_site_survey_requires_utilities_and_measurement_context(self):
+        cases=[
+            record("UTILITIES","Se muestran instalaciones del edificio."),
+            record("MEASURE","Se hace un levantamiento de medidas en obra."),
+        ]
+        self.assertEqual(screen_topic_results(sample(*cases),"site_survey")["results"],[])
 
     def test_source_record_is_not_mutated(self):
         base=sample(record("A","Fondo detrás de tubería."),
