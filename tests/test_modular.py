@@ -217,6 +217,13 @@ class ModularTests(unittest.TestCase):
         with self.assertRaises(DesignError):
             design_modular_run(spec)
 
+    def test_reject_formula_injection_material_id(self):
+        for value in ("=SUM(A1:A3)", "+20", "@HYPERLINK", "-3"):
+            spec = fixture()
+            spec["modules"][0]["material_id"] = value
+            with self.subTest(value=value), self.assertRaises(DesignError):
+                design_modular_run(spec)
+
     def test_reject_nonstandard_fronts(self):
         spec = fixture()
         spec["modules"][0]["fronts"] = "overlay"
