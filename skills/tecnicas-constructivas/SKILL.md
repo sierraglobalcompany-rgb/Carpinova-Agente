@@ -35,3 +35,6 @@ El asesor conceptual de fondos se conserva; si el usuario quiere materializar la
 
 ## Puerta sobrepuesta o embutida (F7C Task 2)
 Explicar en palabras qué tapa exteriormente un `overlay` y qué queda dentro del hueco un `inset`. Consultar módulo y espesor, material, luces de los cuatro lados, si son 1 o 2 hojas, separación central, veta, tapacanto y mano de apertura; sin completar vacíos con reglas no comprobadas. El modelo detecta interferencias estáticas entre frentes de cuerpos contiguos, **no** el recorrido del giro ni choques con tiradores. Ningún agujero o bisagra se certifica con el libro solo. Más detalles en `docs/f7c-frentes-holguras-vetas.md`.
+
+## Cajones, frente estructural y frente decorativo
+Distinguir la caja con laterales, frente y trasera estructurales y fondo inferior aplicado (motor F1) del frente visible. Indicar cuándo un hueco tiene que permitir guías, apertura y limpieza; preguntar fabricante/longitud/capacidad de carga y posición real de la corredera, nunca sugerir un taladro universal. La habilidad acompaña el contrato nominal en `docs/f7c-cajones-f1-integracion.md`, no añade una segunda fórmula ni autoriza fabricación.
