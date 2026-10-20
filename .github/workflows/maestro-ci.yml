@@ -303,9 +303,17 @@ jobs:
           }
           def provenance(ans):
               return [p for p in ans["source_provenance"] if p["pdf_page"]==192]
-          assert provenance(answers["main"])==[]
+          # Old Knowledge can find p192 by broad "installations" and
+          # "levantamiento" terms. The actual fix is the visible wording,
+          # not false claims that the page was previously undiscoverable.
+          def page_text(ans):
+              return [r["text"] for r in ans["knowledge"]["results"]
+                      if r["pdf_page"] == 192]
           assert len(provenance(answers["candidate"]))==1
           assert provenance(answers["candidate"])[0]["printed_page"]==170
+          assert len(page_text(answers["candidate"]))==1
+          assert "hidrosanitarios" in page_text(answers["candidate"])[0]
+          assert all("hidrosanitarios" not in text for text in page_text(answers["main"]))
           assert all(answers[x]["modular"]["piece_count"]==13 for x in answers)
           assert all(not answers[x][k] for x in answers
                      for k in ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
@@ -313,12 +321,13 @@ jobs:
                      for x in answers)
           result={
               "proof":"EXACT_KNOWLEDGE_PR115_WITH_EXACT_AGENT_PR14",
-              "agent_branch_sha":"64bc559899e75241ee2d3725533c29460db00ae5",
+              "agent_feature_baseline_sha":"64bc559899e75241ee2d3725533c29460db00ae5",
               "knowledge_main_sha":"4df02ef54562fac5a820cbad92b0edee547c310b",
               "knowledge_candidate_sha":"052129a58136a3ab0dea6e062f155f9a521ad6ac",
               "only_content_record_changed":differing,
               "source_pages":[192],"printed_pages":[170],
-              "old_result_has_p192":False,"candidate_has_p192":True,
+              "old_text_includes_hidrosanitarios":False,
+              "candidate_text_includes_hidrosanitarios":True,
               "bundle_hash_verified":True,"technical_authority":False,
               "geometry_panels":13,
               "canonical_pin_unmodified":True
