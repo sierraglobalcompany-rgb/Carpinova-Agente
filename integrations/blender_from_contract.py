@@ -39,7 +39,9 @@ def main()->None:
     parser=argparse.ArgumentParser()
     parser.add_argument("--input",required=True,type=Path)
     parser.add_argument("--output",required=True,type=Path)
-    options=parser.parse_args()
+    import sys
+    argv=sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else sys.argv[1:]
+    options=parser.parse_args(argv)
     print(json.dumps(build_blender(options.input,options.output)))
 
 
