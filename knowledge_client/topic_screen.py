@@ -105,6 +105,7 @@ def screen_topic_results(search_result: dict[str, Any],
                    else "NO_CONTEXT_CANDIDATES_IN_SEARCH_SAMPLE"),
         "sampled_result_count": len(search_result["results"]),
         "candidate_count_in_sample": len(selected),
+        "returned_candidate_count": min(len(selected), 5),
         "original_lexical_total_matches": search_result["total_matches"],
         "reviewed_against_original_pdf": False,
         "technical_suitability_verified": False,
@@ -116,4 +117,6 @@ def screen_topic_results(search_result: dict[str, Any],
             "humana de la página original ni regla para fabricar."
         ),
     }
-    return {**search_result, "results": selected, "relevance_review": audit}
+    # Keep the chat/CLI brief: at most five cited records, while retaining
+    # the screening counts for the wider 20-record diagnostic window.
+    return {**search_result, "results": selected[:5], "relevance_review": audit}
