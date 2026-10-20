@@ -37,7 +37,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
         "face_plane", "grain_axis", "edgebanding_edges",
         "edgebanding_thickness_mm", "edgebanding_nominal_total_mm",
         "origin_x_mm", "origin_y_mm", "origin_z_mm",
-        "dimension_formula", "production_status",
+        "dimension_formula", "production_status", "hinge_side_requested",
     ])
     for piece in draft["parts"]:
         writer.writerow([
@@ -52,7 +52,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
             (piece["edgebanding_nominal_total_mm"] if
              piece["edgebanding_nominal_total_mm"] is not None else "UNCONFIRMED"),
             *piece["nominal_origin_xyz_mm"], piece["source_formula"],
-            "BORRADOR_NO_CORTAR",
+            "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""),
         ])
     return buffer.getvalue()
 
@@ -69,15 +69,19 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     y0 = 160+(max_h-scaled_h)/2
 
     shapes = []
-    # Rear panels appear behind front carcass outlines in this elevation.
-    ordered = sorted(draft["parts"], key=lambda p: 0 if p["role"].startswith("back_") else 1)
+    # Rear panels first, carcass next, doors last. No second geometry engine.
+    ordered = sorted(draft["parts"], key=lambda p: (
+        0 if p["role"].startswith("back_") else
+        2 if p["role"].startswith("front_") else 1
+    ))
     for piece in ordered:
         role = piece["role"]
         if role in ("left_side", "right_side"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
         elif role in ("top", "bottom"):
             pw, ph = piece["nominal_face_x_mm"], piece["thickness_mm"]
-        elif role in ("back_full", "back_top", "back_bottom"):
+        elif role in ("back_full", "back_top", "back_bottom",
+                      "front_single", "front_left", "front_right"):
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         else:
             raise DesignError("Rol de panel desconocido.")
@@ -90,9 +94,10 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
+        panel_class = "front" if role.startswith("front_") else "panel"
         shapes.append(
             f'<rect x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
-            f'height="{ph*scale:.4f}" class="panel"><title>{name}</title></rect>'
+            f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
         )
     titles = []
     for module in draft["modules"]:
@@ -109,6 +114,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         'role="img" aria-label="Elevación frontal preliminar de módulos abiertos">'
         '<style>svg{background-color:#ffffff}'
         '.panel{fill:#e2e8f0;stroke:#334155;stroke-width:1.15}'
+        '.front{fill:#e8cfad;stroke:#475569;stroke-width:1.4}'
         'text{font-family:Arial,sans-serif;fill:#1e293b;font-size:18px}'
         '.bad{font-size:25px;fill:#b91c1c;font-weight:bold}'
         '.note{font-size:15px;fill:#475569}.module{font-size:14px}'
@@ -116,8 +122,8 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         '</style>'
         f'<text x="45" y="37" font-size="25" font-weight="bold">CarpiNova — boceto modular · {name}</text>'
         '<text x="45" y="74" class="bad">BORRADOR: NO CORTAR NI FABRICAR</text>'
-        '<text x="45" y="99" class="note">Elevación frontal geométrica, paneles '
-        'independientes; sin puertas, cajones ni herrajes.</text>'
+        '<text x="45" y="99" class="note">Elevación frontal geométrica; '
+        'puertas sólo si están especificadas, sin bisagras ni mecanizados.</text>'
         + "".join(shapes) + "".join(titles) +
         f'<path class="dim" d="M {x0:.3f} {y0-17:.3f} v 14 '
         f'M {x0+scaled_w:.3f} {y0-17:.3f} v 14 '
