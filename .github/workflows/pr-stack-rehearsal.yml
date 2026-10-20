@@ -1,0 +1,74 @@
+name: CarpiNova clean PR stack rehearsal
+
+on:
+  push:
+    branches: ["feat/f7-construction-knowledge-cad-contract"]
+  pull_request:
+    branches: ["feat/f6-modular-carcase-and-finishes"]
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    name: Non-pushing clean merge rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact feature HEAD and ancestors
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Rehearse all seven PRs against pinned main without pushing
+        shell: bash
+        env:
+          ROOT_SHA: 0bdb386a4875eaf2d1dcab99301348ae4bce7657
+          F1_SHA: 23edbd38ac229df0d4f78bcf831bc9712d4a9c3a
+          F2_SHA: 2e4da03488640d15576e3fb3452745181c8ac368
+          F3_SHA: 1a2476d521decaf30ffcea48681cb4028a30ffbd
+          F4_SHA: c2e1f330c750d4a3b20d2d0e1eb13f669d971cd3
+          F5_SHA: dc64e51f832b524f7c34a78b42e176aebebbe8df
+          F6_SHA: dad160f0a4df28b351dfb8431491edd572676d7a
+          FEATURE_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stack-audit"
+          git config user.name "CarpiNova Rehearsal"
+          git config user.email "no-reply@localhost"
+          for sha in "$ROOT_SHA" "$F1_SHA" "$F2_SHA" "$F3_SHA" "$F4_SHA" "$F5_SHA" "$F6_SHA" "$FEATURE_HEAD"; do
+            git fetch --no-tags --quiet origin "$sha"
+            git cat-file -e "$sha^{commit}"
+          done
+          git checkout --detach "$ROOT_SHA"
+          # Independent PRs are merged only after their parent chains:
+          # F1 -> F3, F2, F4, F5, F6, F7. No protected ref is updated.
+          for item in "F1:$F1_SHA" "F3:$F3_SHA" "F2:$F2_SHA" "F4:$F4_SHA" "F5:$F5_SHA" "F6:$F6_SHA" "F7:$FEATURE_HEAD"; do
+            label="${item%%:*}"
+            sha="${item#*:}"
+            if ! git merge --no-ff --no-edit -m "REHEARSAL only: $label" "$sha"; then
+              echo "::error::Real merge conflict at $label; do not merge PRs."
+              git status --short | tee "$RUNNER_TEMP/stack-audit/conflict.txt"
+              exit 2
+            fi
+            printf '%s %s\n' "$label" "$(git rev-parse HEAD)" | tee -a "$RUNNER_TEMP/stack-audit/local-commits.txt"
+          done
+          git diff --name-status "$FEATURE_HEAD" HEAD > "$RUNNER_TEMP/stack-audit/tree-difference.txt"
+          if [ -s "$RUNNER_TEMP/stack-audit/tree-difference.txt" ]; then
+            echo "::error::Integrated tree differs from audited F7 HEAD; review differences."
+            cat "$RUNNER_TEMP/stack-audit/tree-difference.txt"
+            exit 3
+          fi
+          echo "STACK_MERGE_CONFLICTS=NONE"
+          echo "STACK_TREE_EQUAL_TO_F7_HEAD=YES"
+          echo "PROTECTED_MAIN_UNTOUCHED=YES"
+          printf '%s\n' "$FEATURE_HEAD" > "$RUNNER_TEMP/stack-audit/expected-head.txt"
+      - name: Test exact rehearsed integration tree
+        run: python -m unittest discover -s tests -q
+      - name: Archive merge rehearsal audit (success or failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-pr-stack-rehearsal
+          retention-days: 14
+          path: ${{ runner.temp }}/stack-audit/
