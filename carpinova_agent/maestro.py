@@ -155,16 +155,16 @@ def consult_maestro(
                             "unit": "construction_choice",
                         })
         result["questions"] = result["questions"][:max_questions]
-    if action in ("construction", "combined") and "construction" in inp:
-        guidance=construction_advice(inp["construction"],max_questions=max_questions)
-        result["construction"]=guidance
-        result["questions"].extend(guidance["questions"])
-        result["blockers"].extend(guidance["blockers"])
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
         result["project"] = project
         result["questions"].extend(project["questions"])
         result["blockers"].extend(project["release_blockers"])
+    if action in ("construction", "combined") and "construction" in inp:
+        guidance=construction_advice(inp["construction"],max_questions=max_questions)
+        result["construction"]=guidance
+        result["questions"].extend(guidance["questions"])
+        result["blockers"].extend(guidance["blockers"])
     if action in ("knowledge", "combined") and "query" in inp:
         if bundle_dir is None:
             raise MaestroError(
@@ -231,4 +231,6 @@ def consult_maestro(
         result["blockers"].append(
             "No existe proceso de certificación de fabricación en este MVP."
         )
+    # Prioritize geometry blockers over nice-to-have construction questions.
+    result["questions"]=result["questions"][:max_questions]
     return result
