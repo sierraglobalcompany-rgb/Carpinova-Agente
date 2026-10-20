@@ -1,10 +1,10 @@
-name: CarpiNova clean PR stack rehearsal
+name: CarpiNova F1-F7C full PR stack rehearsal
 
 on:
   push:
-    branches: ["feat/f7-construction-knowledge-cad-contract"]
+    branches: ["feat/f7c-drawer-box-integration"]
   pull_request:
-    branches: ["feat/f6-modular-carcase-and-finishes"]
+    branches: ["feat/f7c-door-fronts-geometric-review"]
 
 permissions:
   contents: read
@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Rehearse all seven PRs against pinned main without pushing
+      - name: Rehearse all ten PRs against pinned main without pushing
         shell: bash
         env:
           ROOT_SHA: 0bdb386a4875eaf2d1dcab99301348ae4bce7657
@@ -30,21 +30,47 @@ jobs:
           F4_SHA: c2e1f330c750d4a3b20d2d0e1eb13f669d971cd3
           F5_SHA: dc64e51f832b524f7c34a78b42e176aebebbe8df
           F6_SHA: dad160f0a4df28b351dfb8431491edd572676d7a
+          F7_SHA: 8a376c2298acb1ac2480454b363c6a754e096ec9
+          F7C_BACK_SHA: de250308cb817390035798baa198cafa3e76d7f4
+          F7C_FRONT_SHA: 8b8d9193491e23d2ef94663962d7e55202ba3bd7
           FEATURE_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stack-audit"
           git config user.name "CarpiNova Rehearsal"
           git config user.email "no-reply@localhost"
-          for sha in "$ROOT_SHA" "$F1_SHA" "$F2_SHA" "$F3_SHA" "$F4_SHA" "$F5_SHA" "$F6_SHA" "$FEATURE_HEAD"; do
+          for sha in "$ROOT_SHA" "$F1_SHA" "$F2_SHA" "$F3_SHA" "$F4_SHA" "$F5_SHA" "$F6_SHA" "$F7_SHA" "$F7C_BACK_SHA" "$F7C_FRONT_SHA" "$FEATURE_HEAD"; do
             git fetch --no-tags --quiet origin "$sha"
             git cat-file -e "$sha^{commit}"
           done
           git show "$FEATURE_HEAD:scripts/reconcile_stack_readme.py" > "$RUNNER_TEMP/stack-audit/reconcile.py"
+          # Fail on stale upstream branch refs or changes to protected main.
+          # A stale pinned SHA can otherwise pass without testing today's PR stack.
+          git ls-remote --heads origin > "$RUNNER_TEMP/stack-audit/remote-heads.txt"
+          for item in "main:$ROOT_SHA" \
+            "feat/f1-parametric-cabinet-drawer:$F1_SHA" \
+            "feat/f2-knowledge-bundle-reader:$F2_SHA" \
+            "feat/f3-guided-intake-and-sketch:$F3_SHA" \
+            "feat/f4-manufacturer-backed-hardware:$F4_SHA" \
+            "feat/f5-integrated-tool-orchestrator:$F5_SHA" \
+            "feat/f6-modular-carcase-and-finishes:$F6_SHA" \
+            "feat/f7-construction-knowledge-cad-contract:$F7_SHA" \
+            "feat/f7c-inset-backs-service-access:$F7C_BACK_SHA" \
+            "feat/f7c-door-fronts-geometric-review:$F7C_FRONT_SHA"; do
+            name="${item%%:*}"
+            expected="${item#*:}"
+            actual="$(awk -v ref="refs/heads/$name" '$2 == ref {print $1}' "$RUNNER_TEMP/stack-audit/remote-heads.txt")"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::Upstream $name changed (expected $expected; actual $actual)"
+              exit 4
+            fi
+          done
+          echo "UPSTREAM_PINNED_HEADS_VERIFIED=YES"
           git checkout --detach "$ROOT_SHA"
           # Independent PRs are merged only after their parent chains:
-          # F1 -> F3, F2, F4, F5, F6, F7. No protected ref is updated.
-          for item in "F1:$F1_SHA" "F3:$F3_SHA" "F2:$F2_SHA" "F4:$F4_SHA" "F5:$F5_SHA" "F6:$F6_SHA" "F7:$FEATURE_HEAD"; do
+          # F1 -> F3, F2, F4, F5, F6, F7, backs, fronts, drawers.
+          # No protected ref is updated.
+          for item in "F1:$F1_SHA" "F3:$F3_SHA" "F2:$F2_SHA" "F4:$F4_SHA" "F5:$F5_SHA" "F6:$F6_SHA" "F7:$F7_SHA" "F7C_BACK:$F7C_BACK_SHA" "F7C_FRONT:$F7C_FRONT_SHA" "F7C_DRAWER:$FEATURE_HEAD"; do
             label="${item%%:*}"
             sha="${item#*:}"
             if ! git merge --no-ff --no-edit -m "REHEARSAL only: $label" "$sha"; then
@@ -70,7 +96,7 @@ jobs:
           done
           git diff --name-status "$FEATURE_HEAD" HEAD > "$RUNNER_TEMP/stack-audit/tree-difference.txt"
           if [ -s "$RUNNER_TEMP/stack-audit/tree-difference.txt" ]; then
-            echo "::error::Integrated tree differs from audited F7 HEAD; review differences."
+            echo "::error::Integrated tree differs from audited F7C drawer HEAD; review differences."
             cat "$RUNNER_TEMP/stack-audit/tree-difference.txt"
             exit 3
           fi
@@ -84,6 +110,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: carpinova-pr-stack-rehearsal
+          name: carpinova-full-pr-stack-rehearsal
           retention-days: 14
           path: ${{ runner.temp }}/stack-audit/
