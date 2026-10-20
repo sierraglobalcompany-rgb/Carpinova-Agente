@@ -187,3 +187,44 @@ jobs:
             /tmp/knowledge-topic-coverage.json
             /tmp/knowledge-qa.json
             /tmp/book-build-manifest.json
+
+  native-blender-proof:
+    name: Native Blender headless proof (F7B, no MCP)
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/f7-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Ubuntu packaged Blender only
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends blender
+          blender --version | head -n 2
+      - name: Create source-sealed cabinet modules CAD exchange
+        run: |
+          python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output "$RUNNER_TEMP/closet-contract.json"
+      - name: Build .blend with Blender real Python runtime and measure actual meshes
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          blender --background --factory-startup --python-use-system-env --python-exit-code 12 \
+            --python integrations/blender_from_contract.py -- \
+            --input "$RUNNER_TEMP/closet-contract.json" \
+            --output "$RUNNER_TEMP/closet-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
+          test -s "$RUNNER_TEMP/closet-native.blend"
+          grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/blender-proof.log"
+          grep -q 'VISUAL_PREVIEW_NOT_FOR_FABRICATION' "$RUNNER_TEMP/blender-proof.log"
+      - name: Archive independently inspectable real Blender proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7b-native-blender-validation
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/closet-contract.json
+            ${{ runner.temp }}/closet-native.blend
+            ${{ runner.temp }}/blender-proof.log
