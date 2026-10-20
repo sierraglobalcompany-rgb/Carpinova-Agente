@@ -32,6 +32,9 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         elif role in ("top","bottom"):
             size=[fx,t,fy]  # panel in XZ plane: thickness Y; face_x -> width X
             grain_world={"face_x":"X","face_y":"Z","none":"none"}
+        elif role in ("back_full", "back_bottom", "back_top"):
+            size=[fx,fy,t]  # inset back in XY plane, thickness Z
+            grain_world={"face_x":"X","face_y":"Y","none":"none"}
         else:
             raise DesignError("Rol no soportado en intercambio CAD.")
         if any(type(n) is not int for n in (x,y,z)) or min([x,y,z]+size)<0:
@@ -54,9 +57,11 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
             ),
             "construction_geometry":"NOMINAL_PANEL_BOX",
         })
+    has_backs=any(b["role"].startswith("back_") for b in boxes)
     payload={
         "schema_version":"0.1.0",
-        "source_engine":"F6_OPEN_MODULES_FROM_F1",
+        "source_engine":("F7C_INSET_BACKS_FROM_F6"
+                         if has_backs else "F6_OPEN_MODULES_FROM_F1"),
         "unit":"mm",
         "coordinate_system":"right-handed X width/right, Y height/up, Z depth/back",
         "status":"DRAFT_NOT_FOR_CUTTING",
@@ -68,7 +73,11 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         "boxes":boxes,
         "hardware_included":False,
         "finished_panel_edges_included":False,
-        "cad_warning":"Only carcass panel boxes. No backs, doors, drawers, machining or anchors.",
+        "cad_warning":("Nominal carcass and rear inset panel boxes. "
+                       "No routed service cutouts, door/drawer details, "
+                       "machining or verified anchors."
+                       if has_backs else
+                       "Only carcass panel boxes. No backs, doors, drawers, machining or anchors."),
     }
     signature=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(",",":"))
     return {**payload,"geometry_sha256":hashlib.sha256(signature.encode("utf-8")).hexdigest()}
@@ -80,7 +89,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         raise DesignError("CAD exchange debe ser un objeto.")
     if data.get("schema_version")!="0.1.0" or data.get("unit")!="mm":
         raise DesignError("Contrato CAD incompatible.")
-    if data.get("source_engine")!="F6_OPEN_MODULES_FROM_F1":
+    if data.get("source_engine") not in ("F6_OPEN_MODULES_FROM_F1", "F7C_INSET_BACKS_FROM_F6"):
         raise DesignError("Fuente de geometría no canónica.")
     if data.get("status")!="DRAFT_NOT_FOR_CUTTING":
         raise DesignError("Solo se admite geometría preliminar.")
@@ -109,7 +118,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         type(n) is not int or n<=0 for n in limits):
         raise DesignError("Medidas CAD generales inválidas.")
     boxes=data["boxes"]
-    if not isinstance(boxes,list) or not boxes or len(boxes)>48:
+    if not isinstance(boxes,list) or not boxes or len(boxes)>72:
         raise DesignError("Cantidad de piezas inválida.")
     names=set()
     for item in boxes:
@@ -121,7 +130,8 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         if not isinstance(name,str) or not name or name in names:
             raise DesignError("Identificador CAD repetido.")
         names.add(name)
-        if item["role"] not in ("left_side","right_side","top","bottom"):
+        if item["role"] not in ("left_side","right_side","top","bottom",
+                                "back_full","back_bottom","back_top"):
             raise DesignError("Rol CAD no soportado.")
         a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
         if (not isinstance(a,list) or not isinstance(b,list)
