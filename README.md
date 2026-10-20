@@ -82,3 +82,6 @@ Se pueden modelar fondos embutidos completos (sin instalaciones) o **dos franjas
 
 ### F7C Task 2 — puertas sobrepuestas y embutidas (borrador)
 `module.fronts` ahora admite un frente de 1 o 2 hojas, con `style=overlay|inset`, holguras o revelados explícitos, separación central, material, veta, canto e intención de giro. Los paneles se integran en el mismo modelo que la carcasa/fondos y alimentan CSV/SVG/FreeCAD/Blender desde un solo contrato CAD. La puerta sobrepuesta queda físicamente al frente (Z nominal negativo; CAD incluye translación común `front_shift_mm`). **No** hay cálculo de bisagras, perforaciones ni giros certificados. Ver [contrato Task 2](docs/f7c-frentes-holguras-vetas.md) y [cocina con puertas](examples/modular-kitchen-door-fronts.json).
+
+### F7C Task 3 — cajas de cajón desde F1
+`module.drawers` incorpora hasta cuatro cajas por cuerpo, cada una con abertura y holguras de corredera **expresamente suministradas**, cinco paneles calculados por el motor único F1 y frente embutido decorativo opcional. Carcasa, fondo, cajón y fachada comparten IDs, modelo nominal y exportaciones CSV/SVG/FreeCAD/Blender. **No** hay compatibilidad de corredera demostrada, frentes sobrepuestos de cajón, taladros, montaje ni autorización de corte. Véanse [especificación](docs/f7c-cajones-f1-integracion.md) y [ejemplo](examples/modular-two-drawers-inset.json).
