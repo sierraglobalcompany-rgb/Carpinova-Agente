@@ -124,11 +124,6 @@ def front_panels(fronts: Any, *, module_id: str, module_width_mm: int,
         raise DesignError(f"{module_id}: ancho de hoja imposible.")
     x_start += left
     y_start += bottom
-    band_length = (
-        2 * ((1 if "x_min" in edges else 0) +
-             (1 if "x_max" in edges else 0)) * 0
-        if edges == "UNCONFIRMED" else None
-    )
     # Edges run along their *orthogonal* face dimension.
     band_length = None if edges == "UNCONFIRMED" else sum(
         panel_height if e.startswith("x_") else each_width for e in edges
