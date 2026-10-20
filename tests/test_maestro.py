@@ -162,6 +162,96 @@ class MaestroRoutingTests(unittest.TestCase):
         self.assertTrue(any("paquete parcial" in x for x in response["blockers"]))
         self.assertFalse(response["fabrication_ready"])
 
+    def test_modular_topic_evidence_filters_unrelated_lexical_results(self):
+        request = {
+            "action": "modular",
+            "module_spec": self._modular_knowledge_example(),
+            "query": "fondo tuberias",
+            "evidence_topic": "backs_and_services",
+        }
+        first = {
+            "content_id": "CONTENT-FONDO", "page_id": "PAGE-134",
+            "pdf_page": 134, "printed_page": 112,
+            "review_status": "REVIEW_PENDING",
+            "text": "Fondo posterior para paso de tuberías.",
+            "tags": ["cocina"], "source_book": "cpnc-2025",
+            "manufacturing_authority": False,
+        }
+        second = {**first, "content_id": "CONTENT-NOISE",
+                  "pdf_page": 155, "printed_page": 133,
+                  "text": "Solo habla de tuberías sin un fondo."}
+        # The unrelated record deliberately lacks BOTH required topic families.
+        second["text"] = "Solo habla del paso de tuberías."
+        fetched = {**FOUND, "query": "fondo tuberias",
+                   "results": [second, first], "total_matches": 21}
+        with patch("carpinova_agent.maestro.load_bundle", return_value={}) as load:
+            with patch("carpinova_agent.maestro.search_content",
+                       return_value=fetched) as search:
+                answer = consult_maestro(request,bundle_dir="/tmp/verified")
+        load.assert_called_once()
+        search.assert_called_once_with({}, "fondo tuberias", limit=20)
+        self.assertEqual([x["content_id"] for x in answer["knowledge"]["results"]],
+                         ["CONTENT-FONDO"])
+        audit = answer["knowledge"]["relevance_review"]
+        self.assertEqual(audit["candidate_count_in_sample"],1)
+        self.assertEqual(audit["original_lexical_total_matches"],21)
+        self.assertFalse(audit["technical_suitability_verified"])
+        self.assertEqual([p["content_id"] for p in answer["source_provenance"]],
+                         ["CONTENT-FONDO"])
+        self.assertEqual(answer["source_provenance"][0]["pdf_page"],134)
+        self.assertTrue(any("candidatas léxicas" in x
+                            for x in answer["blockers"]))
+        self.assertFalse(answer["cutting_ready"])
+
+    def test_modular_topic_without_query_rejected(self):
+        with self.assertRaisesRegex(MaestroError, "evidence_topic"):
+            consult_maestro({
+                "action":"modular",
+                "module_spec":self._modular_knowledge_example(),
+                "evidence_topic":"edge_banding",
+            })
+
+    def test_modular_topic_unknown_rejected(self):
+        with self.assertRaisesRegex(MaestroError, "evidence_topic"):
+            consult_maestro({
+                "action":"modular",
+                "module_spec":self._modular_knowledge_example(),
+                "query":"canto", "evidence_topic":"unknown_topic",
+            })
+
+    def test_evidence_topic_not_accepted_in_knowledge_only(self):
+        with self.assertRaises(MaestroError):
+            consult_maestro({
+                "action":"knowledge", "query":"canto",
+                "evidence_topic":"edge_banding",
+            })
+
+    def test_modular_topic_no_context_stays_unverified(self):
+        request = {
+            "action":"modular",
+            "module_spec":self._modular_knowledge_example(),
+            "query":"tuberías",
+            "evidence_topic":"backs_and_services",
+        }
+        unrelated = {
+            "content_id":"CONTENT-PIPE", "page_id":"PAGE-100",
+            "pdf_page":100,"printed_page":78,
+            "review_status":"VISUALLY_VERIFIED",
+            "text":"Tuberías de agua, sin información de carpintería.",
+            "tags":[],"source_book":"cpnc-2025",
+            "manufacturing_authority":False,
+        }
+        fetched={**FOUND, "results":[unrelated],"total_matches":1}
+        with patch("carpinova_agent.maestro.load_bundle",return_value={}):
+            with patch("carpinova_agent.maestro.search_content",return_value=fetched):
+                answer=consult_maestro(request,bundle_dir="/tmp/verified")
+        self.assertEqual(answer["knowledge"]["results"],[])
+        self.assertEqual(answer["source_provenance"],[])
+        self.assertEqual(answer["knowledge"]["relevance_review"]["status"],
+                         "NO_CONTEXT_CANDIDATES_IN_SEARCH_SAMPLE")
+        self.assertTrue(any("contexto completo" in x for x in answer["blockers"]))
+        self.assertFalse(answer["fabrication_ready"])
+
     def test_project_missing_data(self):
         r = consult_maestro({
             "action": "project",
