@@ -344,8 +344,11 @@ jobs:
               assert answer["modular"]["piece_count"] == 13
               assert review["topic"] == topic
               assert review["sampled_result_count"] <= 20
-              assert review["candidate_count_in_sample"] == len(
+              assert review["candidate_count_in_sample"] >= len(
                   answer["knowledge"]["results"])
+              assert review["returned_candidate_count"] == len(
+                  answer["knowledge"]["results"])
+              assert len(answer["knowledge"]["results"]) <= 5
               assert len(answer["source_provenance"]) == len(
                   answer["knowledge"]["results"])
               assert all(type(p["pdf_page"]) is int for p in
