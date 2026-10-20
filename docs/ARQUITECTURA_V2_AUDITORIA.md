@@ -147,3 +147,13 @@ El ensayo F1→F7 anterior queda **supersedido para continuidad** por el nuevo w
 6. Mantener una puerta distinta de **fabricación**: sin aprobación profesional de estructura, referencias reales de bisagras/correderas, anclajes, taladros, vetas/cantos y tolerancias, las banderas `fabrication_ready`, `cutting_ready`, `drilling_ready`, `purchase_ready` continúan falsas. FreeCAD/Blender MCP aún no conectados.
 
 **Situación a este checkpoint:** `main=0bdb386a4875eaf2d1dcab99301348ae4bce7657`, diez PR **OPEN/DRAFT**, ninguna rama fusionada. Esto es una prueba de integración técnica, **no autorización de merge ni entrega de fabricación**.
+
+## Guardarraíl físico F7C — colisiones volumétricas 3D
+
+Auditoría adicional tras verificar la integración de 10 PR: los chequeos anteriores comprobaban límites, SHA y cajas individuales, pero no que **dos paneles sólidos distintos se solaparan en las tres coordenadas**. Esto permitía un archivo CAD nominal internamente contradictorio, incluso con SHA-256 coherente.
+
+**Corrección KISS:** `carpinova_agent.cad_exchange.validate_exchange` compara los volúmenes rectangulares ya calculados por el mismo contrato. Una intersección de **volumen estrictamente positivo en X, Y y Z** se rechaza con los dos `piece_id`. Se permiten contactos de cara o arista (volumen de intersección cero), como las juntas a tope de una carcasa. `cad_exchange` llama a este mismo validador antes de devolver un JSON, por lo que ninguna de las dos apps recibe geometría inválida.
+
+Se añadieron regresiones en `tests/test_cad_exchange.py` para: (1) panel solapado con SHA recalculado, (2) panel desplazado para invadir otro ya en el modelo F6 y (3) juntas a tope legítimas. No se duplicaron transformaciones ni matemáticas en FreeCAD/Blender; la comparación es por cajas nominales de CADExchange (hasta 72 piezas, comparaciones O(n²)).
+
+**Alcance real:** esto prueba la **ausencia de invasión volumétrica estática entre tableros del borrador**. NO simula bisagras/correderas en movimiento, holguras de herramienta, adhesivos/ensambles, esfuerzos mecánicos, cargas, dilataciones, fijaciones o ubicación de tuberías. Fabricación sigue bloqueada y la prueba del runner no es una certificación de taller.
