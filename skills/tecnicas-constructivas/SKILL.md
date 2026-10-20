@@ -32,3 +32,6 @@ Atribuir métodos de pegado a todos los cantos; asumir «flexible=PVC» y «ríg
 
 ## F7C — fondo posterior calculado cuando el usuario ya tomó la decisión
 El asesor conceptual de fondos se conserva; si el usuario quiere materializar la opción, el motor F6 recibe `module.back` de tipo `inset_full` o `inset_two_strips`. Exigir estado real de instalaciones, espesor/material de fondo y medidas explícitas de las dos franjas; no dibujar **agujeros** si faltan ubicación y tamaño reales de las tuberías. La salida siempre conserva dimensiones NOMINALES y flags de fabricación en falso. Ver `docs/f7c-fondos-servicios.md`.
+
+## Puerta sobrepuesta o embutida (F7C Task 2)
+Explicar en palabras qué tapa exteriormente un `overlay` y qué queda dentro del hueco un `inset`. Consultar módulo y espesor, material, luces de los cuatro lados, si son 1 o 2 hojas, separación central, veta, tapacanto y mano de apertura; sin completar vacíos con reglas no comprobadas. El modelo detecta interferencias estáticas entre frentes de cuerpos contiguos, **no** el recorrido del giro ni choques con tiradores. Ningún agujero o bisagra se certifica con el libro solo. Más detalles en `docs/f7c-frentes-holguras-vetas.md`.
