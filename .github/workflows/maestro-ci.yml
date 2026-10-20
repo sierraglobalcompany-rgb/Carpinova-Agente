@@ -75,6 +75,38 @@ jobs:
             /tmp/maestro-modular.json
             /tmp/maestro-modular.svg
             /tmp/maestro-modular.csv
+      - name: F7 construction and sealed CAD exchange smoke (no real CAD runtime)
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/construction-bathroom.json --output /tmp/assembly-advice.json
+          python -m carpinova_agent.maestro_cli --input examples/construction-kitchen.json --output /tmp/kitchen-advice.json
+          python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output /tmp/cad-contract.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from carpinova_agent.cad_exchange import validate_exchange
+          from integrations.cad_native import native_boxes
+          contract = json.loads(Path("/tmp/cad-contract.json").read_text())
+          assert validate_exchange(contract)["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert len(native_boxes(contract)) == 8
+          assert contract["manufacturing_holes"] == []
+          bathroom = json.loads(Path("/tmp/assembly-advice.json").read_text())
+          kitchen = json.loads(Path("/tmp/kitchen-advice.json").read_text())
+          for data in (bathroom,kitchen):
+              assert data["status"] == "ADVISORY_ONLY"
+              assert data["fabrication_ready"] is False
+              assert data["drilling_ready"] is False
+              assert data["construction"]["status"] == "ADVISORY_ONLY"
+          print("F7_CONSTRUCTION_ADVISOR=PASS; CAD_CONTRACT=PASS; FREECAD_BLENDER_RUNTIME=NOT_TESTED")
+          PY
+      - name: Archive F7 evidence (advice + same CAD exchange)
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-construction-cad-contract-evidence
+          retention-days: 14
+          path: |
+            /tmp/assembly-advice.json
+            /tmp/kitchen-advice.json
+            /tmp/cad-contract.json
       - name: Hardware remains blocked
         run: |
           python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
