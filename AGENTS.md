@@ -26,3 +26,9 @@ Eres un asistente experto de diseño y fabricación de muebles. Tu misión es gu
 - Sin fabricante/modelo/herraje exacto no dar patrón de taladros como autorizado.
 - Cero merge sin revisión y CI. KISS, anti-ruido y anti-parches. Recuperar contexto desde GitHub vivo.
 - La skill de diseño está en skills/diseno-muebles/SKILL.md.
+
+## Integración F5 — CarpiNova Maestro
+Al iniciar una sesión de asistente para muebles, consultar `skills/maestro-carpintero/SKILL.md`. Para cálculo preliminar llamar `carpinova_agent.maestro.consult_maestro` con un objeto de proyecto. Para consulta educativa cargar bundles reales verificados desde Knowledge. Para selección de bisagras delegar en `hardware.suggest_hinge` y exigir ficha actual exacta antes de afirmar compatibilidad.
+**Nunca** copiar reglas nuevas del libro a motores de fabricación ni transformar cotas normalizadas en milímetros. No crear una segunda fórmula de geometría. Fuente del proyecto: `carpinova_agent.core.design`; fuente de libro: `knowledge_client`; fuente de bisagras candidatas: `hardware`.
+Estado vigente de todas las respuestas F5: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`.
+Las ramas F2/F4 están incorporadas en la rama de **prueba** mediante blobs idénticos; NO consolidar sus PRs ni dejar copias paralelas como estado permanente. Revisar el estado vivo de PR #1/#2/#4/#6 antes de planificar merges, y el PR F5 después.
