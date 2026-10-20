@@ -49,3 +49,9 @@ python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.jso
 - **Siempre `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`**. Sin certificado de corte, taladro ni compra.
 
 **NEXT_SAFE_ACTION**: revisión owner de esta rama DRAFT; consolidar/aprobar PRs anteriores en orden, recertificar QA exact-head; luego incorporar correderas de fabricante por referencia, frentes decorativos sobrepuestos y secuencia de montaje bajo nuevos casos medibles. No crear «solución» que duplique F1 o aparezca solo en Blender.
+
+## Entrevista Maestro: decisiones antes de acabados
+
+Para `action=modular` con estado `DRAFT_NOT_FOR_CUTTING`, `consult_maestro` pregunta **primero** por los campos pendientes de frente/puerta (`fronts`), fondo (`back`), cajones (`drawers`) y soporte (`support`); después por cada `drawers[].facade="pending"` con material, grosor y holguras explícitas; **al final** por la veta y el canto de la carcasa (`finish`). Esto evita que el límite de tres preguntas oculte una distribución de cajones sin resolver. En un empotrado sin medidas reales, los anchos superior/medio/inferior continúan teniendo prioridad absoluta.
+
+Estas preguntas **no rellenan automáticamente campos** ni seleccionan una guía, bisagra, tornillo o patrón de taladro. La respuesta sigue siendo preliminar y bloqueada para fabricación. El texto genérico del borrador ya no afirma incorrectamente que «no hay cajones» cuando F7C sí los modela.
