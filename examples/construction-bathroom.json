@@ -1,0 +1,17 @@
+{
+  "action": "construction",
+  "construction": {
+    "application": "bathroom",
+    "edge_variant": "flexible",
+    "edge_workflow": "home",
+    "edge_adhesive": "pre_glued",
+    "edge_material": "melamine",
+    "edge_exposure": "wet_exposed",
+    "back_style": "partial_service",
+    "has_services": true,
+    "support": "wall_french_cleat",
+    "wall_substrate": "masonry",
+    "joint": "concealed_angles",
+    "water_exposure": true
+  }
+}
