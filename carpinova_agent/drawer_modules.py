@@ -689,6 +689,8 @@ DRAWER_GUIDE_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
     "large_drawer_position", "drawer_adjustments_mm",
     "top_overhang_left_mm", "top_overhang_right_mm", "opening_systems",
+    "support_style", "support_height_mm", "wall_contact", "wall_fixing",
+    "wall_bottom_above_floor_mm", "back_style", "back_thickness_mm",
 })
 
 
@@ -759,12 +761,56 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "Saliente de tapa T: indicar en mm entre 0 y 200 para "
             "izquierda/derecha (solo concepto)."
         )
+    support_style = spec.get("support_style", "floor_direct")
+    if support_style not in ("floor_direct", "legs", "plinth", "wall_mounted"):
+        raise DesignError(
+            "Apoyo: piso, patas, zócalo/banqueo o suspendido contra pared."
+        )
+    sh = spec.get("support_height_mm", 0)
+    if (type(sh) is not int or sh < 0
+            or (support_style in ("legs", "plinth") and sh == 0)
+            or (support_style in ("floor_direct", "wall_mounted") and sh != 0)):
+        raise DesignError("Patas/zócalo: altura positiva; "
+                          "sin soporte o suspendido usa 0 mm.")
+    overall_h = spec["height_mm"]
+    if type(overall_h) is not int or overall_h - sh <= 36:
+        raise DesignError("El apoyo deja una carcasa sin altura suficiente.")
+    wall_contact = spec.get("wall_contact", support_style == "wall_mounted")
+    if type(wall_contact) is not bool or (support_style == "wall_mounted"
+                                          and not wall_contact):
+        raise DesignError("Un suspendido necesita muro declarado.")
+    wall_fixing = spec.get("wall_fixing", "pending")
+    if wall_fixing not in ("pending", "french_cleat", "direct_fasteners",
+                           "rail_hangers", "none"):
+        raise DesignError("Muro: listón francés, fijación directa, "
+                          "riel, pendiente o ninguna.")
+    if ((not wall_contact and wall_fixing not in ("pending", "none"))
+            or (support_style == "wall_mounted" and wall_fixing == "none")):
+        raise DesignError("No se especifica fijación sin muro "
+                          "ni se deja un suspendido sin fijación.")
+    wall_h = spec.get("wall_bottom_above_floor_mm", 0)
+    if (type(wall_h) is not int or wall_h < 0
+            or (support_style != "wall_mounted" and wall_h != 0)):
+        raise DesignError("Altura sobre piso es exclusiva del suspendido.")
+    back_style = spec.get("back_style", "pending")
+    if back_style not in ("pending", "none", "thin_sheet", "full_panel",
+                          "two_strips"):
+        raise DesignError("Fondo posterior: pendiente, ninguno, lámina fina, "
+                          "panel completo o dos franjas.")
+    back_t = spec.get("back_thickness_mm")
+    if back_t is not None and (type(back_t) is not int
+                              or not 1 <= back_t <= 50):
+        raise DesignError("Espesor del fondo posterior inválido.")
+    if back_style in ("none", "pending") and back_t is not None:
+        raise DesignError("Un fondo inexistente/pendiente no tiene espesor.")
+    if back_style == "thin_sheet" and back_t is None:
+        back_t = 2  # illustrative only, not a structural assumption.
     weights = ([2] + [1] * n if position == "bottom"
                else [1] * n + [2])
     proposed = {
         "type": "drawer_layout_proposal",
         "width_mm": spec["width_mm"],
-        "height_mm": spec["height_mm"],
+        "height_mm": overall_h - sh,
         "depth_mm": spec["depth_mm"],
         "panel_thickness_mm": 18,
         "construction": "sides_full",
@@ -821,6 +867,18 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "large_drawer_position": position,
         },
         "can_generate_f7c": False,
+        "overall_height_mm": overall_h,
+        "carcass_height_mm": overall_h - sh,
+        "support_style": support_style,
+        "support_height_mm": sh,
+        "wall_contact": wall_contact,
+        "wall_fixing": wall_fixing,
+        "wall_bottom_above_floor_mm": wall_h,
+        "back_style": back_style,
+        "back_thickness_mm": back_t,
+        "unvalidated_support": support_style in ("legs", "plinth", "wall_mounted"),
+        "unvalidated_mounting": wall_contact,
+        "unvalidated_back_panel": back_style not in ("none", "pending"),
     })
     result["element_refs"] = _guide_ref_map(result)
     result["sketch_text"] = drawer_layout_sketch_text(result)
