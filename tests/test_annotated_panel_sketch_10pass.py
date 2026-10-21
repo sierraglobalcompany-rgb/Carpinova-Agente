@@ -92,8 +92,8 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         self.assertAlmostEqual(float(side["T"].get("width")),
                                float(side["LD"].get("width")), delta=0.02)
         self.assertIn("LD · costado derecho (LI opuesto)", r["sketch_svg"])
-        self.assertIn("T", r["sketch_svg"])
-        self.assertIn("BS", r["sketch_svg"])
+        self.assertIn("T · tapa superior", r["sketch_svg"])
+        self.assertIn("BS · base inferior", r["sketch_svg"])
 
     def test_16_sides_full_hides_internal_t_and_bs_in_lateral_view(self):
         r = guide_drawer_layout(sample(construction="sides_full"))
