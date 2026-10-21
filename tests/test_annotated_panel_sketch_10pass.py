@@ -172,6 +172,28 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         self.assertEqual(rpc["status"], "NEEDS_USER_CONFIRMATION")
         self.assertEqual(len(rpc["questions"]), 1)
 
+    def test_14_side_view_shows_actual_depth_without_raw_placeholders(self):
+        for depth in (380, 500, 650):
+            with self.subTest(depth=depth):
+                result = guide_drawer_layout(sample(depth_mm=depth))
+                svg = result["sketch_svg"]
+                root = ET.fromstring(svg)
+                text_nodes = [
+                    node.text for node in root.iter()
+                    if node.tag.endswith("text") and node.text is not None
+                ]
+                self.assertIn(
+                    f"FRENTE ← {depth} mm → FONDO", text_nodes,
+                )
+                self.assertFalse(any("{depth}" in item for item in text_nodes))
+                self.assertIn(
+                    f"Nominal: 464 × {depth} × 18 mm", svg,
+                )
+                self.assertIn(
+                    f"Carcasa: ancho 500, alto 800, fondo {depth} mm",
+                    svg,
+                )
+
     def test_13_real_png_render_of_front_and_side_views_when_engine_available(self):
         try:
             import resvg_py
