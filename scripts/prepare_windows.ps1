@@ -100,7 +100,7 @@ $antigravityFile = Join-Path $config "antigravity-mcp.json.example"
 [System.IO.File]::WriteAllText($codexFile, $codex, $utf8)
 [System.IO.File]::WriteAllText($antigravityFile, $antigravity, $utf8)
 # Verify both client examples are PARSEABLE, exact-path configurations.
-$verify = 'import json,pathlib,sys,tomllib; c=tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); a=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")); x=c["mcp_servers"]["carpinova"]; y=a["mcpServers"]["carpinova"]; assert x["command"]==y["command"]==sys.argv[3]; assert x["env"]["PYTHONPATH"]==y["env"]["PYTHONPATH"]==sys.argv[4]; assert x["env"]["CARPINOVA_OUTPUT_ROOT"]==y["env"]["CARPINOVA_OUTPUT_ROOT"]==sys.argv[5]; assert x["args"]==y["args"]==["-m","carpinova_agent.mcp_bridge"]'
+$verify = "import json,pathlib,sys,tomllib; c=tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')); a=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')); x=c['mcp_servers']['carpinova']; y=a['mcpServers']['carpinova']; assert x['command']==y['command']==sys.argv[3]; assert x['env']['PYTHONPATH']==y['env']['PYTHONPATH']==sys.argv[4]; assert x['env']['CARPINOVA_OUTPUT_ROOT']==y['env']['CARPINOVA_OUTPUT_ROOT']==sys.argv[5]; assert x['args']==y['args']==['-m','carpinova_agent.mcp_bridge']"
 & $python -c $verify $codexFile $antigravityFile $python $repo $projects
 if ($LASTEXITCODE -ne 0) { throw "Una configuración MCP generada es inválida." }
 # Preserve the actual resolved dependency graph as local rebuild evidence.
