@@ -139,10 +139,11 @@ def consult_maestro(
             result["questions"].append({
                 "field": "module_spec.proposed_layout_spec",
                 "question": (
-                    "¿Te gusta este boceto como punto de partida? "
-                    "Puedes decir 'la gaveta grande arriba', "
-                    "'hazla más alta' o 'así está bien'. "
-                    "Después vemos material, frentes y correderas."
+                    "¿Te gusta este boceto como primera idea? "
+                    "Puedes decir 'A más alto', 'pon patas de 10 cm', "
+                    "'T más ancha' o 'quiero colgarlo en muro'. "
+                    "Después revisamos fondo FP, herrajes y materiales."
+
                 ),
                 "unit": "simple_confirmation",
             })
