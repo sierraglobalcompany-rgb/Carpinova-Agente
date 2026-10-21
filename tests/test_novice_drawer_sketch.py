@@ -45,7 +45,7 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertNotIn("correderas y sistema", reply["questions"][0]["question"])
         self.assertEqual(model["suggestions_not_confirmed"]["panel_thickness_mm"], 18)
         self.assertEqual(model["suggestions_not_confirmed"]["vertical_gap_mm"], 28)
-        self.assertIn("solo supuestos", model["human_summary"])
+        self.assertIn("son supuestos, no especificaciones", model["human_summary"])
         self.assertIn("D = D1 · gaveta", model["sketch_text"])
         self.assertIn("NO son divisores", model["sketch_text"])
         self.assertIn("NO CORTAR", model["sketch_svg"])
