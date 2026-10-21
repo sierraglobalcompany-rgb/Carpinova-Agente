@@ -246,7 +246,7 @@ jobs:
           assert len(set(hashes)) == len(expected), "Duplicated render across projects"
           inset = renders["four_drawers_inset"]
           overlay = renders["four_drawers_overlay"]
-          changed = sum(a != b for a, b in zip(inset.getdata(), overlay.getdata()))
+          changed = sum(a != b for a, b in zip(inset.get_flattened_data(), overlay.get_flattened_data()))
           ratio = changed / (inset.width * inset.height)
           assert ratio >= 0.01, f"Inset/overlay visually indistinguishable: {ratio:.2%}"
           print(f"VISUAL_INSET_OVERLAY_DIFFERENT=PASS; PIXELS_CHANGED={ratio:.2%}")
