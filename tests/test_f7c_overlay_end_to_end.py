@@ -58,6 +58,17 @@ class FourDrawerFullStackTests(unittest.TestCase):
             self.assertNotIn('front_shift_mm',exchange)
             self.assertEqual(exchange['bounds_xyz_mm'],[500,800,500])
         self.assertEqual(len(exchange['boxes']),28)
+        # Both native exporters use the *same* audited orientation transform.
+        from integrations.cad_native import native_boxes
+        converted = native_boxes(exchange)
+        self.assertEqual(len(converted), 28)
+        exported = {item['piece_id']: item for item in converted}
+        for box in exchange['boxes']:
+            native = exported[box['piece_id']]
+            x, y, z = box['origin_xyz_mm']
+            dx, dy, dz = box['size_xyz_mm']
+            self.assertEqual(native['native_origin_xyz_mm'], [x, -z-dz, y])
+            self.assertEqual(native['native_size_xyz_mm'], [dx, dz, dy])
         self.assertEqual({p['piece_id'] for p in model['parts']},
                          {box['piece_id'] for box in exchange['boxes']})
         csv_text=modular_bom_csv(model)
