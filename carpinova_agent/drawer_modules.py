@@ -341,13 +341,7 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
     # Largest remainders apportion indivisible millimetres fairly instead
     # of loading ALL rounding residue into the last (often largest) drawer.
     # Stable index order breaks equal fractional remainders; integer-only.
-    total = sum(weights)
-    heights = [space * w // total for w in weights]
-    extra = space - sum(heights)
-    ranked = sorted(range(len(weights)),
-                    key=lambda i: (-(space * weights[i] % total), i))
-    for index in ranked[:extra]:
-        heights[index] += 1
+    heights = _apportion_nominal(space, weights)
     if "opening_heights_mm" in spec:
         explicit = spec["opening_heights_mm"]
         if (type(explicit) is not list or len(explicit) != len(weights)
