@@ -177,7 +177,11 @@ assert module.configure_mcp(repo, config) == "ALREADY_CONFIGURED"
 assert config.read_bytes() == snapshot
 print("CODEX_REAL_WINDOWS_CONFIG_SMOKE=PASS; FOUR_SKILLS=PASS; MCP=PASS; USER_HOME_UNTOUCHED=YES")
 '@
-& $python -c $codexSmoke $installer $repo $OutputRoot
+# PowerShell on Windows re-quotes arguments sent to native executables.
+# A disposable .py file preserves source quotes without changes to user HOME.
+$codexSmokeScript = Join-Path $OutputRoot "codex-install-smoke-runner.py"
+[System.IO.File]::WriteAllText($codexSmokeScript, $codexSmoke, $utf8)
+& $python $codexSmokeScript $installer $repo $OutputRoot
 if ($LASTEXITCODE -ne 0) { throw "Instalador Codex con TOML Windows real falló." }
 # Preserve the actual resolved dependency graph as local rebuild evidence.
 $packages = @(& $python -m pip freeze)
