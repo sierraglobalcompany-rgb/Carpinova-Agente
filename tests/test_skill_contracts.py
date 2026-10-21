@@ -90,7 +90,7 @@ class SkillContractTest(unittest.TestCase):
                 self.assertIn(name, readme)
                 self.assertIn(name, skill)
         self.assertIn("local stdio del Agente", agents)
-        self.assertIn("cinco herramientas", agents)
+        self.assertIn("seis herramientas", agents)
         self.assertNotIn("No hay MCP interactivos conectados", readme)
 
 if __name__ == "__main__":
