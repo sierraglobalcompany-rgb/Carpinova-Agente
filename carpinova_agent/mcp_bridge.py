@@ -1,7 +1,8 @@
 """Local CarpiNova MCP adapter: one Maestro engine, one geometry contract.
 
 Only stdio is exposed. No user-account service, remote network listener,
-arbitrary Python execution, fabrication authority, or CAD application launch.
+arbitrary Python execution, or fabrication authority. Native CAD can be launched
+ONLY through the fixed-script host opt-in and one-use human approval gate.
 """
 from __future__ import annotations
 
