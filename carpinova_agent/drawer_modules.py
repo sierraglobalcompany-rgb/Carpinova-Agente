@@ -436,6 +436,10 @@ BACK_LABELS = {
 
 
 
+def _sketch_mm(value: int | None) -> str:
+    return "por definir" if value is None else f"{value} mm"
+
+
 def _annotated_openings(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return [(chr(65 + i), item)
             for i, item in enumerate(reversed(plan["opening_plan"]))]
@@ -504,11 +508,11 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
     rows.append(
         f"MF: muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
         f"{WALL_LABELS[plan.get('wall_fixing', 'pending')]}; altura sobre piso "
-        f"{plan.get('wall_bottom_above_floor_mm', 0)} mm."
+        f"{_sketch_mm(plan.get('wall_bottom_above_floor_mm', 0))}."
     )
     rows.append(
         f"FP: fondo posterior {BACK_LABELS[plan.get('back_style', 'pending')]}; "
-        f"espesor ilustrativo {plan.get('back_thickness_mm')} mm."
+        f"espesor ilustrativo {_sketch_mm(plan.get('back_thickness_mm'))}."
     )
     rows.append(
         f"T sobresale a izquierda/derecha: "
@@ -672,9 +676,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
           f'{"(sugeridos)" if plan.get("support_height_is_suggestion") else ""}.</text>'
         + f'<text x="30" y="524" class="note">'
           f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}, '
-          f'elevación {plan.get("wall_bottom_above_floor_mm", 0)} mm; '
+          f'elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm", 0))}; '
           f'FP: {BACK_LABELS[plan.get("back_style", "pending")]} '
-          f'({plan.get("back_thickness_mm")} mm).</text>'
+          f'({_sketch_mm(plan.get("back_thickness_mm"))}).</text>'
         + f'<text x="30" y="547" class="note">'
           f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
           '(solo idea, NO calculado como panel).</text>'
