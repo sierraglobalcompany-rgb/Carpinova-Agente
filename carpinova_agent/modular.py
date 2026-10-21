@@ -12,7 +12,7 @@ from typing import Any, Mapping
 from .core import DesignError, design
 from .back_panels import back_panels
 from .front_panels import front_panels, check_adjacent_fronts
-from .drawer_modules import module_drawers
+from .drawer_modules import module_drawers, propose_drawer_layout
 from .cad_exchange import nominal_front_extension_mm
 
 ROLES = ("left_side", "right_side", "top", "bottom")
@@ -25,7 +25,8 @@ ROOT_FIELDS = frozenset(("type", "application", "width_mm", "height_mm",
                          "max_assembled_depth_mm"))
 MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "material_id", "construction", "fronts", "back",
-                           "support", "finish", "drawers"))
+                           "support", "finish", "drawers",
+                           "drawer_layout_reference"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -101,6 +102,46 @@ def _site_check(spec: dict[str, Any], width: int) -> dict[str, Any]:
         "nominal_gap_at_narrowest_mm": shortest - width,
         "conflict": width >= shortest,
     }
+
+
+def _check_drawer_layout_reference(
+    module: dict[str, Any], *, module_height_mm: int, module_depth_mm: int
+) -> None:
+    """Compare real drawer coordinates to the exact consulted F1 proposal.
+
+    This is a consistency guard, NOT cryptographic proof of user approval.
+    Legacy modules without a reference keep their original behavior.
+    """
+    if "drawer_layout_reference" not in module:
+        return
+    proposed = propose_drawer_layout(module["drawer_layout_reference"])
+    expected_dims = {"width": module["width_mm"],
+                     "height": module_height_mm, "depth": module_depth_mm}
+    if (proposed["external_dimensions_mm"] != expected_dims
+            or proposed["panel_thickness_mm"] != module["panel_thickness_mm"]
+            or proposed["construction"] != module["construction"]):
+        raise DesignError(
+            f"{module['module_id']}: la distribución consultada corresponde "
+            "a otra carcasa; volver a consultar Maestro antes de CAD."
+        )
+    drawers = module.get("drawers")
+    plan = proposed["opening_plan"]
+    if type(drawers) is not list or len(drawers) != len(plan):
+        raise DesignError(
+            f"{module['module_id']}: cantidad de cajones diferente de la "
+            "propuesta revisada; volver a confirmar."
+        )
+    for index, (drawer, opening) in enumerate(zip(drawers, plan)):
+        if type(drawer) is not dict or any(
+            type(drawer.get(field)) is not (str if field == "drawer_id" else int)
+            or drawer[field] != opening[field]
+            for field in ("drawer_id", "opening_bottom_offset_mm",
+                          "opening_height_mm")
+        ):
+            raise DesignError(
+                f"{module['module_id']}.drawers[{index}]: ID, altura o "
+                "posición cambiaron respecto al plan consultado."
+            )
 
 
 def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -186,6 +227,9 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             "height_mm": height, "depth_mm": depth,
             "panel_thickness_mm": t, "construction": module["construction"],
         })
+        _check_drawer_layout_reference(
+            module, module_height_mm=height, module_depth_mm=depth
+        )
         sides, caps = geometry["parts"]
         for role in ROLES:
             part = sides if role.endswith("side") else caps
