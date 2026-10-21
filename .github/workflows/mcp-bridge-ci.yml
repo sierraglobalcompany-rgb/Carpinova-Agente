@@ -118,7 +118,65 @@ jobs:
           assert all(r["four_release_flags"] is False for r in report)
           print("MCP_NATIVE_CAD_EXECUTION_WITH_ONE_ENGINE=PASS")
           PY
-      - name: Preserve both real 3D editable furniture projects and render PNGs
+      - name: Verify 28-panel inset and overlay drawers in real FreeCAD and Blender
+        shell: bash
+        env:
+          CARPINOVA_NATIVE_EXECUTION_ENABLED: "1"
+        run: |
+          export CARPINOVA_FREECADCMD="$(command -v freecadcmd || command -v FreeCADCmd)"
+          export CARPINOVA_BLENDER="$(command -v blender)"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from carpinova_agent.mcp_bridge import carpinova_generar_borrador
+          from carpinova_agent.native_export import (
+              REVIEW_CONFIRMATION, issue_native_approval, export_native_project
+          )
+          from carpinova_agent.pilot_cli import verify_pilot_bundle
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          ci_approvals = Path(os.environ["RUNNER_TEMP"]) / "four-drawer-ci-approvals"
+          ci_approvals.mkdir()
+          os.environ["CARPINOVA_OUTPUT_ROOT"] = str(root)
+          for style in ("INSET", "OVERLAY"):
+              raw = (Path("examples") / (
+                  "four-drawer-500x500x800-" + style + "-UNCONFIRMED.json"
+              )).read_text(encoding="utf-8")
+              project = "four_drawers_" + style.lower()
+              stage = carpinova_generar_borrador(raw, project)
+              assert stage["piece_count"] == 28
+              cad = verify_pilot_bundle(root / project)
+              assert len(cad["boxes"]) == 28
+              assert cad["geometry_sha256"] == stage["geometry_sha256"]
+              assert all(stage[k] is False for k in (
+                  "fabrication_ready", "cutting_ready", "drilling_ready",
+                  "purchase_ready"))
+              # This approval is issued by the trusted isolated CI harness,
+              # never by a user-facing MCP tool or a model on the owner PC.
+              issue_native_approval(root / project, ci_approvals)
+              native = export_native_project(
+                  root / project,
+                  confirmation=REVIEW_CONFIRMATION,
+                  freecad_executable=os.environ["CARPINOVA_FREECADCMD"],
+                  blender_executable=os.environ["CARPINOVA_BLENDER"],
+                  enabled=True, approval_dir=ci_approvals)
+              assert native["piece_count"] == 28
+              assert native["geometry_sha256"] == cad["geometry_sha256"]
+              assert all(native[k] is False for k in (
+                  "fabrication_ready", "cutting_ready", "drilling_ready",
+                  "purchase_ready"))
+              assert set(native["reports"]) == {
+                  "FreeCAD", "Blender", "BlenderPresentation"}
+              for report in native["reports"].values():
+                  assert report["verified_piece_count"] == 28
+                  assert report["geometry_sha256"] == cad["geometry_sha256"]
+                  assert report["status"] == "NATIVE_GEOMETRY_MATCH"
+                  assert report["max_abs_error_mm"] <= 0.05
+              print("MCP_F7C_28_PIECES_NATIVE=" + style +
+                    "; GEOMETRY_SHA256=" + cad["geometry_sha256"] +
+                    "; FABRICATION_AUTHORITY=NO")
+          PY
+      - name: Preserve all real 3D furniture projects and render PNGs
         uses: actions/upload-artifact@v4
         with:
           name: carpinova-mcp-freecad-blender-real
