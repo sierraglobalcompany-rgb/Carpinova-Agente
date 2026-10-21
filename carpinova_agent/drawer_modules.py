@@ -359,7 +359,7 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
         cursor += height + (gap if index < len(heights) else 0)
     if cursor != clear_height:
         raise DesignError("Error de integridad: alturas y separaciones no cierran.")
-    return {
+    result = {
         "schema_version": "0.1.0",
         "type": "drawer_layout_proposal",
         "status": "NEEDS_USER_CONFIRMATION",
@@ -393,3 +393,160 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
             "de carcasa, sin espesor de fachada.",
         ],
     }
+    result["sketch_svg"] = drawer_layout_sketch_svg(result)
+    result["sketch_text"] = drawer_layout_sketch_text(result)
+    return result
+
+
+def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
+    """Short, human-readable front sketch; no fabricated facades or rails."""
+    dims = plan["external_dimensions_mm"]
+    rows = [
+        "BOCETO FRONTAL · PROPUESTA, NO CORTAR",
+        f"Ancho {dims['width']} mm × alto {dims['height']} mm; "
+        f"fondo de carcasa {dims['depth']} mm",
+        "ARRIBA",
+    ]
+    openings = plan["opening_plan"]
+    for index, item in enumerate(reversed(openings)):
+        is_large = item["opening_height_mm"] == max(
+            x["opening_height_mm"] for x in openings
+        ) and len({x["opening_height_mm"] for x in openings}) > 1
+        label = "gaveta grande" if is_large else "cajón"
+        rows.append(
+            f"[ {item['drawer_id']} · {label} · "
+            f"{item['opening_height_mm']} mm de abertura ]"
+        )
+        if index < len(openings) - 1:
+            rows.append(
+                f"·· franja de {plan['vertical_gap_mm']} mm "
+                "(NO es divisor ni espacio entre frentes) ··"
+            )
+    rows.extend(["ABAJO", "Sin fachadas/correderas/patas definidas. "
+                 "Las medidas son ilustrativas."])
+    return "\n".join(rows)
+
+
+def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
+    """Annotated SVG using F1 opening_plan, without a second geometry engine."""
+    dims = plan["external_dimensions_mm"]
+    width, height = dims["width"], dims["height"]
+    t = plan["panel_thickness_mm"]
+    scale = min(250 / width, 390 / height)
+    left, top = 115.0, 90.0
+    w, h = width * scale, height * scale
+    inner_left, inner_top = left + t * scale, top + t * scale
+    inner_w = (width - 2 * t) * scale
+    marks: list[str] = []
+    for opening in plan["opening_plan"]:
+        y = inner_top + (plan["clear_height_mm"]
+                         - opening["opening_bottom_offset_mm"]
+                         - opening["opening_height_mm"]) * scale
+        ph = opening["opening_height_mm"] * scale
+        big = (opening["opening_height_mm"] ==
+               max(item["opening_height_mm"] for item in plan["opening_plan"])
+               and len({item["opening_height_mm"]
+                        for item in plan["opening_plan"]}) > 1)
+        label = "GAVETA" if big else "CAJÓN"
+        marks.append(
+            f'<rect x="{inner_left:.2f}" y="{y:.2f}" '
+            f'width="{inner_w:.2f}" height="{ph:.2f}" '
+            f'fill="{"#d4e7e5" if big else "#e8edf4"}" '
+            'stroke="#62768b" stroke-width="1.5"/>'
+            f'<line x1="{inner_left+inner_w:.2f}" y1="{y+ph/2:.2f}" '
+            f'x2="450" y2="{y+ph/2:.2f}" '
+            'stroke="#738496" stroke-dasharray="4 3"/>'
+            f'<text x="461" y="{y+ph/2+5:.2f}" class="dimension">'
+            f'{opening["drawer_id"]} {label} · {opening["opening_height_mm"]} mm</text>'
+        )
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'width="800" height="610" viewBox="0 0 800 610" '
+        'role="img" aria-label="Boceto frontal de propuesta de cajones, sin herrajes">'
+        '<style>'
+        'text{font-family:Arial,sans-serif;fill:#253446}'
+        '.title{font-size:21px;font-weight:bold}'
+        '.dimension{font-size:15px}'
+        '.note{font-size:14px;fill:#556577}'
+        '</style>'
+        '<rect width="800" height="610" rx="14" fill="#fafbfc"/>'
+        '<text x="34" y="37" class="title">Así podría quedar tu mueble</text>'
+        '<text x="34" y="60" class="note">BOCETO · medidas nominales para conversar</text>'
+        f'<rect x="{left:.2f}" y="{top:.2f}" width="{w:.2f}" '
+        f'height="{h:.2f}" fill="#f5f7f9" stroke="#354657" stroke-width="3"/>'
+        + "".join(marks)
+        + f'<text x="{left+w/2:.2f}" y="{top-12:.2f}" '
+          f'text-anchor="middle" class="dimension">ANCHO {width} mm</text>'
+        + f'<text x="23" y="{top+h/2:.2f}" class="dimension" '
+          f'transform="rotate(-90 23 {top+h/2:.2f})" '
+          f'text-anchor="middle">ALTO {height} mm</text>'
+        + f'<text x="34" y="525" class="note">Fondo de carcasa: {dims["depth"]} mm · '
+          f'Tablero ilustrativo: {t} mm</text>'
+        + f'<text x="34" y="546" class="note">Bandas entre aberturas: '
+          f'{plan["vertical_gap_mm"]} mm (no representan divisores ni fachadas)</text>'
+        + '<text x="34" y="577" class="note">NO CORTAR · No se han '
+          'seleccionado correderas, frente ni herrajes.</text>'
+        + '</svg>'
+    )
+
+
+DRAWER_GUIDE_FIELDS = frozenset({
+    "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
+    "large_drawer_position",
+})
+
+
+def guide_drawer_layout(spec: Any) -> dict[str, Any]:
+    """Friendly, opt-in F1 sketch with disclosed EXAMPLE assumptions only.
+
+    No user is expected to know panel thickness, gaps, ratios or jargon.
+    Defaults are proposals, not facts, purchase specs or manufacturing approval.
+    """
+    if type(spec) is not dict or spec.get("type") != "drawer_layout_guide" or (
+        set(spec) - DRAWER_GUIDE_FIELDS
+    ) or not {"type", "width_mm", "height_mm", "depth_mm",
+              "small_drawers"}.issubset(spec):
+        raise DesignError(
+            "Para boceto guiado: ancho, alto, fondo y cantidad de cajones pequeños."
+        )
+    n = spec["small_drawers"]
+    if type(n) is not int or not 1 <= n <= 3:
+        raise DesignError("small_drawers debe estar entre 1 y 3.")
+    position = spec.get("large_drawer_position", "bottom")
+    if position not in ("bottom", "top"):
+        raise DesignError("La gaveta grande va arriba o abajo.")
+    weights = ([2] + [1] * n if position == "bottom"
+               else [1] * n + [2])
+    illustrative_spec = {
+        "type": "drawer_layout_proposal",
+        "width_mm": spec["width_mm"],
+        "height_mm": spec["height_mm"],
+        "depth_mm": spec["depth_mm"],
+        "panel_thickness_mm": 18,
+        "construction": "sides_full",
+        "vertical_gap_mm": 28,
+        "drawer_weights": weights,
+    }
+    result = propose_drawer_layout(illustrative_spec)
+    result["type"] = "drawer_layout_guide"
+    result["guided"] = True
+    result["proposed_layout_spec"] = illustrative_spec
+    result["suggestions_not_confirmed"] = {
+        "panel_thickness_mm": 18,
+        "construction": "sides_full",
+        "vertical_gap_mm": 28,
+        "drawer_weights": list(weights),
+        "large_drawer_position": position,
+    }
+    result["human_summary"] = (
+        "Te propongo una gaveta grande "
+        + ("abajo" if position == "bottom" else "arriba")
+        + f" y {n} cajones más pequeños. Mira el boceto antes de elegir "
+          "medidas y herrajes. Los 18 mm de tablero y 28 mm entre aberturas "
+          "son solo supuestos para dibujar; NO son especificaciones."
+    )
+    result["blockers"].insert(
+        0, "Boceto guiado con supuestos no aprobados: primero confirmar "
+           "distribución, tablero y geometría antes de cualquier borrador."
+    )
+    return result
