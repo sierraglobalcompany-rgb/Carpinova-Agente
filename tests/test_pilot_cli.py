@@ -38,8 +38,10 @@ class FirstFurniturePilotTests(unittest.TestCase):
         for key in ("fabrication_ready", "cutting_ready",
                     "drilling_ready", "purchase_ready"):
             self.assertFalse(result[key])
-            self.assertFalse(cad[key])
             self.assertFalse(manifest[key])
+            if key != "purchase_ready":
+                self.assertFalse(cad[key])
+        self.assertNotIn("purchase_ready", cad)  # sealed CAD schema
 
     def test_svg_csv_are_review_outputs_not_cut_instructions(self):
         bundle = pilot_review(self.project)

@@ -48,7 +48,12 @@ def pilot_review(request: dict[str, Any]) -> dict[str, str]:
     svg = modular_front_svg(model)
     csv_text = modular_bom_csv(model)
     exchange = validate_exchange(cad_exchange(model))
-    if any(exchange.get(key) is not False for key in _BLOCKED_FLAGS):
+    # CADExchange's strict schema deliberately exposes three release flags.
+    # purchase_ready belongs to Maestro and is checked above; do not add a
+    # fictitious field to the canonical geometry exchange contract.
+    if any(exchange.get(key) is not False for key in (
+        "fabrication_ready", "cutting_ready", "drilling_ready"
+    )):
         raise PilotError("Contrato CAD inconsistente: autoridad de fabricación alterada.")
     expected = {part["piece_id"] for part in model["parts"]}
     observed = {box["piece_id"] for box in exchange["boxes"]}
