@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import csv
 import json
 import os
@@ -81,6 +82,21 @@ async def execute(output_root: Path) -> None:
                 ):
                     response = await session.call_tool(tool, args)
                     assert not response.isError, f"{project}: {tool}: {response}"
+                # An image must travel THROUGH MCP, not merely be written to
+                # an unreadable local file path on the server computer.
+                image = await session.call_tool(
+                    "carpinova_leer_entregable",
+                    {"proyecto": project, "archivo": "lamina/three-views.png"},
+                )
+                assert not image.isError, f"PNG preview MCP failed: {project}: {image}"
+                assert len(image.content) == 1
+                assert image.content[0].type == "image"
+                assert image.content[0].mimeType == "image/png"
+                assert base64.b64decode(image.content[0].data) == (
+                    output_root / project / "lamina/three-views.png"
+                ).read_bytes()
+                print("MCP_IMAGE_CONTENT_PASS=" + project)
+
 
 
 def validate_artifacts(root: Path) -> list[dict]:
@@ -161,6 +177,19 @@ async def execute_native(root: Path) -> None:
                         {"proyecto": name, "confirmacion": REVIEW_CONFIRMATION},
                     )
                     assert not result.isError, f"Native CAD export failed: {name}: {result}"
+                    preview = await session.call_tool(
+                        "carpinova_leer_entregable",
+                        {"proyecto": name, "archivo": "native/presentation.png"},
+                    )
+                    assert not preview.isError, f"Native preview MCP failed: {name}: {preview}"
+                    assert len(preview.content) == 1
+                    assert preview.content[0].type == "image"
+                    assert preview.content[0].mimeType == "image/png"
+                    assert base64.b64decode(preview.content[0].data) == (
+                        root / name / "native/presentation.png"
+                    ).read_bytes()
+                    print("MCP_NATIVE_IMAGE_CONTENT_PASS=" + name)
+
 
 
 def validate_native(root: Path) -> list[dict]:
