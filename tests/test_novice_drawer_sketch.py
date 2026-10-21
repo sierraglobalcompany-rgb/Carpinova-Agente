@@ -230,6 +230,17 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(result["parts"], [])
         ET.fromstring(result["sketch_svg"])
 
+    def test_support_without_height_offers_clear_editable_example(self):
+        req = novice()
+        req["module_spec"]["support_style"] = "legs"
+        model = consult_maestro(req)["modular"]
+        self.assertEqual(model["support_height_mm"], 100)
+        self.assertTrue(model["support_height_is_suggestion"])
+        self.assertEqual(model["suggestions_not_confirmed"]["support_height_mm"], 100)
+        self.assertIn("sugeridos", model["sketch_svg"])
+        self.assertTrue(any("no solicitado" in b for b in model["blockers"]))
+        ET.fromstring(model["sketch_svg"])
+
     def test_banqueo_base_changes_body_height_and_is_concept_only(self):
         req = novice()
         req["module_spec"].update({
@@ -263,9 +274,20 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(result["element_refs"][9]["ref"], "MF")
         self.assertEqual(result["element_refs"][9]["fixing"], "french_cleat")
         self.assertIn("400 mm", result["sketch_text"])
+        self.assertFalse(result["support_height_is_suggestion"])
         self.assertIn("MF muro (idea)", result["sketch_svg"])
         self.assertTrue(any("NO acredita" in v for v in result["blockers"]))
         ET.fromstring(result["sketch_svg"])
+
+    def test_suspended_without_floor_elevation_never_claims_zero(self):
+        req = novice()
+        req["module_spec"]["support_style"] = "wall_mounted"
+        model = consult_maestro(req)["modular"]
+        self.assertIsNone(model["wall_bottom_above_floor_mm"])
+        self.assertIsNone(model["suggestions_not_confirmed"]["support_height_mm"])
+        self.assertTrue(any("NO se ha definido" in v for v in model["blockers"]))
+        self.assertIn("None mm", model["sketch_text"])
+        ET.fromstring(model["sketch_svg"])
 
     def test_floor_supported_against_wall_with_direct_fixings(self):
         req = novice()
