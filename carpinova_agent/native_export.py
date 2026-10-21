@@ -19,7 +19,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zipfile import ZipFile
 
-from .pilot_cli import PilotError, verify_pilot_bundle
+from .pilot_cli import PilotError, verify_pilot_bundle, _FILES as _REVIEW_FILES
 from .core import DesignError
 
 REVIEW_CONFIRMATION = "AUTORIZO_EXPORTAR_BORRADOR_3D"
@@ -210,12 +210,46 @@ def export_native_project(
     with TemporaryDirectory(prefix=".carpinova-native-", dir=folder) as tmp:
         stage = Path(tmp) / "native"
         stage.mkdir()
+        # Freeze every Maestro review artifact before either CAD application
+        # reads it. All three adapters consume the SAME verified snapshot.
+        # Recheck original bytes immediately before publication: a concurrent
+        # edit must never leave native files attached to a changed review.
+        source = Path(tmp) / "source"
+        source.mkdir()
+        fingerprints: dict[str, str] = {}
+        try:
+            for name in _REVIEW_FILES:
+                original = folder / name
+                if not original.is_file() or original.is_symlink():
+                    raise NativeExportError("Archivo original cambiado durante exportación.")
+                payload = original.read_bytes()
+                fingerprints[name] = hashlib.sha256(payload).hexdigest()
+                (source / name).write_bytes(payload)
+            frozen_cad = verify_pilot_bundle(source)
+        except (OSError, PilotError, DesignError) as exc:
+            raise NativeExportError("No se pudo congelar el proyecto original.") from exc
+        if frozen_cad != cad:
+            raise NativeExportError("La geometría cambió antes de iniciar el CAD.")
+
+        def source_unchanged() -> None:
+            try:
+                for name, expected in fingerprints.items():
+                    original = folder / name
+                    if (not original.is_file() or original.is_symlink()
+                            or hashlib.sha256(original.read_bytes()).hexdigest() != expected):
+                        raise NativeExportError(
+                            "El proyecto cambió durante la exportación; no publicar.")
+            except OSError as exc:
+                raise NativeExportError(
+                    "No se pudo comprobar el proyecto antes de publicar.") from exc
+
+        source_unchanged()
         environment = {
             **os.environ,
             "GITHUB_WORKSPACE": str(repo),
             "PYTHONPATH": str(repo),
             "RUNNER_TEMP": str(folder.resolve(strict=True)),
-            "CARPINOVA_CAD_INPUT": str((folder / "cad-exchange.json").resolve(strict=True)),
+            "CARPINOVA_CAD_INPUT": str(source / "cad-exchange.json"),
             "CARPINOVA_FCSTD_OUTPUT": str(stage / "native.FCStd"),
         }
         jobs = (
@@ -281,6 +315,7 @@ def export_native_project(
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+        source_unchanged()
         if dest.exists() or dest.is_symlink():
             raise NativeExportError("Otra ejecución creó native; no sobrescribir.")
         os.rename(stage, dest)
