@@ -496,7 +496,8 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
     rows.append("ABAJO")
     rows.append(
         f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}, "
-        f"{plan.get('support_height_mm', 0)} mm; "
+        f"{plan.get('support_height_mm', 0)} mm "
+        f"{'(sugeridos)' if plan.get('support_height_is_suggestion') else ''}; "
         f"carcasa {dims['height']} mm; "
         f"alto total {plan.get('overall_height_mm', dims['height'])} mm."
     )
@@ -667,7 +668,8 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
           'class="ref">LD</text>'
         + f'<text x="30" y="503" class="note">'
           f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
-          f'AP: {SUPPORT_LABELS[style]} {support_h} mm.</text>'
+          f'AP: {SUPPORT_LABELS[style]} {support_h} mm '
+          f'{"(sugeridos)" if plan.get("support_height_is_suggestion") else ""}.</text>'
         + f'<text x="30" y="524" class="note">'
           f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}, '
           f'elevación {plan.get("wall_bottom_above_floor_mm", 0)} mm; '
@@ -781,7 +783,11 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         raise DesignError(
             "Apoyo: piso, patas, zócalo/banqueo o suspendido contra pared."
         )
-    sh = spec.get("support_height_mm", 0)
+    support_height_suggested = (
+        "support_height_mm" not in spec
+        and support_style in ("legs", "plinth")
+    )
+    sh = spec.get("support_height_mm", 100 if support_height_suggested else 0)
     if (type(sh) is not int or sh < 0
             or (support_style in ("legs", "plinth") and sh == 0)
             or (support_style in ("floor_direct", "wall_mounted") and sh != 0)):
@@ -803,8 +809,11 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             or (support_style == "wall_mounted" and wall_fixing == "none")):
         raise DesignError("No se especifica fijación sin muro "
                           "ni se deja un suspendido sin fijación.")
-    wall_h = spec.get("wall_bottom_above_floor_mm", 0)
-    if (type(wall_h) is not int or wall_h < 0
+    wall_h = spec.get(
+        "wall_bottom_above_floor_mm",
+        None if support_style == "wall_mounted" else 0
+    )
+    if ((wall_h is not None and (type(wall_h) is not int or wall_h < 0))
             or (support_style != "wall_mounted" and wall_h != 0)):
         raise DesignError("Altura sobre piso es exclusiva del suspendido.")
     back_style = spec.get("back_style", "pending")
@@ -880,12 +889,18 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "panel_thickness_mm": 18, "construction": "sides_full",
             "vertical_gap_mm": 28, "drawer_weights": list(weights),
             "large_drawer_position": position,
+            "support_style": support_style,
+            "support_height_mm": sh if support_height_suggested else None,
+            "wall_fixing": wall_fixing if "wall_fixing" not in spec else None,
+            "back_thickness_mm": back_t if back_style == "thin_sheet"
+                and "back_thickness_mm" not in spec else None,
         },
         "can_generate_f7c": False,
         "overall_height_mm": overall_h,
         "carcass_height_mm": overall_h - sh,
         "support_style": support_style,
         "support_height_mm": sh,
+        "support_height_is_suggestion": support_height_suggested,
         "wall_contact": wall_contact,
         "wall_fixing": wall_fixing,
         "wall_bottom_above_floor_mm": wall_h,
@@ -913,6 +928,16 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         0, "Boceto editable, NO plano de despiece: confirmar cada opción "
            "técnica antes de crear piezas, incluidos apoyos/muro/fondos."
     )
+    if support_height_suggested:
+        result["blockers"].insert(
+            1, "Altura AP 100 mm es un ejemplo no solicitado; la persona "
+               "debe decidir si quiere esa altura."
+        )
+    if support_style == "wall_mounted" and wall_h is None:
+        result["blockers"].insert(
+            1, "La altura inferior sobre el suelo NO se ha definido; "
+               "no usar cero como altura de instalación."
+        )
     if support_style in ("legs", "plinth", "wall_mounted"):
         result["blockers"].insert(
             1, "Apoyo AP solo visual: patas, banqueo y suspensión NO tienen "
