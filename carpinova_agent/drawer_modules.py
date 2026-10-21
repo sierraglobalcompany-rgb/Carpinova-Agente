@@ -444,6 +444,15 @@ def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
          "concept_overhang_right_mm": plan.get("top_overhang_right_mm", 0)},
         {"ref": "LI", "kind": "left_side"},
         {"ref": "LD", "kind": "right_side"},
+        {"ref": "AP", "kind": "floor_support",
+         "style": plan.get("support_style", "floor_direct"),
+         "concept_height_mm": plan.get("support_height_mm", 0)},
+        {"ref": "FP", "kind": "rear_back",
+         "style": plan.get("back_style", "pending"),
+         "concept_thickness_mm": plan.get("back_thickness_mm")},
+        {"ref": "MF", "kind": "wall_interface",
+         "against_wall": plan.get("wall_contact", False),
+         "fixing": plan.get("wall_fixing", "pending")},
     ]
 
 
@@ -471,6 +480,21 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
             )
     rows.append("ABAJO")
     rows.append(
+        f"AP: {plan.get('support_style', 'floor_direct')}, "
+        f"{plan.get('support_height_mm', 0)} mm; "
+        f"carcasa {dims['height']} mm; "
+        f"alto total {plan.get('overall_height_mm', dims['height'])} mm."
+    )
+    rows.append(
+        f"MF: muro {plan.get('wall_contact', False)}; fijación "
+        f"{plan.get('wall_fixing', 'pending')}; altura sobre piso "
+        f"{plan.get('wall_bottom_above_floor_mm', 0)} mm."
+    )
+    rows.append(
+        f"FP: fondo posterior {plan.get('back_style', 'pending')}; "
+        f"espesor ilustrativo {plan.get('back_thickness_mm')} mm."
+    )
+    rows.append(
         f"T sobresale a izquierda/derecha: "
         f"{plan.get('top_overhang_left_mm', 0)} / "
         f"{plan.get('top_overhang_right_mm', 0)} mm; "
@@ -491,7 +515,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
     t = plan["panel_thickness_mm"]
     ext_l = plan.get("top_overhang_left_mm", 0)
     ext_r = plan.get("top_overhang_right_mm", 0)
-    scale = min(255 / (width + ext_l + ext_r), 380 / height)
+    overall_height = plan.get("overall_height_mm", height)
+    support_h = plan.get("support_height_mm", 0)
+    scale = min(255 / (width + ext_l + ext_r), 380 / overall_height)
     left, top = 128.0 + ext_l * scale, 104.0
     w, h = width * scale, height * scale
     inner_l, inner_t = left + t * scale, top + t * scale
@@ -554,6 +580,37 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
                 f'<text x="{inner_l+inner_w/2:.2f}" y="{y+ph/2+5:.2f}" '
                 'class="small" text-anchor="middle">PUSH</text>'
             )
+    style = plan.get("support_style", "floor_direct")
+    support_marks = ""
+    if style == "legs":
+        leg_h, leg_w = support_h * scale, min(w * 0.15, 20)
+        support_marks = (
+            f'<rect x="{left+12:.2f}" y="{top+h:.2f}" '
+            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<rect x="{left+w-12-leg_w:.2f}" y="{top+h:.2f}" '
+            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<text x="{left+w+18:.2f}" y="{top+h+leg_h/2:.2f}" '
+            'class="small">AP patas (idea)</text>'
+        )
+    elif style == "plinth":
+        support_marks = (
+            f'<rect x="{left+8:.2f}" y="{top+h:.2f}" '
+            f'width="{w-16:.2f}" height="{support_h*scale:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<text x="{left+w+18:.2f}" '
+            f'y="{top+h+support_h*scale/2:.2f}" '
+            'class="small">AP zócalo (idea)</text>'
+        )
+    elif style == "wall_mounted":
+        support_marks = (
+            f'<path d="M {left-12:.2f} {top:.2f} '
+            f'L {left-12:.2f} {top+h:.2f}" '
+            'stroke="#ba8868" stroke-dasharray="5 4" stroke-width="4"/>'
+            f'<text x="{left+w+18:.2f}" y="{top+h-12:.2f}" '
+            'class="small">MF muro (idea)</text>'
+        )
     top_extension = ""
     if ext_l or ext_r:
         top_extension = (
@@ -580,6 +637,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'height="{h:.2f}" fill="#f5f7f9" '
         'stroke="#354657" stroke-width="3"/>'
         + top_extension
+        + support_marks
         + "".join(marks)
         + f'<text x="{left+w/2:.2f}" y="{top-16:.2f}" '
           'class="dimension" text-anchor="middle">'
@@ -587,14 +645,19 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         + f'<text x="36" y="{top+h/2:.2f}" class="dimension" '
           f'transform="rotate(-90 36 {top+h/2:.2f})" '
           'text-anchor="middle">'
-          f'ALTO {height} mm</text>'
+          f'ALTO {overall_height} mm</text>'
         + f'<text x="{left-25:.2f}" y="{top+h/2:.2f}" '
           'class="ref">LI</text>'
         + f'<text x="{left+w+8:.2f}" y="{top+h-14:.2f}" '
           'class="ref">LD</text>'
-        + f'<text x="30" y="524" class="note">'
+        + f'<text x="30" y="503" class="note">'
           f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
-          f'Tablero supuesto: {t} mm.</text>'
+          f'AP: {style} {support_h} mm.</text>'
+        + f'<text x="30" y="524" class="note">'
+          f'MF: muro={plan.get("wall_contact", False)}, '
+          f'fix={plan.get("wall_fixing", "pending")}; '
+          f'FP: {plan.get("back_style", "pending")} '
+          f'({plan.get("back_thickness_mm")} mm).</text>'
         + f'<text x="30" y="547" class="note">'
           f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
           '(solo idea, NO calculado como panel).</text>'
