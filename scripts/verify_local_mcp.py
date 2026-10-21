@@ -15,9 +15,11 @@ from pathlib import Path
 import sys
 from xml.etree import ElementTree
 
-from carpinova_agent.cad_exchange import validate_exchange
-
+# When invoked as scripts/verify_local_mcp.py Python places scripts/ first
+# on sys.path. Restore the actual repo root BEFORE importing the package.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+from carpinova_agent.cad_exchange import validate_exchange
 CASES = (
     ("primer_mueble", "pilot-open-kitchen-800.json", 4),
     ("cocina_dos_modulos", "modular-kitchen-door-fronts.json", 13),
