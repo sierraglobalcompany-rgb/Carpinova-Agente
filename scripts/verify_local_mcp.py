@@ -29,6 +29,7 @@ TOOLS = {
     "carpinova_consultar",
     "carpinova_generar_borrador",
     "carpinova_renderizar_lamina",
+    "carpinova_exportar_3d",
     "carpinova_leer_entregable",
 }
 FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready")
@@ -122,13 +123,89 @@ def validate_artifacts(root: Path) -> list[dict]:
     return results
 
 
+
+async def execute_native(root: Path) -> None:
+    """Exercise opt-in real native tools via the SAME MCP protocol/session."""
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    from carpinova_agent.native_export import REVIEW_CONFIRMATION
+    required = (
+        "CARPINOVA_NATIVE_EXECUTION_ENABLED",
+        "CARPINOVA_FREECADCMD", "CARPINOVA_BLENDER",
+    )
+    if any(not os.environ.get(x) for x in required):
+        raise ValueError("Native host opt-in and executables must be configured.")
+    env = {**os.environ, "CARPINOVA_OUTPUT_ROOT": str(root),
+           "PYTHONPATH": str(PROJECT_ROOT)}
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "carpinova_agent.mcp_bridge"], env=env,
+    )
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            names = {item.name for item in (await session.list_tools()).tools}
+            assert names == TOOLS, "MCP native tools mismatch"
+            for name, _, _ in verified_requests():
+                result = await session.call_tool(
+                    "carpinova_exportar_3d",
+                    {"proyecto": name, "confirmacion": REVIEW_CONFIRMATION},
+                )
+                assert not result.isError, f"Native CAD export failed: {name}: {result}"
+
+
+def validate_native(root: Path) -> list[dict]:
+    """Proof from native CAD reports, actual files and canonical SHA/part IDs."""
+    from zipfile import ZipFile
+    results = []
+    for name, _, count in verified_requests():
+        folder = root / name
+        cad = validate_exchange(json.loads(
+            (folder / "cad-exchange.json").read_text(encoding="utf-8")
+        ))
+        manifest = json.loads(
+            (folder / "native" / "native-manifest.json").read_text(encoding="utf-8")
+        )
+        assert manifest["piece_count"] == count == len(cad["boxes"])
+        assert manifest["geometry_sha256"] == cad["geometry_sha256"]
+        assert manifest["status"] == "NATIVE_PREVIEW_NOT_FOR_CUTTING"
+        assert all(manifest[k] is False for k in FLAGS)
+        assert set(manifest["reports"]) == {"FreeCAD", "Blender", "BlenderPresentation"}
+        for report in manifest["reports"].values():
+            assert report["geometry_sha256"] == cad["geometry_sha256"]
+            assert report["verified_piece_count"] == count
+            assert report["status"] == "NATIVE_GEOMETRY_MATCH"
+            assert report["max_abs_error_mm"] <= 0.05
+        with ZipFile(folder / "native" / "native.FCStd") as z:
+            assert z.testzip() is None and "Document.xml" in z.namelist()
+        for suffix in ("native.blend", "presentation.blend"):
+            assert (folder / "native" / suffix).read_bytes()[:7] == b"BLENDER"
+        assert (folder / "native" / "presentation.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        print("MCP_NATIVE_CAD_PASS=" + name + "; PIECES=" + str(count))
+        results.append({
+            "project": name, "geometry_sha256": cad["geometry_sha256"],
+            "pieces": count, "four_release_flags": False,
+        })
+    (root / "native-preflight-report.json").write_text(
+        json.dumps(results, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
+    )
+    print("MCP_NATIVE_FREECAD_BLENDER=PASS; FABRICATION_AUTHORITY=NO")
+    return results
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CarpiNova MCP local preflight, no fabrication.")
     parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--native-only", action="store_true",
+                        help="Only native export of existing projects; opt-in apps required")
     options = parser.parse_args()
     root = options.output_root.expanduser().resolve()
     if not root.is_absolute():
         raise ValueError("Output folder must be absolute.")
+    if options.native_only:
+        if not root.is_dir():
+            raise ValueError("Native export requires an existing review output directory.")
+        asyncio.run(execute_native(root))
+        validate_native(root)
+        return 0
     if root.exists():
         if not root.is_dir() or any(root.iterdir()):
             raise ValueError("Use a new, empty output folder; do not overwrite reviews.")
@@ -154,7 +231,7 @@ def main() -> int:
         print("MCP_FURNITURE_PASS=" + item["project"] +
               "; PIECES=" + str(item["pieces"]) +
               "; GEOMETRY_SHA256=" + item["geometry_sha256"])
-    print("REAL_MCP_STDIO=PASS; FIVE_TOOLS=PASS")
+    print("REAL_MCP_STDIO=PASS; SIX_TOOLS=PASS")
     print("THREE_VIEWS_SVG_PNG_PDF=PASS")
     print("FABRICATION_AUTHORITY=NO")
     return 0
