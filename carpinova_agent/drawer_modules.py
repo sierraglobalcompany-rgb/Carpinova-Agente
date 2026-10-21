@@ -515,234 +515,287 @@ def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _large_drawer_label(plan: dict[str, Any]) -> str | None:
+    """Drawer identity follows the user's original request, never its new rank."""
+    if plan.get("large_drawer_ref"):
+        return plan["large_drawer_ref"]
+    weights = plan["drawer_weights"]
+    if max(weights) == min(weights) or weights.count(max(weights)) != 1:
+        return None
+    return chr(65 + len(weights) - 1 - weights.index(max(weights)))
+
+
 def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
     dims = plan["external_dimensions_mm"]
-    refs = _guide_ref_map(plan)
+    elements = _guide_ref_map(plan)
+    large = _large_drawer_label(plan)
     rows = [
-        "BOCETO IDENTIFICADO · PROPUESTA, NO CORTAR",
-        f"Ancho de carcasa {dims['width']} mm × alto {dims['height']} mm; "
-        f"fondo de carcasa {dims['depth']} mm",
-        "T = tapa superior (solo esquema; LI = lateral izquierdo, LD = derecho)",
-        "ARRIBA",
+        "BOCETO FRONTAL Y LATERAL · SOLO PROPUESTA, NO CORTAR",
+        f"Carcasa nominal: ancho {dims['width']}, alto {dims['height']}, "
+        f"fondo {dims['depth']} mm.",
+        "Arriba hacia abajo:",
     ]
-    for item in refs:
-        if item["kind"] == "drawer":
-            large = item["nominal_opening_height_mm"] == max(
-                opening["opening_height_mm"] for opening in plan["opening_plan"]
-            ) and len({opening["opening_height_mm"]
-                       for opening in plan["opening_plan"]}) > 1
+    for part in elements:
+        if part["kind"] == "drawer":
+            kind = "gaveta solicitada" if part["ref"] == large else "cajón"
             rows.append(
-                f"[ {item['ref']} = {item['engine_id']} · "
-                f"{'gaveta' if large else 'cajón'} · "
-                f"{item['nominal_opening_height_mm']} mm · "
-                f"{CHOICE_LABELS[item['opening_system_intent']]} ]"
+                f"{part['ref']} ({part['engine_id']}): {kind}, abertura "
+                f"{part['nominal_opening_height_mm']} mm, "
+                f"{CHOICE_LABELS[part['opening_system_intent']]}."
             )
-    rows.append("ABAJO")
-    rows.append(
-        f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}, "
-        f"{plan.get('support_height_mm', 0)} mm "
-        f"{'(sugeridos)' if plan.get('support_height_is_suggestion') else ''}; "
-        f"carcasa {dims['height']} mm; "
-        f"alto total {plan.get('overall_height_mm', dims['height'])} mm."
-    )
-    rows.append(
-        f"MF: muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
-        f"{WALL_LABELS[plan.get('wall_fixing', 'pending')]}; altura sobre piso "
-        f"{_sketch_mm(plan.get('wall_bottom_above_floor_mm', 0))}."
-    )
-    rows.append(
-        f"FP: fondo posterior {BACK_LABELS[plan.get('back_style', 'pending')]}; "
-        f"espesor ilustrativo {_sketch_mm(plan.get('back_thickness_mm'))}."
-    )
-    rows.append(
-        f"T sobresale a izquierda/derecha: "
-        f"{plan.get('top_overhang_left_mm', 0)} / "
-        f"{plan.get('top_overhang_right_mm', 0)} mm; "
-        "no está resuelto en la carcasa F1."
-    )
-    rows.append(
-        f"Franjas internas de {plan['vertical_gap_mm']} mm: "
-        "NO son divisores ni holguras visibles."
-    )
-    rows.append("Sin herrajes ni frentes fabricables. El dibujo es modificable.")
+    for part in elements:
+        if part["ref"] in ("T", "BS"):
+            name = "tapa superior" if part["ref"] == "T" else "base inferior"
+            rows.append(
+                f"{part['ref']} = {name}: panel nominal "
+                f"{part['nominal_width_mm']} × {part['nominal_depth_mm']} "
+                f"× {part['nominal_thickness_mm']} mm (ancho × fondo × espesor); "
+                f"concepto exterior {part['concept_outer_width_mm']} × "
+                f"{part['concept_outer_depth_mm']} mm; salientes izquierda "
+                f"{part['concept_overhang_left_mm']}, derecha "
+                f"{part['concept_overhang_right_mm']}, frente "
+                f"{part['concept_overhang_front_mm']}, atrás "
+                f"{part['concept_overhang_rear_mm']} mm."
+            )
+        elif part["ref"] in ("LI", "LD"):
+            rows.append(
+                f"{part['ref']} = lateral "
+                f"{'izquierdo' if part['ref'] == 'LI' else 'derecho'}: "
+                f"{part['nominal_height_mm']} × {part['nominal_depth_mm']} "
+                f"× {part['nominal_thickness_mm']} mm "
+                "(alto × fondo × espesor)."
+            )
+    rows.extend([
+        f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}; "
+        f"altura {_sketch_mm(plan.get('support_height_mm', 0))}; "
+        f"alto total {_sketch_mm(plan.get('overall_height_mm', dims['height']))}.",
+        f"MF: {WALL_LABELS[plan.get('wall_fixing', 'pending')]}, "
+        f"muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
+        f"elevación {_sketch_mm(plan.get('wall_bottom_above_floor_mm', 0))}.",
+        f"FP: {BACK_LABELS[plan.get('back_style', 'pending')]}; "
+        f"espesor {_sketch_mm(plan.get('back_thickness_mm'))}.",
+        f"Franjas geométricas internas: {plan['vertical_gap_mm']} mm; "
+        "no son divisores ni luces visibles de fachada.",
+        "T y BS con salientes: SOLO IDEAS. Los paneles reales F1 siguen "
+        "sin esos voladizos; ni materiales ni apoyos certificados.",
+        "NO CORTAR, TALADRAR NI COMPRAR.",
+    ])
     return "\n".join(rows)
 
 
 def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
-    """Annotated review SVG; all opening coordinates originate in F1."""
+    """Front + profile drawing from ONE F1 plan. Review-only, never cutting CAD."""
     dims = plan["external_dimensions_mm"]
-    width, height = dims["width"], dims["height"]
+    width, height, depth = dims["width"], dims["height"], dims["depth"]
     t = plan["panel_thickness_mm"]
-    ext_l = plan.get("top_overhang_left_mm", 0)
-    ext_r = plan.get("top_overhang_right_mm", 0)
-    overall_height = plan.get("overall_height_mm", height)
+    overall = plan.get("overall_height_mm", height)
     support_h = plan.get("support_height_mm", 0)
-    scale = min(255 / (width + ext_l + ext_r), 380 / overall_height)
-    left, top = 128.0 + ext_l * scale, 104.0
-    w, h = width * scale, height * scale
-    inner_l, inner_t = left + t * scale, top + t * scale
-    inner_w = (width - 2 * t) * scale
-    marks: list[str] = []
-    for label, opening in _annotated_openings(plan):
-        y = inner_t + (
-            plan["clear_height_mm"]
-            - opening["opening_bottom_offset_mm"]
-            - opening["opening_height_mm"]
-        ) * scale
-        ph = opening["opening_height_mm"] * scale
-        large = (opening["opening_height_mm"] ==
-                 max(item["opening_height_mm"]
-                     for item in plan["opening_plan"])
-                 and len({item["opening_height_mm"]
-                          for item in plan["opening_plan"]}) > 1)
-        kind = "GAVETA" if large else "CAJÓN"
-        choice = plan.get("opening_systems", {}).get(label, "pending")
-        marks.append(
-            f'<rect x="{inner_l:.2f}" y="{y:.2f}" '
-            f'width="{inner_w:.2f}" height="{ph:.2f}" '
-            f'fill="{"#d4e7e5" if large else "#e8edf4"}" '
-            'stroke="#62768b" stroke-width="1.5"/>'
-            f'<text x="{inner_l+9:.2f}" y="{y+ph/2+5:.2f}" '
-            'class="ref">'
-            f'{label}</text>'
-            f'<path d="M {inner_l+inner_w:.2f} {y+ph/2:.2f} '
-            f'L 449 {y+ph/2:.2f}" stroke="#738496" '
-            'stroke-dasharray="4 3"/>'
-            f'<text x="457" y="{y+ph/2-3:.2f}" class="dimension">'
-            f'{label} ({opening["drawer_id"]}) · {kind} '
-            f'{opening["opening_height_mm"]} mm</text>'
-            f'<text x="457" y="{y+ph/2+17:.2f}" class="small">'
-            f'{CHOICE_LABELS[choice]}</text>'
-        )
-        if choice == "handle":
-            # Tiny handle symbol, not a real SKU or drill location.
-            mx = inner_l + inner_w / 2
-            marks.append(
-                f'<path d="M {mx-11:.2f} {y+ph/2+5:.2f} '
-                f'L {mx+11:.2f} {y+ph/2+5:.2f}" '
-                'stroke="#43556c" stroke-width="3"/>'
-            )
-        elif choice == "finger_pull":
-            marks.append(
-                f'<path d="M {inner_l+inner_w/2-9:.2f} {y+4:.2f} '
-                f'Q {inner_l+inner_w/2:.2f} {y+15:.2f} '
-                f'{inner_l+inner_w/2+9:.2f} {y+4:.2f}" '
-                'fill="none" stroke="#43556c" stroke-width="2"/>'
-            )
-        elif choice == "profile":
-            marks.append(
-                f'<line x1="{inner_l+2:.2f}" y1="{y+6:.2f}" '
-                f'x2="{inner_l+inner_w-2:.2f}" y2="{y+6:.2f}" '
-                'stroke="#43556c" stroke-width="3"/>'
-            )
-        elif choice == "push_to_open":
-            marks.append(
-                f'<text x="{inner_l+inner_w/2:.2f}" y="{y+ph/2+5:.2f}" '
-                'class="small" text-anchor="middle">PUSH</text>'
-            )
     style = plan.get("support_style", "floor_direct")
-    support_marks = ""
-    if style == "legs":
-        leg_h, leg_w = support_h * scale, min(w * 0.15, 20)
-        support_marks = (
-            f'<rect x="{left+12:.2f}" y="{top+h:.2f}" '
-            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
-            'fill="#ead3ba" stroke="#836a56"/>'
-            f'<rect x="{left+w-12-leg_w:.2f}" y="{top+h:.2f}" '
-            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
-            'fill="#ead3ba" stroke="#836a56"/>'
-            f'<text x="{left+w+18:.2f}" y="{top+h+leg_h/2:.2f}" '
-            'class="small">AP patas (idea)</text>'
-        )
-    elif style == "plinth":
-        support_marks = (
-            f'<rect x="{left+8:.2f}" y="{top+h:.2f}" '
-            f'width="{w-16:.2f}" height="{support_h*scale:.2f}" '
-            'fill="#ead3ba" stroke="#836a56"/>'
-            f'<text x="{left+w+18:.2f}" '
-            f'y="{top+h+support_h*scale/2:.2f}" '
-            'class="small">AP zócalo (idea)</text>'
-        )
+    top_panel = _panel_review_dimensions(plan, "top")
+    bottom_panel = _panel_review_dimensions(plan, "bottom")
+    panels = (top_panel, bottom_panel)
+    left_ext = max(x["concept_overhang_left_mm"] for x in panels)
+    right_ext = max(x["concept_overhang_right_mm"] for x in panels)
+    front_ext = max(x["concept_overhang_front_mm"] for x in panels)
+    rear_ext = max(x["concept_overhang_rear_mm"] for x in panels)
+    fs = min(260 / (width + left_ext + right_ext), 366 / overall)
+    ss = min(235 / (depth + front_ext + rear_ext), 366 / overall)
+    fx, fy = 175 + left_ext * fs, 151
+    fw, fh, ft = width * fs, height * fs, t * fs
+    sx, sy = 795 + front_ext * ss, 151
+    sw, sh, st = depth * ss, height * ss, t * ss
+    int_x, int_y = fx + ft, fy + ft
+    int_w = fw - 2 * ft
+    large_ref = _large_drawer_label(plan)
+    shapes: list[str] = []
+
+    # Fixed full-height sides and inset top/bottom are the actual F1 geometry
+    # for sides_full; the dashed extensions are DISTINCT unverified ideas.
+    if plan["construction"] == "sides_full":
+        shapes.extend([
+            f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
+            f'height="{fh:.2f}" class="panel-side"/>',
+            f'<rect x="{fx+fw-ft:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
+            f'height="{fh:.2f}" class="panel-side"/>',
+            f'<rect x="{fx+ft:.2f}" y="{fy:.2f}" width="{int_w:.2f}" '
+            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'<rect x="{fx+ft:.2f}" y="{fy+fh-ft:.2f}" '
+            f'width="{int_w:.2f}" height="{ft:.2f}" class="panel-actual"/>',
+        ])
+    else:
+        shapes.extend([
+            f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{fw:.2f}" '
+            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'<rect x="{fx:.2f}" y="{fy+fh-ft:.2f}" width="{fw:.2f}" '
+            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'<rect x="{fx:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
+            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+            f'<rect x="{fx+fw-ft:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
+            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+        ])
+    for label, opening in _annotated_openings(plan):
+        y = int_y + (plan["clear_height_mm"] -
+                     opening["opening_bottom_offset_mm"] -
+                     opening["opening_height_mm"]) * fs
+        ph = opening["opening_height_mm"] * fs
+        is_large = label == large_ref
+        kind = "GAVETA" if is_large else "CAJÓN"
+        choice = plan.get("opening_systems", {}).get(label, "pending")
+        shapes.extend([
+            f'<rect x="{int_x:.2f}" y="{y:.2f}" width="{int_w:.2f}" '
+            f'height="{ph:.2f}" class="{"drawer-large" if is_large else "drawer"}"/>',
+            f'<text x="{int_x+10:.2f}" y="{y+ph/2+6:.2f}" '
+            f'class="ref">{label}</text>',
+            f'<path d="M {int_x+int_w:.2f} {y+ph/2:.2f} L 486 {y+ph/2:.2f}" '
+            'class="leader"/>',
+            f'<text x="499" y="{y+ph/2-3:.2f}" class="dimension">'
+            f'{label} · {kind} {opening["opening_height_mm"]} mm</text>',
+            f'<text x="499" y="{y+ph/2+16:.2f}" class="small">'
+            f'{CHOICE_LABELS[choice]}</text>',
+        ])
+        cx = int_x + int_w / 2
+        if choice == "handle":
+            shapes.append(f'<line x1="{cx-11:.2f}" y1="{y+ph/2+6:.2f}" '
+                          f'x2="{cx+11:.2f}" y2="{y+ph/2+6:.2f}" '
+                          'stroke="#506379" stroke-width="3"/>')
+        elif choice == "finger_pull":
+            shapes.append(f'<path d="M {cx-9:.2f} {y+4:.2f} '
+                          f'Q {cx:.2f} {y+15:.2f} {cx+9:.2f} {y+4:.2f}" '
+                          'fill="none" stroke="#506379" stroke-width="2"/>')
+        elif choice == "profile":
+            shapes.append(f'<line x1="{int_x+3:.2f}" y1="{y+5:.2f}" '
+                          f'x2="{int_x+int_w-3:.2f}" y2="{y+5:.2f}" '
+                          'stroke="#506379" stroke-width="3"/>')
+        elif choice == "push_to_open":
+            shapes.append(f'<text x="{cx:.2f}" y="{y+ph/2+7:.2f}" '
+                          'class="small" text-anchor="middle">PUSH</text>')
+    shapes.append(f'<text x="{fx-20:.2f}" y="{fy+35:.2f}" '
+                  'class="ref" text-anchor="end">LI</text>')
+    shapes.append(f'<text x="{fx+fw+8:.2f}" y="{fy+fh-25:.2f}" '
+                  'class="ref">LD</text>')
+    shapes.append(f'<text x="{fx+fw/2:.2f}" y="{fy-17:.2f}" '
+                  'class="dimension" text-anchor="middle">T · superior</text>')
+    shapes.append(f'<text x="{fx+fw/2:.2f}" y="{fy+fh+19:.2f}" '
+                  'class="dimension" text-anchor="middle">BS · inferior</text>')
+    # The 2D side view is a schematic, NOT a support or joinery design.
+    shapes.extend([
+        f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
+        f'height="{sh:.2f}" fill="#eef2f7" stroke="#33475d" stroke-width="2"/>',
+        f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
+        f'height="{st:.2f}" class="panel-actual"/>',
+        f'<rect x="{sx:.2f}" y="{sy+sh-st:.2f}" width="{sw:.2f}" '
+        f'height="{st:.2f}" class="panel-actual"/>',
+        f'<path d="M {sx+sw-2:.2f} {sy+7:.2f} '
+        f'L {sx+sw-2:.2f} {sy+sh-7:.2f}" '
+        'stroke="#a78b75" stroke-dasharray="4 5" stroke-width="1.5"/>',
+        f'<text x="{sx+sw/2:.2f}" y="{sy-17:.2f}" '
+        'class="dimension" text-anchor="middle">VISTA LATERAL</text>',
+        f'<text x="{sx+sw/2:.2f}" y="{sy+sh+19:.2f}" '
+        'class="small" text-anchor="middle">FRENTE ← {depth} mm → FONDO</text>',
+    ])
+    for ref, name, panel in (("T", "top", top_panel), ("BS", "bottom", bottom_panel)):
+        yy = fy if ref == "T" else fy+fh-ft
+        yy2 = sy if ref == "T" else sy+sh-st
+        if panel["extension_not_modeled_in_F1"]:
+            le, ri = panel["concept_overhang_left_mm"], panel["concept_overhang_right_mm"]
+            fr, re = panel["concept_overhang_front_mm"], panel["concept_overhang_rear_mm"]
+            shapes.extend([
+                f'<rect x="{fx-le*fs:.2f}" y="{yy:.2f}" '
+                f'width="{(width+le+ri)*fs:.2f}" height="{ft:.2f}" '
+                'class="concept"/>',
+                f'<rect x="{sx-fr*ss:.2f}" y="{yy2:.2f}" '
+                f'width="{(depth+fr+re)*ss:.2f}" height="{st:.2f}" '
+                'class="concept"/>',
+            ])
+    if style in ("legs", "plinth"):
+        bottom = fy+fh
+        sup = support_h * fs
+        if style == "legs":
+            for x in (fx+11, fx+fw-25):
+                shapes.append(f'<rect x="{x:.2f}" y="{bottom:.2f}" '
+                              f'width="14" height="{sup:.2f}" class="support"/>')
+        else:
+            shapes.append(f'<rect x="{fx+9:.2f}" y="{bottom:.2f}" '
+                          f'width="{fw-18:.2f}" height="{sup:.2f}" class="support"/>')
     elif style == "wall_mounted":
-        support_marks = (
-            f'<path d="M {left-12:.2f} {top:.2f} '
-            f'L {left-12:.2f} {top+h:.2f}" '
-            'stroke="#ba8868" stroke-dasharray="5 4" stroke-width="4"/>'
-            f'<text x="{left+w+18:.2f}" y="{top+h-12:.2f}" '
-            'class="small">MF muro (idea)</text>'
-        )
-    top_extension = ""
-    if ext_l or ext_r:
-        top_extension = (
-            f'<rect x="{left-ext_l*scale:.2f}" y="{top:.2f}" '
-            f'width="{w+(ext_l+ext_r)*scale:.2f}" height="{t*scale:.2f}" '
-            'fill="#fbdfb2" stroke="#9c672c" stroke-width="2" '
-            'stroke-dasharray="5 3"/>'
-        )
+        shapes.append(f'<line x1="{sx+sw+8:.2f}" y1="{sy:.2f}" '
+                      f'x2="{sx+sw+8:.2f}" y2="{sy+sh:.2f}" '
+                      'stroke="#a6755a" stroke-width="3" stroke-dasharray="5 4"/>')
+    for x, label, info in (
+        (35, "T · TAPA SUPERIOR", top_panel),
+        (410, "BS · BASE INFERIOR", bottom_panel),
+    ):
+        n = "T" if x == 35 else "BS"
+        other = "top" if n == "T" else "bottom"
+        outer_str = f'{info["concept_outer_width_mm"]} × {info["concept_outer_depth_mm"]} mm'
+        shapes.extend([
+            f'<rect x="{x}" y="624" width="362" height="103" rx="10" '
+            'fill="#f7f9fb" stroke="#cad4df"/>',
+            f'<text x="{x+15}" y="649" class="card-title">{label}</text>',
+            f'<text x="{x+15}" y="671" class="small">'
+            f'Nominal: {info["nominal_width_mm"]} × {depth} × {t} mm</text>',
+            f'<text x="{x+15}" y="691" class="small">'
+            f'Idea exterior: {outer_str}</text>',
+            f'<text x="{x+15}" y="711" class="note">'
+            f'Izq. {info["concept_overhang_left_mm"]} / '
+            f'der. {info["concept_overhang_right_mm"]} · '
+            f'frente {info["concept_overhang_front_mm"]} / '
+            f'atrás {info["concept_overhang_rear_mm"]} mm</text>',
+        ])
+    shapes.extend([
+        '<rect x="785" y="624" width="350" height="103" rx="10" '
+        'fill="#f7f9fb" stroke="#cad4df"/>',
+        '<text x="801" y="649" class="card-title">LI / LD · LATERALES</text>',
+        f'<text x="801" y="674" class="small">'
+        f'{_side_panel_height(plan)} × {depth} × {t} mm c/u</text>',
+        '<text x="801" y="698" class="small">'
+        'Alto × fondo × espesor (nominal F1)</text>',
+        f'<text x="801" y="715" class="note">'
+        f'Carcasa: {width} × {height} × {depth} mm</text>',
+        '<text x="35" y="764" class="card-title">Opciones del mueble</text>',
+        f'<text x="35" y="788" class="small">'
+        f'AP · {SUPPORT_LABELS[style]} · {support_h} mm; '
+        f'alto exterior {overall} mm</text>',
+        f'<text x="35" y="810" class="small">'
+        f'MF · {WALL_LABELS[plan.get("wall_fixing", "pending")]} · '
+        f'FP · {BACK_LABELS[plan.get("back_style", "pending")]}</text>',
+        f'<text x="35" y="835" class="small">'
+        f'Franjas interiores {plan["vertical_gap_mm"]} mm: NO son divisores ni juntas de frentes.</text>',
+        f'<text x="35" y="865" class="small">'
+        f'Envolvente ilustrativa: {plan.get("concept_envelope", {}).get("width_mm", width)} '
+        f'× {plan.get("concept_envelope", {}).get("depth_mm", depth)} mm en planta.</text>',
+        '<text x="35" y="898" class="warning">'
+        'LÍNEAS PUNTEADAS = IDEAS SIN CÁLCULO ESTRUCTURAL · '
+        'NO CORTAR, TALADRAR NI COMPRAR.</text>',
+    ])
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" '
-        'width="820" height="750" viewBox="0 0 820 750" '
-        'role="img" aria-label="Boceto frontal etiquetado de cajones '
-        'y componentes, sujeto a revisión">'
-        '<style>text{font-family:Arial,sans-serif;fill:#253446}'
-        '.title{font-size:20px;font-weight:bold}'
-        '.dimension{font-size:15px}.small{font-size:12px}'
-        '.ref{font-size:19px;font-weight:bold}'
-        '.note{font-size:13px;fill:#556577}</style>'
-        '<rect width="820" height="750" rx="12" fill="#fafbfc"/>'
-        '<text x="28" y="32" class="title">Tu mueble, por piezas identificadas</text>'
-        '<text x="28" y="55" class="note">Di: “sube el cajón A 10 cm” '
-        'o “haz que T sobresalga a ambos lados”.</text>'
-        f'<rect x="{left:.2f}" y="{top:.2f}" width="{w:.2f}" '
-        f'height="{h:.2f}" fill="#f5f7f9" '
-        'stroke="#354657" stroke-width="3"/>'
-        + top_extension
-        + support_marks
-        + "".join(marks)
-        + f'<text x="{left+w/2:.2f}" y="{top-16:.2f}" '
-          'class="dimension" text-anchor="middle">'
-          f'T · TAPA · {width+ext_l+ext_r} mm</text>'
-        + f'<text x="36" y="{top+h/2:.2f}" class="dimension" '
-          f'transform="rotate(-90 36 {top+h/2:.2f})" '
-          'text-anchor="middle">'
-          f'ALTO {overall_height} mm</text>'
-        + f'<text x="{left-25:.2f}" y="{top+h/2:.2f}" '
-          'class="ref">LI</text>'
-        + f'<text x="{left+w+8:.2f}" y="{top+h-14:.2f}" '
-          'class="ref">LD</text>'
-        + f'<text x="30" y="503" class="note">'
-          f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
-          f'AP: {SUPPORT_LABELS[style]} {support_h} mm '
-          f'{"(sugeridos)" if plan.get("support_height_is_suggestion") else ""}.</text>'
-        + f'<text x="30" y="524" class="note">'
-          f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}, '
-          f'elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm", 0))}; '
-          f'FP: {BACK_LABELS[plan.get("back_style", "pending")]} '
-          f'({_sketch_mm(plan.get("back_thickness_mm"))}).</text>'
-        + f'<text x="30" y="547" class="note">'
-          f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
-          '(solo idea, NO calculado como panel).</text>'
-        + f'<text x="30" y="570" class="note">'
-          f'Franjas internas: {plan["vertical_gap_mm"]} mm; '
-          'no son espacios entre frentes ni divisores.</text>'
-        + '<text x="30" y="596" class="note">'
-          'Opciones de apertura: símbolos conceptuales, no herrajes reales.</text>'
-        + '<g stroke="#68778a" fill="none" stroke-width="1.5">'
-          '<rect x="32" y="611" width="182" height="80" rx="9"/>'
-          '<rect x="221" y="611" width="182" height="80" rx="9"/>'
-          '<rect x="410" y="611" width="182" height="80" rx="9"/>'
-          '<rect x="599" y="611" width="182" height="80" rx="9"/>'
-          '<path d="M 95 641 L 150 641" stroke-width="4"/>'
-          '<path d="M 275 628 Q 311 656 347 628" />'
-          '<path d="M 466 641 L 537 641 M 528 633 L 537 641 L 528 649"/>'
-          '<path d="M 652 627 L 725 627" stroke-width="5"/>'
-          '</g>'
-        + '<text x="123" y="677" text-anchor="middle" class="small">Manija</text>'
-        + '<text x="312" y="677" text-anchor="middle" class="small">Uñero</text>'
-        + '<text x="501" y="677" text-anchor="middle" class="small">Presión</text>'
-        + '<text x="690" y="677" text-anchor="middle" class="small">Perfil</text>'
-        + '<text x="30" y="726" class="note">'
-          'BOCETO · NO CORTAR, TALADRAR NI COMPRAR.</text></svg>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="930" '
+        'viewBox="0 0 1160 930" role="img" '
+        'aria-label="Boceto de frente y lateral: cajones A-D, tapa T, base BS, '
+        'laterales LI LD y cotas para revisión">'
+        '<style>text{font-family:Arial,sans-serif;fill:#26394d}'
+        '.title{font-size:24px;font-weight:700}'
+        '.subtitle{font-size:16px;fill:#5a6b7d}'
+        '.ref{font-size:20px;font-weight:bold}'
+        '.dimension{font-size:15px}.small{font-size:14px}'
+        '.note{font-size:12px;fill:#526579}'
+        '.card-title{font-size:17px;font-weight:700}'
+        '.warning{font-size:14px;font-weight:700;fill:#89542b}'
+        '.panel-actual{fill:#f0cc8f;stroke:#926f42;stroke-width:1.5}'
+        '.panel-side{fill:#a9bfcd;stroke:#45617a;stroke-width:1.5}'
+        '.drawer{fill:#e7edf5;stroke:#69829b;stroke-width:1.25}'
+        '.drawer-large{fill:#d4e9e5;stroke:#538c82;stroke-width:1.5}'
+        '.support{fill:#dfc2a0;stroke:#927257;stroke-width:1.5}'
+        '.concept{fill:#efc578;fill-opacity:.23;stroke:#c18025;'
+        'stroke-width:2.5;stroke-dasharray:6 4}'
+        '.leader{stroke:#94a7b7;stroke-width:1.3;stroke-dasharray:4 4}'
+        '</style><rect width="1160" height="930" rx="18" fill="#ffffff"/>'
+        '<text x="35" y="43" class="title">Tu mueble, explicado por partes</text>'
+        '<text x="35" y="70" class="subtitle">Puedes decir: “A más alto”, '
+        '“T sobresale 5 cm” o “BS más ancha”.</text>'
+        '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
+        '<text x="800" y="120" class="card-title">COSTADO · esquema</text>'
+        + "".join(shapes) + '</svg>'
     )
 
 
