@@ -1,4 +1,5 @@
 """No Codex process, machine settings or real user home is changed by these tests."""
+import json
 from pathlib import Path
 import importlib.util
 import tempfile
@@ -24,11 +25,11 @@ class MCPConfigTests(unittest.TestCase):
         approval.mkdir()
         example=repo/'work'/'configuracion-local'/'codex-config.toml.example'
         example.parent.mkdir(parents=True)
-        txt=(f'[mcp_servers.carpinova]\ncommand = "{runtime}"\n'
+        txt=(f'[mcp_servers.carpinova]\ncommand = {json.dumps(str(runtime))}\n'
              f'args = ["-m", "carpinova_agent.mcp_bridge"]\n'
-             f'[mcp_servers.carpinova.env]\nPYTHONPATH = "{repo}"\n'
-             f'CARPINOVA_OUTPUT_ROOT = "{projects}"\n'
-             f'CARPINOVA_NATIVE_APPROVAL_DIR = "{approval}"\n')
+             f'[mcp_servers.carpinova.env]\nPYTHONPATH = {json.dumps(str(repo))}\n'
+             f'CARPINOVA_OUTPUT_ROOT = {json.dumps(str(projects))}\n'
+             f'CARPINOVA_NATIVE_APPROVAL_DIR = {json.dumps(str(approval))}\n')
         example.write_text(txt)
         return repo
 
