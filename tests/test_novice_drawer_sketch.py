@@ -46,12 +46,12 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(model["suggestions_not_confirmed"]["panel_thickness_mm"], 18)
         self.assertEqual(model["suggestions_not_confirmed"]["vertical_gap_mm"], 28)
         self.assertIn("son supuestos, no especificaciones", model["human_summary"])
-        self.assertIn("D = D1 · gaveta", model["sketch_text"])
-        self.assertIn("NO son divisores", model["sketch_text"])
+        self.assertIn("D (D1): gaveta solicitada", model["sketch_text"])
+        self.assertIn("no son divisores", model["sketch_text"])
         self.assertIn("NO CORTAR", model["sketch_svg"])
-        self.assertIn("T · TAPA · 500 mm", model["sketch_svg"])
+        self.assertIn("T · TAPA SUPERIOR", model["sketch_svg"])
         self.assertIn("ALTO 800 mm", model["sketch_svg"])
-        self.assertIn("D (D1) · GAVETA 272 mm", model["sketch_svg"])
+        self.assertIn("D · GAVETA 272 mm", model["sketch_svg"])
         ET.fromstring(model["sketch_svg"])
         for flag in ("fabrication_ready", "cutting_ready",
                      "drilling_ready", "purchase_ready"):
@@ -76,7 +76,7 @@ class NoviceSketchTests(unittest.TestCase):
         full = guide_drawer_layout(novice()["module_spec"])["proposed_layout_spec"]
         result = propose_drawer_layout(full)
         self.assertEqual(result["type"], "drawer_layout_proposal")
-        self.assertIn("D (D1) · GAVETA", result["sketch_svg"])
+        self.assertIn("D · GAVETA", result["sketch_svg"])
         self.assertEqual(result["piece_count"], 0)
         self.assertEqual(result["status"], "NEEDS_USER_CONFIRMATION")
         self.assertEqual(drawer_layout_sketch_svg(result), result["sketch_svg"])
@@ -98,12 +98,12 @@ class NoviceSketchTests(unittest.TestCase):
         result = consult_maestro(novice())["modular"]
         refs = result["element_refs"]
         self.assertEqual([v["ref"] for v in refs],
-                         ["A", "B", "C", "D", "T", "LI", "LD", "AP", "FP", "MF"])
+                         ["A", "B", "C", "D", "T", "BS", "LI", "LD", "AP", "FP", "MF"])
         self.assertEqual([v["engine_id"] for v in refs[:4]],
                          ["D4", "D3", "D2", "D1"])
         self.assertEqual([v["nominal_opening_height_mm"] for v in refs[:4]],
                          [136, 136, 136, 272])
-        for ref in ("LI", "LD", "T · TAPA · 500 mm"):
+        for ref in ("LI", "LD", "T · TAPA SUPERIOR"):
             self.assertIn(ref, result["sketch_svg"])
 
     def test_A_ten_centimeters_higher_shows_all_affected_parts(self):
@@ -147,7 +147,7 @@ class NoviceSketchTests(unittest.TestCase):
         result = consult_maestro(req)["modular"]
         self.assertEqual(result["element_refs"][4]["ref"], "T")
         self.assertEqual(result["element_refs"][4]["concept_overhang_left_mm"], 50)
-        self.assertIn("T · TAPA · 650 mm", result["sketch_svg"])
+        self.assertIn("Idea exterior: 650 × 500 mm", result["sketch_svg"])
         self.assertTrue(result["unvalidated_top_extension"])
         self.assertTrue(any("F1" in v for v in result["blockers"]))
         self.assertEqual(result["piece_count"], 0)
@@ -222,9 +222,9 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual([x["nominal_opening_height_mm"]
                           for x in result["element_refs"][:4]],
                          [116, 116, 116, 232])
-        self.assertEqual(result["element_refs"][7]["ref"], "AP")
-        self.assertEqual(result["element_refs"][7]["concept_height_mm"], 100)
-        self.assertIn("AP patas (idea)", result["sketch_svg"])
+        self.assertEqual(result["element_refs"][8]["ref"], "AP")
+        self.assertEqual(result["element_refs"][8]["concept_height_mm"], 100)
+        self.assertIn("AP · patas", result["sketch_svg"])
         self.assertIn("ALTO 800 mm", result["sketch_svg"])
         self.assertFalse(result["can_generate_f7c"])
         self.assertEqual(result["parts"], [])
@@ -249,7 +249,7 @@ class NoviceSketchTests(unittest.TestCase):
         result = carpinova_consultar(json.dumps(req))["modular"]
         self.assertEqual(result["carcass_height_mm"], 720)
         self.assertEqual(result["clear_height_mm"], 684)
-        self.assertIn("AP zócalo (idea)", result["sketch_svg"])
+        self.assertIn("AP · zócalo/banqueo", result["sketch_svg"])
         self.assertTrue(result["unvalidated_support"])
         self.assertTrue(any("patas" in x for x in result["blockers"]))
         ET.fromstring(result["sketch_svg"])
@@ -269,13 +269,13 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertTrue(result["unvalidated_support"])
         self.assertTrue(result["unvalidated_mounting"])
         self.assertTrue(result["unvalidated_back_panel"])
-        self.assertEqual(result["element_refs"][8]["ref"], "FP")
-        self.assertEqual(result["element_refs"][8]["concept_thickness_mm"], 2)
-        self.assertEqual(result["element_refs"][9]["ref"], "MF")
-        self.assertEqual(result["element_refs"][9]["fixing"], "french_cleat")
+        self.assertEqual(result["element_refs"][9]["ref"], "FP")
+        self.assertEqual(result["element_refs"][9]["concept_thickness_mm"], 2)
+        self.assertEqual(result["element_refs"][10]["ref"], "MF")
+        self.assertEqual(result["element_refs"][10]["fixing"], "french_cleat")
         self.assertIn("400 mm", result["sketch_text"])
         self.assertFalse(result["support_height_is_suggestion"])
-        self.assertIn("MF muro (idea)", result["sketch_svg"])
+        self.assertIn("MF · listón francés", result["sketch_svg"])
         self.assertTrue(any("NO acredita" in v for v in result["blockers"]))
         ET.fromstring(result["sketch_svg"])
 
@@ -355,7 +355,7 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertIn("ALTO 803 mm", model["sketch_svg"])
         for ref, opening in zip("ABCD", reversed(model["opening_plan"])):
             self.assertIn(
-                f'{ref} ({opening["drawer_id"]}) · ' +
+                f'{ref} · ' +
                 ("GAVETA" if opening["drawer_id"] == "D1" else "CAJÓN") +
                 f' {opening["opening_height_mm"]} mm', model["sketch_svg"]
             )
