@@ -98,7 +98,7 @@ class NoviceSketchTests(unittest.TestCase):
         result = consult_maestro(novice())["modular"]
         refs = result["element_refs"]
         self.assertEqual([v["ref"] for v in refs],
-                         ["A", "B", "C", "D", "T", "LI", "LD"])
+                         ["A", "B", "C", "D", "T", "LI", "LD", "AP", "FP", "MF"])
         self.assertEqual([v["engine_id"] for v in refs[:4]],
                          ["D4", "D3", "D2", "D1"])
         self.assertEqual([v["nominal_opening_height_mm"] for v in refs[:4]],
@@ -207,6 +207,106 @@ class NoviceSketchTests(unittest.TestCase):
         req["module_spec"]["drawer_adjustments_mm"] = {"A": 100}
         with self.assertRaises((PilotError, DesignError)):
             pilot_review(req)
+
+
+    def test_legs_are_included_in_fixed_800mm_overall_height(self):
+        req = novice()
+        req["module_spec"].update({
+            "support_style": "legs", "support_height_mm": 100
+        })
+        result = consult_maestro(req)["modular"]
+        self.assertEqual(result["overall_height_mm"], 800)
+        self.assertEqual(result["carcass_height_mm"], 700)
+        self.assertEqual(result["external_dimensions_mm"]["height"], 700)
+        self.assertEqual(result["clear_height_mm"], 664)
+        self.assertEqual([x["nominal_opening_height_mm"]
+                          for x in result["element_refs"][:4]],
+                         [116, 116, 116, 232])
+        self.assertEqual(result["element_refs"][7]["ref"], "AP")
+        self.assertEqual(result["element_refs"][7]["concept_height_mm"], 100)
+        self.assertIn("AP patas (idea)", result["sketch_svg"])
+        self.assertIn("ALTO 800 mm", result["sketch_svg"])
+        self.assertFalse(result["can_generate_f7c"])
+        self.assertEqual(result["parts"], [])
+        ET.fromstring(result["sketch_svg"])
+
+    def test_banqueo_base_changes_body_height_and_is_concept_only(self):
+        req = novice()
+        req["module_spec"].update({
+            "support_style": "plinth", "support_height_mm": 80
+        })
+        result = carpinova_consultar(json.dumps(req))["modular"]
+        self.assertEqual(result["carcass_height_mm"], 720)
+        self.assertEqual(result["clear_height_mm"], 684)
+        self.assertIn("AP zócalo (idea)", result["sketch_svg"])
+        self.assertTrue(result["unvalidated_support"])
+        self.assertTrue(any("patas" in x for x in result["blockers"]))
+        ET.fromstring(result["sketch_svg"])
+
+    def test_wall_french_cleat_references_and_floor_height_are_illustrative(self):
+        req = novice()
+        req["module_spec"].update({
+            "support_style": "wall_mounted",
+            "wall_contact": True,
+            "wall_fixing": "french_cleat",
+            "wall_bottom_above_floor_mm": 400,
+            "back_style": "thin_sheet",
+        })
+        result = consult_maestro(req)["modular"]
+        self.assertEqual(result["overall_height_mm"], 800)
+        self.assertEqual(result["carcass_height_mm"], 800)
+        self.assertTrue(result["unvalidated_support"])
+        self.assertTrue(result["unvalidated_mounting"])
+        self.assertTrue(result["unvalidated_back_panel"])
+        self.assertEqual(result["element_refs"][8]["ref"], "FP")
+        self.assertEqual(result["element_refs"][8]["concept_thickness_mm"], 2)
+        self.assertEqual(result["element_refs"][9]["ref"], "MF")
+        self.assertEqual(result["element_refs"][9]["fixing"], "french_cleat")
+        self.assertIn("400 mm", result["sketch_text"])
+        self.assertIn("MF muro (idea)", result["sketch_svg"])
+        self.assertTrue(any("NO acredita" in v for v in result["blockers"]))
+        ET.fromstring(result["sketch_svg"])
+
+    def test_floor_supported_against_wall_with_direct_fixings(self):
+        req = novice()
+        req["module_spec"].update({
+            "wall_contact": True, "wall_fixing": "direct_fasteners",
+            "back_style": "full_panel", "back_thickness_mm": 6,
+        })
+        result = consult_maestro(req)["modular"]
+        self.assertEqual(result["support_style"], "floor_direct")
+        self.assertEqual(result["carcass_height_mm"], 800)
+        self.assertEqual(result["back_thickness_mm"], 6)
+        self.assertTrue(result["unvalidated_mounting"])
+        self.assertEqual(result["piece_count"], 0)
+        self.assertIn("direct_fasteners", result["sketch_text"])
+        ET.fromstring(result["sketch_svg"])
+
+    def test_unsupported_wall_and_support_combinations_fail_closed(self):
+        invalid = [
+            {"support_style": "legs", "support_height_mm": 0},
+            {"support_style": "plinth", "support_height_mm": 790},
+            {"support_style": "floor_direct", "support_height_mm": 50},
+            {"support_style": "wall_mounted", "wall_contact": False},
+            {"support_style": "wall_mounted", "wall_fixing": "none"},
+            {"support_style": "masonry"},
+            {"support_height_mm": True},
+            {"wall_contact": 1},
+            {"wall_fixing": "direct_fasteners", "wall_contact": False},
+            {"wall_fixing": "unknown"},
+            {"wall_bottom_above_floor_mm": -1},
+            {"wall_bottom_above_floor_mm": 400},
+            {"back_style": "unknown"},
+            {"back_style": "none", "back_thickness_mm": 2},
+            {"back_style": "pending", "back_thickness_mm": 2},
+            {"back_style": "thin_sheet", "back_thickness_mm": True},
+            {"back_style": "full_panel", "back_thickness_mm": 0},
+        ]
+        for changes in invalid:
+            req = novice()
+            req["module_spec"].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(DesignError):
+                guide_drawer_layout(req["module_spec"])
 
     def test_invalid_dimensions_and_uncertain_counts_fail_closed(self):
         changes = [
