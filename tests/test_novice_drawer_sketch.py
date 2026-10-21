@@ -46,12 +46,12 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(model["suggestions_not_confirmed"]["panel_thickness_mm"], 18)
         self.assertEqual(model["suggestions_not_confirmed"]["vertical_gap_mm"], 28)
         self.assertIn("solo supuestos", model["human_summary"])
-        self.assertIn("GAVETA", model["sketch_text"])
-        self.assertIn("NO es divisor", model["sketch_text"])
+        self.assertIn("D = D1 · gaveta", model["sketch_text"])
+        self.assertIn("NO son divisores", model["sketch_text"])
         self.assertIn("NO CORTAR", model["sketch_svg"])
-        self.assertIn("ANCHO 500 mm", model["sketch_svg"])
+        self.assertIn("T · TAPA · 500 mm", model["sketch_svg"])
         self.assertIn("ALTO 800 mm", model["sketch_svg"])
-        self.assertIn("D1 GAVETA · 272 mm", model["sketch_svg"])
+        self.assertIn("D (D1) · GAVETA 272 mm", model["sketch_svg"])
         ET.fromstring(model["sketch_svg"])
         for flag in ("fabrication_ready", "cutting_ready",
                      "drilling_ready", "purchase_ready"):
@@ -76,7 +76,7 @@ class NoviceSketchTests(unittest.TestCase):
         full = guide_drawer_layout(novice()["module_spec"])["proposed_layout_spec"]
         result = propose_drawer_layout(full)
         self.assertEqual(result["type"], "drawer_layout_proposal")
-        self.assertIn("D1 GAVETA", result["sketch_svg"])
+        self.assertIn("D (D1) · GAVETA", result["sketch_svg"])
         self.assertEqual(result["piece_count"], 0)
         self.assertEqual(result["status"], "NEEDS_USER_CONFIRMATION")
         self.assertEqual(drawer_layout_sketch_svg(result), result["sketch_svg"])
@@ -93,6 +93,120 @@ class NoviceSketchTests(unittest.TestCase):
             pilot_review(novice())
         with self.assertRaises(DesignError):
             design_modular_run(novice()["module_spec"])
+
+    def test_stable_references_A_D_T_and_sides(self):
+        result = consult_maestro(novice())["modular"]
+        refs = result["element_refs"]
+        self.assertEqual([v["ref"] for v in refs],
+                         ["A", "B", "C", "D", "T", "LI", "LD"])
+        self.assertEqual([v["engine_id"] for v in refs[:4]],
+                         ["D4", "D3", "D2", "D1"])
+        self.assertEqual([v["nominal_opening_height_mm"] for v in refs[:4]],
+                         [136, 136, 136, 272])
+        for ref in ("LI", "LD", "T · TAPA · 500 mm"):
+            self.assertIn(ref, result["sketch_svg"])
+
+    def test_A_ten_centimeters_higher_shows_all_affected_parts(self):
+        req = novice()
+        req["module_spec"]["drawer_adjustments_mm"] = {"A": 100}
+        result = consult_maestro(req)["modular"]
+        self.assertEqual([v["nominal_opening_height_mm"]
+                          for v in result["element_refs"][:4]],
+                         [236, 111, 111, 222])
+        self.assertEqual([v["engine_id"] for v in result["element_refs"][:4]],
+                         ["D4", "D3", "D2", "D1"])
+        self.assertEqual([v["ref"] for v in result["revisions"]],
+                         ["A", "B", "C", "D"])
+        self.assertEqual(result["revisions"][0], {
+            "ref": "A", "before_mm": 136, "after_mm": 236,
+            "delta_mm": 100, "cause": "USER_REQUESTED",
+        })
+        self.assertTrue(all(v["cause"] == "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL_HEIGHT"
+                            for v in result["revisions"][1:]))
+        self.assertEqual(result["layout_source"], "EXPLICIT_HEIGHTS")
+        self.assertEqual(sum(v["nominal_opening_height_mm"]
+                             for v in result["element_refs"][:4]) +
+                         3 * result["vertical_gap_mm"], result["clear_height_mm"])
+        self.assertFalse(result["can_generate_f7c"])
+        ET.fromstring(result["sketch_svg"])
+
+    def test_explicit_compensation_only_changes_A_and_B(self):
+        req = novice()
+        req["module_spec"]["drawer_adjustments_mm"] = {"A": 100, "B": -100}
+        result = consult_maestro(req)["modular"]
+        self.assertEqual([v["nominal_opening_height_mm"]
+                          for v in result["element_refs"][:4]],
+                         [236, 36, 136, 272])
+        self.assertEqual([v["ref"] for v in result["revisions"]], ["A", "B"])
+
+    def test_T_50mm_one_side_100mm_other_is_concept_only(self):
+        req = novice()
+        req["module_spec"].update({
+            "top_overhang_left_mm": 50, "top_overhang_right_mm": 100,
+        })
+        result = consult_maestro(req)["modular"]
+        self.assertEqual(result["element_refs"][4]["ref"], "T")
+        self.assertEqual(result["element_refs"][4]["concept_overhang_left_mm"], 50)
+        self.assertIn("T · TAPA · 650 mm", result["sketch_svg"])
+        self.assertTrue(result["unvalidated_top_extension"])
+        self.assertTrue(any("F1" in v for v in result["blockers"]))
+        self.assertEqual(result["piece_count"], 0)
+        ET.fromstring(result["sketch_svg"])
+
+    def test_all_four_opening_options_are_visual_not_hardware(self):
+        req = novice()
+        req["module_spec"]["opening_systems"] = {
+            "A": "handle", "B": "finger_pull",
+            "C": "push_to_open", "D": "profile",
+        }
+        result = carpinova_consultar(json.dumps(req))["modular"]
+        self.assertEqual(
+            [v["opening_system_intent"] for v in result["element_refs"][:4]],
+            ["handle", "finger_pull", "push_to_open", "profile"],
+        )
+        for label in ("manija (indicativa)", "uñero (indicativo)",
+                      "presión (indicativa)", "perfil (indicativo)"):
+            self.assertIn(label, result["sketch_svg"])
+        self.assertIn("NO CORTAR, TALADRAR NI COMPRAR", result["sketch_svg"])
+        ET.fromstring(result["sketch_svg"])
+
+    def test_adjusted_heights_are_reverified_by_existing_F1(self):
+        req = novice()
+        req["module_spec"]["drawer_adjustments_mm"] = {"A": 100}
+        guide = consult_maestro(req)["modular"]
+        proposal = propose_drawer_layout(guide["proposed_layout_spec"])
+        self.assertEqual(proposal["opening_plan"], guide["opening_plan"])
+        self.assertEqual(proposal["layout_source"], "EXPLICIT_HEIGHTS")
+        for invalid in ([1, 2, 3, 4], [1, 2, 0, 3],
+                        [1.0, 2, 3, 4], [1]):
+            with self.subTest(heights=invalid):
+                spec = dict(guide["proposed_layout_spec"])
+                spec["opening_heights_mm"] = invalid
+                with self.assertRaises(DesignError):
+                    propose_drawer_layout(spec)
+
+    def test_invalid_references_or_oversized_edits_fail_closed(self):
+        invalid = [
+            {"drawer_adjustments_mm": {"A": 900}},
+            {"drawer_adjustments_mm": {"Z": 10}},
+            {"drawer_adjustments_mm": {"A": True}},
+            {"drawer_adjustments_mm": {"A": 1.5}},
+            {"drawer_adjustments_mm": ["A", 100]},
+            {"opening_systems": {"X": "handle"}},
+            {"opening_systems": {"A": "imaginary"}},
+            {"top_overhang_left_mm": -1},
+            {"top_overhang_right_mm": 999},
+            {"top_overhang_right_mm": True},
+        ]
+        for change in invalid:
+            req = novice()
+            req["module_spec"].update(change)
+            with self.subTest(change=change), self.assertRaises(DesignError):
+                guide_drawer_layout(req["module_spec"])
+        req = novice()
+        req["module_spec"]["drawer_adjustments_mm"] = {"A": 100}
+        with self.assertRaises((PilotError, DesignError)):
+            pilot_review(req)
 
     def test_invalid_dimensions_and_uncertain_counts_fail_closed(self):
         changes = [
@@ -117,11 +231,11 @@ class NoviceSketchTests(unittest.TestCase):
         model = guide_drawer_layout(req["module_spec"])
         ET.fromstring(model["sketch_svg"])
         self.assertIn("ALTO 803 mm", model["sketch_svg"])
-        for opening in model["opening_plan"]:
+        for ref, opening in zip("ABCD", reversed(model["opening_plan"])):
             self.assertIn(
-                f'{opening["drawer_id"]} ' +
+                f'{ref} ({opening["drawer_id"]}) · ' +
                 ("GAVETA" if opening["drawer_id"] == "D1" else "CAJÓN") +
-                f' · {opening["opening_height_mm"]} mm', model["sketch_svg"]
+                f' {opening["opening_height_mm"]} mm', model["sketch_svg"]
             )
         self.assertEqual(
             sum(x["opening_height_mm"] for x in model["opening_plan"]) +
