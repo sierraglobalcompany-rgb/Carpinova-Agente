@@ -23,8 +23,12 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     has_drawers=any(p["role"].startswith("drawer_") for p in draft["parts"])
     # Overlay leaves extend in front of the F6 z=0 carcass plane.
     # Translate ALL pieces by the same amount for nonnegative CAD coordinates.
+    # F7C_CAD_OVERLAY_SHIFT_20261021
+    # Drawer facades use the SAME geometric origin system as door leaves.
+    # Shift every panel uniformly; never allow negative CAD coordinates.
     front_shift=max((p["thickness_mm"] for p in draft["parts"]
-                     if p["role"].startswith("front_")
+                     if (p["role"].startswith("front_") or
+                         p["role"] == "drawer_facade")
                      and p["nominal_origin_xyz_mm"][2]<0), default=0)
     for p in draft["parts"]:
         role=p["role"]
@@ -91,7 +95,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         "boxes":boxes,
         "hardware_included":False,
         "finished_panel_edges_included":False,
-        "cad_warning":("Nominal drawers from F1 and optional inset facades. "
+        "cad_warning":("Nominal drawers from F1 and explicit inset/overlay facades. "
                        "Slides, joins, bores, face mounting and load capacity NOT certified."
                        if has_drawers else
                        "Nominal carcass and front leaf boxes. "
@@ -104,7 +108,9 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
                        if has_backs else
                        "Only carcass panel boxes. No backs, doors, drawers, machining or anchors."),
     }
-    if has_fronts:
+    # Existing front-door contract is unchanged. New overlay drawer facades
+    # need the same audited offset so they fit nonnegative FreeCAD/Blender XYZ.
+    if has_fronts or front_shift > 0:
         payload["front_shift_mm"]=front_shift
     signature=json.dumps(payload,sort_keys=True,ensure_ascii=False,separators=(",",":"))
     # One canonical integrity check before FreeCAD, Blender or CSV clients
@@ -137,13 +143,26 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         "fabrication_ready","cutting_ready","drilling_ready","manufacturing_holes",
         "bounds_xyz_mm","boxes","hardware_included","finished_panel_edges_included",
         "cad_warning","geometry_sha256"))
-    if (data["source_engine"]=="F7C_EXPLICIT_FRONTS_FROM_F6"
-            or (data["source_engine"]=="F7C_DRAWER_BOXES_FROM_F1"
-                and any(p.get("role", "").startswith("front_") for p in data.get("boxes", []) 
-                        if isinstance(p,dict)))):
+    # Legacy F7C inset drawers keep the EXACT old schema (without shift).
+    # F7C overlay drawers may opt into the front_shift field. The validator
+    # still checks the digest, all bounds and every intersecting solid.
+    has_front_boxes = any(
+        isinstance(p, dict) and p.get("role", "").startswith("front_")
+        for p in data.get("boxes", [])
+    )
+    required_shift = (data["source_engine"]=="F7C_EXPLICIT_FRONTS_FROM_F6" or
+                      (data["source_engine"]=="F7C_DRAWER_BOXES_FROM_F1"
+                       and has_front_boxes))
+    overlay_drawer_shift = (data["source_engine"]=="F7C_DRAWER_BOXES_FROM_F1"
+                            and not required_shift
+                            and "front_shift_mm" in data
+                            and any(isinstance(p,dict) and
+                                    p.get("role")=="drawer_facade"
+                                    for p in data.get("boxes", [])))
+    if required_shift or overlay_drawer_shift:
         expected.add("front_shift_mm")
         shift=data.get("front_shift_mm")
-        if type(shift) is not int or shift<0:
+        if type(shift) is not int or shift < (1 if overlay_drawer_shift else 0):
             raise DesignError("Desplazamiento CAD frontal inválido.")
     if set(data)!=expected:
         raise DesignError("Campos CAD faltantes o inesperados.")
