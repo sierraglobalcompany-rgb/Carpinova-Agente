@@ -25,7 +25,7 @@ def sample(**changes):
 
 class TenPassPanelSketchAudit(unittest.TestCase):
     def test_01_actual_sides_full_panel_width_differs_from_carcass(self):
-        r = guide_drawer_layout(sample())
+        r = guide_drawer_layout(sample(construction="sides_full"))
         data = {part["ref"]: part for part in r["element_refs"]}
         for ref in ("T", "BS"):
             self.assertEqual(
@@ -48,16 +48,94 @@ class TenPassPanelSketchAudit(unittest.TestCase):
 
     def test_02_alternate_existing_F1_construction_has_different_panels(self):
         base = guide_drawer_layout(sample())["proposed_layout_spec"]
-        base["construction"] = "top_bottom_full"
+        base["construction"] = "sides_full"
         r = propose_drawer_layout(base)
         data = {part["ref"]: part for part in
                 __import__("carpinova_agent.drawer_modules",
                            fromlist=["_guide_ref_map"])._guide_ref_map(r)}
-        self.assertEqual(data["T"]["nominal_width_mm"], 500)
-        self.assertEqual(data["BS"]["nominal_width_mm"], 500)
-        self.assertEqual(data["LI"]["nominal_height_mm"], 764)
-        self.assertEqual(data["LD"]["nominal_height_mm"], 764)
+        self.assertEqual(data["T"]["nominal_width_mm"], 464)
+        self.assertEqual(data["BS"]["nominal_width_mm"], 464)
+        self.assertEqual(data["LI"]["nominal_height_mm"], 800)
+        self.assertEqual(data["LD"]["nominal_height_mm"], 800)
         ET.fromstring(r["sketch_svg"])
+
+    def test_15_default_t_and_bs_cover_sides_in_BOTH_front_and_profile(self):
+        r = guide_drawer_layout(sample())
+        self.assertEqual(r["construction"], "top_bottom_full")
+        self.assertEqual(r["proposed_layout_spec"]["construction"], "top_bottom_full")
+        self.assertFalse(r["construction_review"]["is_user_confirmed"])
+        self.assertIn("T y BS cubren los laterales", r["sketch_svg"])
+        refs = {item["ref"]: item for item in r["element_refs"]}
+        self.assertEqual(refs["T"]["nominal_width_mm"], 500)
+        self.assertEqual(refs["BS"]["nominal_width_mm"], 500)
+        self.assertEqual(refs["LD"]["nominal_height_mm"], 764)
+        root = ET.fromstring(r["sketch_svg"])
+        side = {node.get("data-ref"): node for node in root.iter()
+                if node.get("data-view") == "side"}
+        self.assertEqual(set(side), {"LD", "T", "BS"})
+        front = {node.get("data-ref"): node for node in root.iter()
+                 if node.get("data-view") == "front"}
+        self.assertEqual(set(front), {"LI", "LD", "T", "BS"})
+        self.assertAlmostEqual(
+            float(front["T"].get("y")) + float(front["T"].get("height")),
+            float(front["LI"].get("y")), delta=0.02)
+        self.assertAlmostEqual(
+            float(front["BS"].get("y")),
+            float(front["LI"].get("y")) + float(front["LI"].get("height")), delta=0.02)
+        self.assertAlmostEqual(float(front["T"].get("width")),
+                               float(front["BS"].get("width")), delta=0.02)
+        self.assertAlmostEqual(float(side["LD"].get("y")),
+                               float(side["T"].get("y")) + float(side["T"].get("height")), delta=0.02)
+        self.assertAlmostEqual(
+            float(side["BS"].get("y")),
+            float(side["LD"].get("y")) + float(side["LD"].get("height")), delta=0.02)
+        self.assertAlmostEqual(float(side["T"].get("width")),
+                               float(side["LD"].get("width")), delta=0.02)
+        self.assertIn("LD · costado derecho (LI opuesto)", r["sketch_svg"])
+        self.assertIn("T · tapa superior", r["sketch_svg"])
+        self.assertIn("BS · base inferior", r["sketch_svg"])
+
+    def test_16_sides_full_hides_internal_t_and_bs_in_lateral_view(self):
+        r = guide_drawer_layout(sample(construction="sides_full"))
+        self.assertEqual(r["construction"], "sides_full")
+        self.assertIn("T y BS entre los laterales", r["sketch_svg"])
+        root = ET.fromstring(r["sketch_svg"])
+        side = {node.get("data-ref"): node for node in root.iter()
+                if node.get("data-view") == "side"}
+        self.assertEqual(set(side), {"LD", "T-BS-hidden"})
+        front = {node.get("data-ref"): node for node in root.iter()
+                 if node.get("data-view") == "front"}
+        self.assertEqual(set(front), {"LI", "LD", "T", "BS"})
+        self.assertEqual(float(front["LI"].get("y")),
+                         float(front["T"].get("y")))
+        self.assertEqual(float(front["LI"].get("height")), 366)
+        self.assertGreater(float(front["T"].get("x")),
+                           float(front["LI"].get("x")))
+        self.assertLess(float(front["T"].get("width")),
+                        float(front["LI"].get("height")))
+        self.assertEqual(side["LD"].get("class"), "panel-side")
+        self.assertEqual(side["T-BS-hidden"].get("class"), "hidden-panel")
+        self.assertEqual(float(side["LD"].get("height")), 366)
+        self.assertNotIn('data-view="side" data-ref="T"/>', r["sketch_svg"])
+        self.assertNotIn('data-view="side" data-ref="BS"/>', r["sketch_svg"])
+        self.assertEqual(r["external_dimensions_mm"]["height"], 800)
+        self.assertEqual(r["clear_height_mm"], 764)
+        self.assertEqual(r["piece_count"], 0)
+
+    def test_17_construction_revisions_survive_MCP_and_user_state(self):
+        spec = sample(construction="sides_full",
+                      top_overhang_front_mm=50)
+        r1 = guide_drawer_layout(spec)
+        r2 = guide_drawer_layout(copy.deepcopy(r1["review_state"]))
+        self.assertEqual(r1["sketch_svg"], r2["sketch_svg"])
+        rpc = carpinova_consultar(
+            json.dumps({"action": "modular", "module_spec": spec}))
+        self.assertEqual(rpc["modular"]["construction"], "sides_full")
+        self.assertEqual(rpc["modular"]["element_refs"], r1["element_refs"])
+        self.assertFalse(rpc["modular"]["can_generate_f7c"])
+        for invalid in ("hybrid", "top_full_bottom_inset", True, None):
+            with self.subTest(invalid=invalid), self.assertRaises(DesignError):
+                guide_drawer_layout(sample(construction=invalid))
 
     def test_03_T_overhang_changes_only_T_while_BS_is_nominal(self):
         r = guide_drawer_layout(sample(top_overhang_left_mm=50,
@@ -78,7 +156,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
                                        bottom_overhang_right_mm=40))
         ref = {part["ref"]: part for part in r["element_refs"]}
         self.assertEqual(ref["BS"]["concept_outer_width_mm"], 620)
-        self.assertEqual(ref["T"]["nominal_width_mm"], 464)
+        self.assertEqual(ref["T"]["nominal_width_mm"], 500)
         self.assertEqual(ref["T"]["concept_outer_width_mm"], 500)
         self.assertEqual(r["external_dimensions_mm"]["width"], 500)
         self.assertEqual(r["clear_height_mm"], 764)
@@ -127,9 +205,9 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         ref = {part["ref"]: part for part in r["element_refs"]}
         self.assertEqual(r["overall_height_mm"], 800)
         self.assertEqual(r["carcass_height_mm"], 700)
-        self.assertEqual(ref["LI"]["nominal_height_mm"], 700)
-        self.assertEqual(ref["LD"]["nominal_height_mm"], 700)
-        self.assertEqual(ref["T"]["nominal_width_mm"], 464)
+        self.assertEqual(ref["LI"]["nominal_height_mm"], 664)
+        self.assertEqual(ref["LD"]["nominal_height_mm"], 664)
+        self.assertEqual(ref["T"]["nominal_width_mm"], 500)
         self.assertIn("AP · zócalo/banqueo · 100 mm", r["sketch_svg"])
         self.assertIn("ALTO 800 mm", r["sketch_svg"])
         self.assertFalse(r["fabrication_ready"])
@@ -187,7 +265,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
                 )
                 self.assertFalse(any("{depth}" in item for item in text_nodes))
                 self.assertIn(
-                    f"Nominal: 464 × {depth} × 18 mm", svg,
+                    f"Nominal: 500 × {depth} × 18 mm", svg,
                 )
                 self.assertIn(
                     f"Carcasa: ancho 500, alto 800, fondo {depth} mm",
@@ -213,7 +291,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
                 png = resvg_py.svg_to_bytes(svg_string=svg, width=1160)
                 img = Image.open(BytesIO(png))
                 img.verify()
-                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 1060))
+                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 1080))
                 self.assertGreater(len(png), 10000)
 
     def test_12_svg_structure_is_parseable_accessible_and_render_review_only(self):
@@ -221,7 +299,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         s = r["modular"]["sketch_svg"]
         root = ET.fromstring(s)
         self.assertEqual(root.get("role"), "img")
-        self.assertEqual(root.get("viewBox"), "0 0 1160 1060")
+        self.assertEqual(root.get("viewBox"), "0 0 1160 1080")
         self.assertIn("tapa T, base BS", root.get("aria-label"))
         self.assertIn("LI / LD · LATERALES", s)
         for choice in ("Manija", "Uñero", "Presión", "Perfil"):

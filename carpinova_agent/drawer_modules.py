@@ -534,6 +534,10 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
         f"Carcasa nominal: ancho {dims['width']}, alto {dims['height']}, "
         f"fondo {dims['depth']} mm.",
         "Tablero y separaciones son supuestos provisionales.",
+        ("Construcción propuesta SIN aprobar: tapa y base cubren laterales."
+         if plan["construction"] == "top_bottom_full"
+         else "Construcción propuesta SIN aprobar: tapa y base entre laterales."),
+        "La vista de costado representa LD; LI queda al lado opuesto.",
         "Arriba hacia abajo:",
     ]
     for part in elements:
@@ -610,29 +614,36 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
     large_ref = _large_drawer_label(plan)
     shapes: list[str] = []
 
-    # Fixed full-height sides and inset top/bottom are the actual F1 geometry
-    # for sides_full; the dashed extensions are DISTINCT unverified ideas.
+    # Both joint patterns follow F1. Orange dotted panels are UNVALIDATED ideas.
     if plan["construction"] == "sides_full":
         shapes.extend([
             f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
-            f'height="{fh:.2f}" class="panel-side"/>',
+            f'height="{fh:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LI"/>',
             f'<rect x="{fx+fw-ft:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
-            f'height="{fh:.2f}" class="panel-side"/>',
+            f'height="{fh:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LD"/>',
             f'<rect x="{fx+ft:.2f}" y="{fy:.2f}" width="{int_w:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="T"/>',
             f'<rect x="{fx+ft:.2f}" y="{fy+fh-ft:.2f}" '
-            f'width="{int_w:.2f}" height="{ft:.2f}" class="panel-actual"/>',
+            f'width="{int_w:.2f}" height="{ft:.2f}" '
+            'class="panel-actual" data-view="front" data-ref="BS"/>',
         ])
     else:
         shapes.extend([
             f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{fw:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="T"/>',
             f'<rect x="{fx:.2f}" y="{fy+fh-ft:.2f}" width="{fw:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="BS"/>',
             f'<rect x="{fx:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
-            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+            f'height="{fh-2*ft:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LI"/>',
             f'<rect x="{fx+fw-ft:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
-            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+            f'height="{fh-2*ft:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LD"/>',
         ])
     for label, opening in _annotated_openings(plan):
         y = int_y + (plan["clear_height_mm"] -
@@ -678,19 +689,41 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
                   'class="dimension" text-anchor="middle">T · superior</text>')
     shapes.append(f'<text x="{fx+fw/2:.2f}" y="{fy+fh+19:.2f}" '
                   'class="dimension" text-anchor="middle">BS · inferior</text>')
-    # The 2D side view is a schematic, NOT a support or joinery design.
+    # The lateral view uses THE SAME F1 joints as the front view.
+    # sides_full hides inset T/BS behind full-height side LD; they cannot
+    # appear on top/bottom of that side. Dashed hidden lines != overhang.
+    if plan["construction"] == "top_bottom_full":
+        shapes.extend([
+            f'<rect x="{sx:.2f}" y="{sy+st:.2f}" width="{sw:.2f}" '
+            f'height="{sh-2*st:.2f}" class="panel-side" '
+            'data-view="side" data-ref="LD"/>',
+            f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
+            f'height="{st:.2f}" class="panel-actual" '
+            'data-view="side" data-ref="T"/>',
+            f'<rect x="{sx:.2f}" y="{sy+sh-st:.2f}" width="{sw:.2f}" '
+            f'height="{st:.2f}" class="panel-actual" '
+            'data-view="side" data-ref="BS"/>',
+        ])
+    else:
+        shapes.extend([
+            f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
+            f'height="{sh:.2f}" class="panel-side" '
+            'data-view="side" data-ref="LD"/>',
+            f'<path d="M {sx:.2f} {sy+st:.2f} H {sx+sw:.2f} '
+            f'M {sx:.2f} {sy+sh-st:.2f} H {sx+sw:.2f}" '
+            'class="hidden-panel" data-view="side" '
+            'data-ref="T-BS-hidden"/>',
+        ])
     shapes.extend([
-        f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
-        f'height="{sh:.2f}" fill="#eef2f7" stroke="#33475d" stroke-width="2"/>',
-        f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{sw:.2f}" '
-        f'height="{st:.2f}" class="panel-actual"/>',
-        f'<rect x="{sx:.2f}" y="{sy+sh-st:.2f}" width="{sw:.2f}" '
-        f'height="{st:.2f}" class="panel-actual"/>',
-        f'<path d="M {sx+sw-2:.2f} {sy+7:.2f} '
-        f'L {sx+sw-2:.2f} {sy+sh-7:.2f}" '
-        'stroke="#a78b75" stroke-dasharray="4 5" stroke-width="1.5"/>',
         f'<text x="{sx+sw/2:.2f}" y="{sy-17:.2f}" '
-        'class="dimension" text-anchor="middle">VISTA LATERAL</text>',
+        'class="dimension" text-anchor="middle">'
+        'LD · costado derecho (LI opuesto)</text>',
+        f'<text x="{sx-12:.2f}" y="{sy+15:.2f}" '
+        'class="small" text-anchor="end">T · tapa superior</text>',
+        f'<text x="{sx-12:.2f}" y="{sy+sh-7:.2f}" '
+        'class="small" text-anchor="end">BS · base inferior</text>',
+        f'<text x="{sx+sw/2:.2f}" y="{sy+sh/2:.2f}" '
+        'class="small" text-anchor="middle">LD · lateral</text>',
         f'<text x="{sx+sw/2:.2f}" y="{sy+sh+19:.2f}" '
         f'class="small" text-anchor="middle">FRENTE ← {depth} mm → FONDO</text>',
     ])
@@ -787,12 +820,14 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '<text x="718" y="992" class="small" text-anchor="middle">Presión</text>'
         '<text x="993" y="992" class="small" text-anchor="middle">Perfil</text>'
         '<text x="35" y="1039" class="warning">'
-        'LÍNEAS PUNTEADAS = IDEAS SIN CÁLCULO ESTRUCTURAL · '
+        'NARANJA PUNTEADA = SALIENTE SIN VALIDAR; '
+        'OCRE PUNTEADO INTERIOR = T/BS OCULTAS.</text>'
+        '<text x="35" y="1061" class="warning">'
         'NO CORTAR, TALADRAR NI COMPRAR.</text>',
     ])
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1060" '
-        'viewBox="0 0 1160 1060" role="img" '
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1080" '
+        'viewBox="0 0 1160 1080" role="img" '
         'aria-label="Boceto de frente y lateral: cajones A-D, tapa T, base BS, '
         'laterales LI LD y cotas para revisión">'
         '<style>text{font-family:Arial,sans-serif;fill:#26394d}'
@@ -808,24 +843,27 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '.drawer{fill:#e7edf5;stroke:#69829b;stroke-width:1.25}'
         '.drawer-large{fill:#d4e9e5;stroke:#538c82;stroke-width:1.5}'
         '.support{fill:#dfc2a0;stroke:#927257;stroke-width:1.5}'
+        '.hidden-panel{fill:none;stroke:#926f42;stroke-width:1.7;'
+        'stroke-dasharray:5 3}'
         '.concept{fill:#efc578;fill-opacity:.23;stroke:#c18025;'
         'stroke-width:2.5;stroke-dasharray:6 4}'
         '.leader{stroke:#94a7b7;stroke-width:1.3;stroke-dasharray:4 4}'
-        '</style><rect width="1160" height="1060" rx="18" fill="#ffffff"/>'
+        '</style><rect width="1160" height="1080" rx="18" fill="#ffffff"/>'
         '<text x="35" y="43" class="title">Tu mueble, explicado por partes</text>'
         '<text x="35" y="70" class="subtitle">Puedes decir: “A más alto”, '
         '“T sobresale 5 cm” o “BS más ancha”.</text>'
         '<text x="35" y="92" class="note">'
-        'PROPUESTA: tablero y separaciones ilustrativos; nada aprobado para taller.'
-        '</text>'
+        f'PROPUESTA: {"T y BS cubren los laterales" if plan["construction"] == "top_bottom_full" else "T y BS entre los laterales"}; '
+        'espesores y franjas ilustrativos. No aprobado para taller.</text>'
         '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
-        '<text x="800" y="120" class="card-title">COSTADO · esquema</text>'
+        '<text x="800" y="120" class="card-title">VISTA LATERAL · COSTADO</text>'
         + "".join(shapes) + '</svg>'
     )
 
 
 DRAWER_GUIDE_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
+    "construction",
     "large_drawer_position", "drawer_adjustments_mm",
     "top_overhang_left_mm", "top_overhang_right_mm",
     "top_overhang_front_mm", "top_overhang_rear_mm",
@@ -877,6 +915,15 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
     position = spec.get("large_drawer_position", "bottom")
     if position not in ("bottom", "top"):
         raise DesignError("La gaveta grande va arriba o abajo.")
+    # Suggest T/BS over the sides on the initial drawing; both choices are F1.
+    construction = spec.get("construction", "top_bottom_full")
+    if type(construction) is not str or construction not in (
+        "top_bottom_full", "sides_full"
+    ):
+        raise DesignError(
+            "Construcción: tapa y base cubren laterales (top_bottom_full) "
+            "o laterales continuos (sides_full)."
+        )
     refs = [chr(65 + i) for i in range(n + 1)]
     adjustments = spec.get("drawer_adjustments_mm", {})
     if (type(adjustments) is not dict
@@ -973,7 +1020,7 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         "height_mm": overall_h - sh,
         "depth_mm": spec["depth_mm"],
         "panel_thickness_mm": 18,
-        "construction": "sides_full",
+        "construction": construction,
         "vertical_gap_mm": 28,
         "drawer_weights": weights,
     }
@@ -1029,11 +1076,16 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "not_validated_for_manufacturing": True,
         },
         "large_drawer_ref": refs[0] if position == "top" else refs[-1],
+        "construction_review": {
+            "selected": construction,
+            "is_user_confirmed": False,
+            "alternatives": ["top_bottom_full", "sides_full"],
+        },
         "revisions": revisions,
         "proposed_layout_spec": proposed,
         "review_state": dict(spec),
         "suggestions_not_confirmed": {
-            "panel_thickness_mm": 18, "construction": "sides_full",
+            "panel_thickness_mm": 18, "construction": construction,
             "vertical_gap_mm": 28, "drawer_weights": list(weights),
             "large_drawer_position": position,
             "support_style": support_style,
@@ -1063,7 +1115,7 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
     result["human_summary"] = (
         f"Te propongo {n} cajones pequeños y una gaveta grande "
         + ("abajo" if position == "bottom" else "arriba")
-        + ". Identifiqué A-D (arriba hacia abajo), T (tapa), LI/LD "
+        + ". Identifiqué A-D (arriba hacia abajo), T (tapa), BS (base), LI/LD "
           "(laterales). Puedes pedirme «A 10 cm más alto» o «T sobresale "
           "5 cm»; te mostraré cómo afecta a las demás piezas. "
           "Puedes escoger piso, patas, zócalo o muro con fondo opcional; "
