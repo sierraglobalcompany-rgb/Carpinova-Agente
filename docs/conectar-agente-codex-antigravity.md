@@ -4,7 +4,7 @@
 
 Este manual corresponde exclusivamente al repositorio sierraglobalcompanyv2/Carpinova-Agente, PR #16 DRAFT. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
 
-**Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y cinco herramientas de servidor MCP **local stdio**. No hay MCP remoto de ChatGPT ni ejecución automática de FreeCAD/Blender desde las herramientas MCP. Nunca presentar el despiece nominal como documento de producción.
+**Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y seis herramientas MCP **local stdio**. No hay MCP remoto de ChatGPT; la sexta herramienta de exportación nativa está deshabilitada por defecto y exige permisos explícitos del host. Nunca presentar el despiece nominal como documento de producción.
 
 ## 1. Preparar un Windows limpio
 
@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare_windows.ps
 
 El script:
 1. Comprueba que Python sea 3.12, crea el entorno aislado .venv y ejecuta la instalación desde **requirements-mcp.txt**, archivo único de versiones directas comprobadas en CI.
-2. Ejecuta pruebas unitarias y un **cliente MCP real** contra el servidor local, descubre las cinco herramientas y genera dos muebles conocidos: 4 y 13 piezas, SVG, CSV, CADExchange, PNG y PDF.
+2. Ejecuta pruebas unitarias y un **cliente MCP real** contra el servidor local, descubre las seis herramientas y genera dos muebles conocidos: 4 y 13 piezas, SVG, CSV, CADExchange, PNG y PDF.
 3. Compara el hash original con los manifiestos y bloquea todo lo relacionado con fabricación, corte, perforación y compra.
 4. Deposita el informe en work/preflight-*/mcp-preflight-report.json y crea únicamente **ejemplos de configuración** en work/configuracion-local. No modifica tus configuraciones de Codex/AntiGravity ni sobrescribe trabajos anteriores.
 
@@ -35,7 +35,7 @@ Inspeccionar el resultado de la primera prueba:
 
 Copiar manualmente el bloque relevante a la configuración MCP que indique el cliente, sin sobreescribir otros servidores. Los ejemplos generados contienen la ruta real de tu .venv, el repositorio y la carpeta privada de entregables; no contienen credenciales ni permisos elevados.
 
-Mantener las herramientas en **modo Ask/confirmación**. Reiniciar el cliente y ejecutar la consulta de estado para comprobar conexión. Las cinco herramientas esperadas son:
+Mantener las herramientas en **modo Ask/confirmación**. Reiniciar el cliente y ejecutar la consulta de estado para comprobar conexión. Las seis herramientas esperadas son:
 
 | MCP | Función |
 | --- | --- |
@@ -43,6 +43,7 @@ Mantener las herramientas en **modo Ask/confirmación**. Reiniciar el cliente y 
 | carpinova_consultar | Maestro, preguntas de diseño, consulta de libro/herrajes si hay fuentes |
 | carpinova_generar_borrador | Cinco archivos nominales desde una solicitud JSON confirmada |
 | carpinova_renderizar_lamina | Vistas frontal, lateral y planta en SVG, PNG y PDF desde el CAD original |
+| carpinova_exportar_3d | Exportar archivos nativos FreeCAD/Blender solamente con consentimiento y entorno local habilitado |
 | carpinova_leer_entregable | Lectura restringida a archivos **textuales** del proyecto; no devuelve PDF binario |
 
 El preflight en Windows dentro de GitHub **no** certifica que el IDE de tu PC ya esté conectado. Requiere la comprobación real en ese equipo. El conector GitHub usado en ChatGPT no inicia servidores MCP locales en tu computadora.
@@ -61,7 +62,7 @@ El SVG es vectorial; el PDF es **rasterizado, de revisión**, y no reemplaza pla
 
 ## 4. FreeCAD y Blender
 
-FreeCAD y Blender consumen **el mismo** cad-exchange.json, usando sus adaptadores nativos ya existentes. No introducir un segundo cálculo de piezas. El MCP del Agente no lanza programas arbitrarios por chat.
+FreeCAD y Blender consumen **el mismo** cad-exchange.json, usando sus adaptadores nativos ya existentes. No introducir un segundo cálculo de piezas. La herramienta nativa MCP opcional solo ejecuta adaptadores fijos con ejecutables previamente configurados por el host; no acepta comandos arbitrarios.
 
 1. En FreeCAD instalado en tu PC y con autorización, usar el adaptador integrations/freecad_from_contract.py con el contrato y una nueva ruta .FCStd.
 2. En Blender instalado en tu PC, usar integrations/blender_from_contract.py; si quieres un render de presentación, usar integrations/blender_presentation.py para guardar presentation.blend y presentation.png. Ver el [manual nativo](PILOTO_FREECAD_BLENDER.md).
@@ -93,3 +94,11 @@ El Agente conserva las skills diseño, maestro, selección de herrajes y técnic
 Evidencias de referencia: [Windows y nativos](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39532122868) y [ensayo de los 12 PR](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39532122902). La evidencia de Actions caduca: preservar archivos clave si se necesitan.
 
 **Leyes CarpiNova:** KISS (una arquitectura, una fuente de medidas), anti-ruido (un instalador/una prueba/una lista de dependencias), anti-parches (reparar origen y añadir regresiones) y no fusionar PR sin autorización. Ninguna prueba de software habilita fabricación.
+
+### Exportación 3D nativa mediante el Agente (desactivada por defecto)
+
+La nueva herramienta MCP `carpinova_exportar_3d(proyecto, confirmacion)` aprovecha los adaptadores existentes. Solo el **operador del host** puede definir `CARPINOVA_FREECADCMD` (ruta absoluta a FreeCADCmd.exe/freecadcmd), `CARPINOVA_BLENDER` (ruta absoluta a blender.exe/blender) y `CARPINOVA_NATIVE_EXECUTION_ENABLED=1`. Después de ver el proyecto revisado y dar autorización específica en el IDE, invocar con `confirmacion="AUTORIZO_EXPORTAR_BORRADOR_3D"`.
+
+Produce en `muebles/<proyecto>/native/` el paquete `native.FCStd`, `native.blend`, `presentation.blend`, `presentation.png`, `native-manifest.json` a partir del **mismo** `cad-exchange.json`; no reescribe el motor ni sobrescribe otro proyecto. Sin habilitación, confirmación, binarios válidos o geometría coherente, no ejecuta ni publica archivos. Nunca permite liberar compras, corte, perforaciones o fabricación; la cadena debe verificarse en CI nativo y después en Windows del propietario.
+
+**Continuidad al cambiar de chat:** consultar [PROJECT_CONTINUITY_CURRENT.md](PROJECT_CONTINUITY_CURRENT.md) y los PR de GitHub, no un snapshot de conversación.

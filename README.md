@@ -5,12 +5,12 @@ Agente especialista en diseño, enseñanza y preparación de fabricación de mue
 ## Objetivo
 Ayudar a diseñar cocinas, clósets, cajones, nichos, escritorios y mobiliario personalizado desde necesidades iniciales hasta entregables verificables: requerimientos, esquema 2D, lista de piezas, dirección de veta, cantos, herrajes, ubicaciones de perforación, compras y procedimiento de ensamblaje.
 
-**Estado PR #16 (aún DRAFT y no fusionado):** el motor ya genera geometría nominal de carcasas, fondos, puertas y cajones, CSV, bocetos SVG y láminas SVG/PNG/PDF. El **MCP stdio local del Agente tiene cinco herramientas y pasó una sesión real de CI**, que generó `.FCStd`, `.blend` y PNG de presentación en FreeCAD/Blender nativos. **No está certificado en el PC del propietario ni conectado directamente a este chat; tampoco existe liberación industrial de medidas de corte, cargas, herrajes o perforaciones.** No autorizar compras, corte ni fabricación.
+**Estado PR #16 (aún DRAFT y no fusionado):** el motor ya genera geometría nominal de carcasas, fondos, puertas y cajones, CSV, bocetos SVG y láminas SVG/PNG/PDF. El **MCP stdio local del Agente tiene seis herramientas: cinco previamente certificadas y una exportación CAD nativa con opt-in local; la sexta requiere su propia certificación**, que generó `.FCStd`, `.blend` y PNG de presentación en FreeCAD/Blender nativos. **No está certificado en el PC del propietario ni conectado directamente a este chat; tampoco existe liberación industrial de medidas de corte, cargas, herrajes o perforaciones.** No autorizar compras, corte ni fabricación.
 
 
 ### Punto de entrada operativo (Codex/AntiGravity)
 
-El servidor **`python -m carpinova_agent.mcp_bridge`** implementa cinco herramientas: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina` y `carpinova_leer_entregable`. La [guía de conexión](docs/conectar-agente-codex-antigravity.md) documenta los requisitos locales; la conexión GitHub de este chat **no equivale a ejecutar el servidor en tu PC**.
+El servidor **`python -m carpinova_agent.mcp_bridge`** implementa seis herramientas: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d` y `carpinova_leer_entregable`. La [guía de conexión](docs/conectar-agente-codex-antigravity.md) documenta los requisitos locales; la conexión GitHub de este chat **no equivale a ejecutar el servidor en tu PC**.
 
 Un solo Maestro produce geometría, despiece nominal y CADExchange. El mismo contrato alimenta planos 2D y los adaptadores nativos FreeCAD/Blender. Ningún flujo produce aún hoja final de corte, patrones de taladro ni autorización de fabricación.
 
@@ -37,7 +37,7 @@ La ingeniería de muebles nueva se incorporará mediante reglas explícitas vali
 ## Primer objetivo histórico, ya completado como borrador
 Los motores y pruebas de gabinete/cajón, Knowledge y bocetos preliminares existen; el objetivo de ahora es integrar y certificar el flujo en un cliente real Windows. Las salidas de corte/producción requieren validaciones nuevas.
 
-Consulta [AGENTS.md](AGENTS.md), [skill de diseño](skills/diseno-muebles/SKILL.md) y [contrato de entrega](docs/contrato-fabricacion.md).
+Para continuar desde otro chat: [checkpoint maestro en GitHub](docs/PROJECT_CONTINUITY_CURRENT.md). Consulta [AGENTS.md](AGENTS.md), [skill de diseño](skills/diseno-muebles/SKILL.md) y [contrato de entrega](docs/contrato-fabricacion.md).
 
 ## Catálogo de herrajes (desarrollo F4)
 Existe un módulo **referencial** de selección por configuración de puerta, revisado contra documentación Blum. En esta rama:
