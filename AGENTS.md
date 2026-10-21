@@ -44,3 +44,5 @@ El **único** recorrido dimensional CAD es `F1 -> F6 -> cad_exchange -> integrat
 El MCP **local stdio del Agente** ya tiene seis herramientas CI GREEN, incluida exportación 3D nativa deshabilitada sin opt-in, binarios locales confiables y aprobación humana en el host, pero su instalación en el PC y la conexión ChatGPT remota NO están certificadas. Los adaptadores FreeCAD/Blender generaron archivos nativos reales en CI bajo SHA concreto; no simularlos cuando no se ejecuten en el entorno actual. Referencia de ejecución: `docs/conectar-agente-codex-antigravity.md`. No liberar perforaciones, cortes, cargas o compras.
 
 **Continuidad obligatoria:** revisar y actualizar `docs/PROJECT_CONTINUITY_CURRENT.md` en GitHub. Nunca confiar únicamente en este chat como backup. MCP nativo no recibe ejecutables, scripts ni comandos del modelo y no habilita fabricación.
+
+La autorización 3D **no es** la frase MCP: exigir además ticket local de host de un solo uso, SHA-bound, emitido de forma interactiva fuera del directorio de muebles. Instrucciones: `docs/conectar-agente-codex-antigravity.md`. No considerar el harness CI equivalente a autorización humana en PC.

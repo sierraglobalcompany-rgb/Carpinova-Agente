@@ -99,3 +99,5 @@ El modo Maestro `action=modular` admite opcionalmente `query` (por ejemplo `"bis
 
 
 La consulta modular opcional también admite un filtro léxico `evidence_topic` para cantos, fondos e instalaciones, tornillos/conectores y soportes. Usa la **misma búsqueda Knowledge**, revisa contexto por registro y muestra máximo cinco referencias con páginas; ninguna se convierte automáticamente en una regla de fabricación. Véase [auditoría temática](docs/f7c-cajones-f1-integracion.md).
+
+**Exportación 3D sin consentimiento implícito:** la sexta herramienta exige opt-in del host **y** aprobación local en terminal humana, vinculada al hash del proyecto y consumida una sola vez. Ver [manual vigente](docs/conectar-agente-codex-antigravity.md). La frase MCP no es una prueba de autorización del operador.

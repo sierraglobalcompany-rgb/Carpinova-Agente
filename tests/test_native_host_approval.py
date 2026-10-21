@@ -77,7 +77,7 @@ class NativeHostApprovalTests(unittest.TestCase):
         self.assertEqual(self.invocations, [])
 
     def test_approval_cannot_be_stored_with_generated_projects(self):
-        with self.assertRaisesRegex(NativeExportError, "fuera"):
+        with self.assertRaisesRegex(NativeExportError, "salida"):
             issue_native_approval(self.project, self.root)
         self.assertEqual(self.invocations, [])
 
