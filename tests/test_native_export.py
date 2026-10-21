@@ -103,6 +103,55 @@ class NativeExportTests(unittest.TestCase):
         with self.assertRaisesRegex(NativeExportError, "sobrescribir"):
             self.call()
 
+    def test_all_native_adapters_read_one_verified_private_source_snapshot(self):
+        original = self.project / "cad-exchange.json"
+        original_bytes = original.read_bytes()
+        inputs = []
+        def inspect(command, **kwargs):
+            frozen = Path(kwargs["env"]["CARPINOVA_CAD_INPUT"])
+            inputs.append(frozen)
+            self.assertNotEqual(frozen, original)
+            self.assertEqual(frozen.parent.name, "source")
+            self.assertEqual(frozen.read_bytes(), original_bytes)
+            for name in (
+                "maestro-review.json", "front-review.svg", "parts-review.csv",
+                "cad-exchange.json", "manifest.json",
+            ):
+                self.assertEqual(
+                    (frozen.parent / name).read_bytes(),
+                    (self.project / name).read_bytes(),
+                )
+            return self.fake_runner(command, **kwargs)
+        outcome = export_native_project(
+            self.project, confirmation=REVIEW_CONFIRMATION, enabled=True,
+            freecad_executable=str(self.fc), blender_executable=str(self.bl),
+            runner=inspect,
+        )
+        self.assertEqual(outcome["geometry_sha256"], self.cad["geometry_sha256"])
+        self.assertEqual(len(inputs), 3)
+        self.assertEqual(len(set(inputs)), 1)
+        self.assertFalse(inputs[0].exists())
+
+    def test_edit_during_native_execution_blocks_publication_and_keeps_snapshot(self):
+        original = self.project / "parts-review.csv"
+        originals = original.read_bytes()
+        observed = []
+        def change_original(command, **kwargs):
+            frozen = Path(kwargs["env"]["CARPINOVA_CAD_INPUT"]).parent
+            observed.append((frozen / "parts-review.csv").read_bytes())
+            if len(observed) == 1:
+                original.write_bytes(originals + b"\nMODIFIED_WHILE_CAD_RUNNING")
+            return self.fake_runner(command, **kwargs)
+        with self.assertRaisesRegex(NativeExportError, "cambió durante"):
+            export_native_project(
+                self.project, confirmation=REVIEW_CONFIRMATION, enabled=True,
+                freecad_executable=str(self.fc), blender_executable=str(self.bl),
+                runner=change_original,
+            )
+        self.assertEqual(observed, [originals] * 3)
+        self.assertFalse((self.project / "native").exists())
+        self.assertFalse(any(self.project.glob(".carpinova-native-*")))
+
     def test_missing_host_enable_refuses_without_running(self):
         with self.assertRaisesRegex(NativeExportError, "habilitación"):
             export_native_project(self.project, confirmation=REVIEW_CONFIRMATION,
