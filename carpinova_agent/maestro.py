@@ -174,6 +174,19 @@ def consult_maestro(
                 "question": "Ajusta anchos de módulos para sumar el ancho total sin inventar rellenos.",
                 "unit": "mm",
             })
+        elif modular["status"] == "NEEDS_DEPTH_REVISION":
+            dimensions = modular["depth_review"]
+            result["questions"].append({
+                "field": "module_spec.max_assembled_depth_mm",
+                "question": (
+                    f"La carcasa mide {dimensions['carcass_depth_mm']} mm "
+                    f"más {dimensions['front_extension_mm']} mm de frente: "
+                    f"{dimensions['assembled_external_depth_mm']} mm exteriores. "
+                    f"Supera el máximo de {dimensions['max_assembled_depth_mm']} mm. "
+                    "¿Reduces profundidad de carcasa o cambias el límite?"
+                ),
+                "unit": "mm",
+            })
         elif modular["status"] == "SITE_CONFLICT":
             result["questions"].append({
                 "field": "module_spec.width_mm",
