@@ -13,6 +13,19 @@ from .core import DesignError
 from .modular_outputs import _review_draft
 
 
+def nominal_front_extension_mm(parts: list[dict[str, Any]]) -> int:
+    """Forward extension of real overlay faces from the carcass plane.
+
+    Shared by F6 dimensional review and the single CADExchange contract.
+    Do not treat material thickness alone as an extra front unless its
+    origin lies ahead of the carcass (negative Z).
+    """
+    return max((p["thickness_mm"] for p in parts
+                if (p["role"].startswith("front_")
+                    or p["role"] == "drawer_facade")
+                and p["nominal_origin_xyz_mm"][2] < 0), default=0)
+
+
 def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     """Stable 3D panel boxes with explicit physical mm coordinates."""
     draft=_review_draft(model)
@@ -26,10 +39,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
     # F7C_CAD_OVERLAY_SHIFT_20261021
     # Drawer facades use the SAME geometric origin system as door leaves.
     # Shift every panel uniformly; never allow negative CAD coordinates.
-    front_shift=max((p["thickness_mm"] for p in draft["parts"]
-                     if (p["role"].startswith("front_") or
-                         p["role"] == "drawer_facade")
-                     and p["nominal_origin_xyz_mm"][2]<0), default=0)
+    front_shift=nominal_front_extension_mm(draft["parts"])
     for p in draft["parts"]:
         role=p["role"]
         t=p["thickness_mm"]
