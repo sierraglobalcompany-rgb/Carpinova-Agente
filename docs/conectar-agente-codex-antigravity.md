@@ -4,7 +4,7 @@
 
 Este manual corresponde exclusivamente al repositorio `sierraglobalcompanyv2/Carpinova-Agente`, rama canónica **`main`**, con integración funcional [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) ya fusionada. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
 
-**Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y seis herramientas MCP **local stdio**. No hay MCP remoto de ChatGPT; la sexta herramienta de exportación nativa está deshabilitada por defecto y exige permisos explícitos del host. Nunca presentar el despiece nominal como documento de producción.
+**Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y seis herramientas MCP **local stdio**. No hay MCP remoto de ChatGPT; la quinta herramienta de exportación nativa está deshabilitada por defecto y exige permisos explícitos del host. Nunca presentar el despiece nominal como documento de producción.
 
 ## 1. Preparar un Windows limpio
 
@@ -63,11 +63,13 @@ Prompt práctico para Codex o AntiGravity:
 
 > Usa CarpiNova y sus cuatro skills. Diseña conmigo un mueble de 50 cm de ancho, 50 cm de profundidad y 80 cm de alto. Quiero tres cajones y una gaveta grande. Pregúntame si prefiero manijas, apertura sin manija o un perfil tipo T, y si quiero frentes sobrepuestos o embutidos. Confirma materiales, espesores, holguras, correderas y distribución antes de calcular. Después de que apruebe la propuesta, genera el despiece nominal, las vistas 2D y, si está habilitado y lo autorizo independientemente, el modelo 3D. No inventes herrajes ni medidas de fabricación.
 
-**Flujo correcto:** entrevista → propuesta íntegra y revisable → confirmación humana → JSON interno preparado por Codex → Maestro → borrador → láminas → revisión. **El usuario no tiene que escribir JSON.** El Maestro valida una solicitud estructurada; Codex la construye a partir de datos confirmados, sin inventar los faltantes. «Tres cajones y una gaveta» debe aclararse como cuatro cajas, y «perfil T» requiere sección/fabricante exactos. Con la carcasa ilustrativa sin fondo, el modelo de cuatro cajas produce **28 piezas nominales**, no un plan autorizado de corte.
+**Flujo correcto en el modo guiado:** petición natural → boceto visual frontal y lateral identificado (A–D, T, BS, LI/LD, AP/FP/MF) → conversación/revisiones → confirmación humana → especificaciones físicas → JSON interno de Codex → Maestro F1/F7C → borrador → láminas → revisión. `drawer_layout_guide` no genera piezas. La propuesta inicial **top_bottom_full** pone T sobre costados y BS bajo ellos, mientras **sides_full** los coloca entre costados; frente y costado deben coincidir. **El usuario no tiene que escribir JSON.** El Maestro valida una solicitud estructurada; Codex la construye a partir de datos confirmados, sin inventar los faltantes. «Tres cajones y una gaveta» debe aclararse como cuatro cajas, y «perfil T» requiere sección/fabricante exactos. Con la carcasa ilustrativa sin fondo, el modelo de cuatro cajas produce **28 piezas nominales**, no un plan autorizado de corte.
 
 Cada borrador incluye maestro-review.json, front-review.svg, parts-review.csv, cad-exchange.json y manifest.json. El subdirectorio lamina contiene three-views.svg, three-views.png, three-views.pdf y render-manifest.json.
 
 El SVG es vectorial; el PDF es **rasterizado, de revisión**, y no reemplaza planos profesionales de taller. **Para que el Agente vea la imagen dentro del protocolo**, después de `carpinova_renderizar_lamina` debe llamar `carpinova_leer_entregable(proyecto, archivo="lamina/three-views.png")`. La respuesta es un bloque `image/png` MCP (no una ruta). Para el render 3D, solo después de la exportación CAD autorizada, usar `archivo="native/presentation.png"`. Se limita a imágenes PNG válidas de hasta 4 MiB y proyecto/manifiesto coherentes; no devuelve `.blend`, `.FCStd` ni PDF binario. Algunos clientes pueden no visualizar estos bloques aunque el protocolo funcione; validar la interfaz en Windows del propietario. Las vistas proyectan las mismas cajas CAD nominales y cotas exteriores, no dibujan agujeros, bisagras, uniones físicas ni líneas ocultas resueltas.
+
+**Atención PR #32:** la actualización del clon no recarga automáticamente Python en un proceso MCP ya iniciado. Tras respaldar y sincronizar `maestro-carpintero/SKILL.md` si difiere del repositorio, cerrar Codex por completo, reabrir y verificar las seis herramientas. La aceptación local debe mostrar **dos bocetos visibles de la misma carcasa**: `top_bottom_full` con tapa/base cubriendo laterales y `sides_full` con T/BS entre laterales y ocultos en vista de costado. Todas las cotas de los dos dibujos deben corresponder al mismo F1. Sin eso no declarar aceptación del PC. Ver [checkpoint vigente](PROJECT_CONTINUITY_CURRENT.md).
 
 ## 4. FreeCAD y Blender
 
@@ -77,7 +79,7 @@ FreeCAD y Blender consumen **el mismo** cad-exchange.json, usando sus adaptadore
 2. En Blender instalado en tu PC, usar integrations/blender_from_contract.py; si quieres un render de presentación, usar integrations/blender_presentation.py para guardar presentation.blend y presentation.png. Ver el [manual nativo](PILOTO_FREECAD_BLENDER.md).
 3. Abrir los documentos en las aplicaciones reales; revisar identificación y dimensiones de piezas, orientaciones, acabados, vista y calidad visual. Coincidencia de hash **no** equivale a aprobación de ensamblaje/cargas/corte.
 
-GitHub generó y verificó `.FCStd`, `.blend` y renders nativos con **4, 13 y 28 piezas** (para estas últimas, tanto `inset` como `overlay`) en FreeCAD/Blender **Linux**. El pipeline también ejecutó **505 pruebas Windows Python** y el MCP real. Eso no verifica que FreeCAD/Blender estén correctamente instalados en **el Windows del propietario**, ni sustituye la revisión física o visual de un mueble real.
+GitHub generó y verificó `.FCStd`, `.blend` y renders nativos con **4, 13 y 28 piezas** (para estas últimas, tanto `inset` como `overlay`) en FreeCAD/Blender **Linux**. El último merge funcional verificado [PR #32](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/32) ejecutó **570 pruebas Windows Python 3.12 PASS**, seis herramientas MCP, cuatro skills y cinco workflows GREEN. Esto es CI, no aceptación del PC del propietario. Eso no verifica que FreeCAD/Blender estén correctamente instalados en **el Windows del propietario**, ni sustituye la revisión física o visual de un mueble real.
 
 ## 5. Knowledge y fuentes de carpintería
 
@@ -89,12 +91,12 @@ El Agente conserva las skills diseño, maestro, selección de herrajes y técnic
 
 | Comprobación | Estado |
 | --- | --- |
-| Pila CarpiNova integrada en `main`, histórico cerrado | **GREEN, PR #17–#19 fusionados; 0 PR abiertos** |
-| Python Windows 3.12, 505 pruebas y seis MCP | **GREEN CI** |
+| Pila CarpiNova integrada en `main`, PR #17–#32 | **GREEN en último merge funcional e39037fd; PR #32 fusionado** |
+| Python Windows 3.12, **570 pruebas** y seis MCP | **GREEN CI del merge PR #32** |
 | Despiece y láminas nominales SVG/PNG/PDF/CADExchange | **GREEN CI** |
 | FreeCAD/Blender Linux, archivos editables y render: 4/13/28 piezas | **GREEN CI**, sin QA físico de taller |
-| Cuatro skills y registro MCP para Codex | **Instalador implementado y probado**, pendiente en PC del propietario |
-| Codex interactuando con las seis herramientas en PC del propietario | **PENDIENTE de aceptación final** |
+| Cuatro skills y registro MCP para Codex | **Disponibles en el PC según informe del propietario; la skill Maestro instalada no coincidía con GitHub y debe sincronizarse** |
+| Codex interactuando con las seis herramientas en PC del propietario | **PASS para MCP/estado y modo guiado de PR #31; PENDIENTE aceptar visualmente PR #32 tras actualizar skill y reiniciar** |
 | FreeCAD/Blender ejecutándose en ese Windows | **PENDIENTE de aceptación final** |
 | Knowledge completo con citas verificadas en ese PC | **PENDIENTE** |
 | Corte, perforación, herrajes, cargas, anclajes de fabricación | **BLOQUEADO para producir** |
@@ -113,7 +115,7 @@ Produce en `muebles/<proyecto>/native/` el paquete `native.FCStd`, `native.blend
 
 ### Evidencia histórica de la primera exportación MCP→CAD
 
-Commit certificado del circuito completo: `ec139352c83d3d32def9d1421bcf83cf1ca8e2bc`, [Actions #39536762720](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) 3/3 jobs SUCCESS, 468 pruebas Windows, dos muebles nominales completos 2D y 3D. El job native llama a la **sexta herramienta MCP real**, no a scripts de geometría alternativos. FreeCADCmd Ubuntu utiliza el enlace a `freecadcmd-python3`, validado por su nombre de paquete, no un shell genérico. El propietario debe abrir los modelos y validar visualmente antes de cualquier avance a taller.
+Commit certificado del circuito completo: `ec139352c83d3d32def9d1421bcf83cf1ca8e2bc`, [Actions #39536762720](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) 3/3 jobs SUCCESS, 468 pruebas Windows, dos muebles nominales completos 2D y 3D. El job native llama a la **quinta herramienta MCP real**, no a scripts de geometría alternativos. FreeCADCmd Ubuntu utiliza el enlace a `freecadcmd-python3`, validado por su nombre de paquete, no un shell genérico. El propietario debe abrir los modelos y validar visualmente antes de cualquier avance a taller.
 
 
 ### Aprobación humana independiente de la frase enviada por MCP (obligatoria)
@@ -126,4 +128,4 @@ Desde una terminal **humana e interactiva** separada del agente, con Python del 
 .\.venv\Scripts\python.exe -m carpinova_agent.native_export --approve-project "C:\RUTA\A\work\muebles\NOMBRE_PROYECTO" --approval-dir "$env:LOCALAPPDATA\CarpiNova\native-approvals"
 ~~~
 
-El comando presenta la ubicación del proyecto, cantidad de piezas, SHA-256 y el bloqueo de fabricación. **La persona debe escribir `AUTORIZO` seguido de los últimos ocho caracteres del SHA**. Solo así genera una autorización de uso único, ligada al proyecto y al hash, que vence en máximo quince minutos. La sexta herramienta comprueba y **consume** esa autorización antes de lanzar los programas. Si falla o vence, hay que aprobar nuevamente desde terminal humana. **Codex/AntiGravity no deben emitir ese archivo mediante sus herramientas de terminal**, pues perdería su propósito de límite confiable. La carpeta de aprobaciones debe tener permisos controlados por el operador; no es una firma criptográfica resistente a un proceso que ya tenga acceso de escritura a esa carpeta. Los tests GitHub crean aprobaciones simuladas únicamente como parte del *harness* controlado: no equivalen a la firma del propietario.
+El comando presenta la ubicación del proyecto, cantidad de piezas, SHA-256 y el bloqueo de fabricación. **La persona debe escribir `AUTORIZO` seguido de los últimos ocho caracteres del SHA**. Solo así genera una autorización de uso único, ligada al proyecto y al hash, que vence en máximo quince minutos. La quinta herramienta comprueba y **consume** esa autorización antes de lanzar los programas. Si falla o vence, hay que aprobar nuevamente desde terminal humana. **Codex/AntiGravity no deben emitir ese archivo mediante sus herramientas de terminal**, pues perdería su propósito de límite confiable. La carpeta de aprobaciones debe tener permisos controlados por el operador; no es una firma criptográfica resistente a un proceso que ya tenga acceso de escritura a esa carpeta. Los tests GitHub crean aprobaciones simuladas únicamente como parte del *harness* controlado: no equivalen a la firma del propietario.
