@@ -111,7 +111,8 @@ def configure_mcp(repo: Path, config: Path, *, write: bool = True) -> str:
     checks = {
         'args': data['args'] == ['-m', 'carpinova_agent.mcp_bridge'],
         'native_execution_disabled': 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in env,
-        'repo_pythonpath': env.get('PYTHONPATH') == str(repo),
+        'repo_pythonpath': (isinstance(env.get('PYTHONPATH'), str) and
+                            Path(env['PYTHONPATH']).resolve(strict=True) == repo),
         'python_absolute': Path(data['command']).is_absolute(),
         'python_exists': Path(data['command']).is_file(),
         'output_absolute': Path(env['CARPINOVA_OUTPUT_ROOT']).is_absolute(),
