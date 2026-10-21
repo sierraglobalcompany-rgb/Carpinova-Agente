@@ -301,7 +301,7 @@ def module_drawers(drawers: Any, *, module_id: str,
 DRAWER_LAYOUT_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm",
     "panel_thickness_mm", "construction", "vertical_gap_mm",
-    "drawer_weights",
+    "drawer_weights", "opening_heights_mm",
 })
 
 
@@ -312,7 +312,9 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
     chat client can *suggest* [1, 1, 1, 2] for three small/one larger, but
     MUST show/confirm that interpretation before producing geometry.
     """
-    if type(spec) is not dict or set(spec) != DRAWER_LAYOUT_FIELDS:
+    required = DRAWER_LAYOUT_FIELDS - {"opening_heights_mm"}
+    if (type(spec) is not dict or not required.issubset(spec)
+            or set(spec) - DRAWER_LAYOUT_FIELDS):
         raise DesignError("drawer_layout_proposal: campos requeridos/desconocidos; "
                           "ancho, alto, fondo, tablero, construcción, separación y pesos.")
     if spec["type"] != "drawer_layout_proposal":
@@ -346,6 +348,16 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
                     key=lambda i: (-(space * weights[i] % total), i))
     for index in ranked[:extra]:
         heights[index] += 1
+    if "opening_heights_mm" in spec:
+        explicit = spec["opening_heights_mm"]
+        if (type(explicit) is not list or len(explicit) != len(weights)
+                or any(type(v) is not int or v <= 0 for v in explicit)
+                or sum(explicit) != space):
+            raise DesignError(
+                "Alturas ajustadas inválidas: deben ser enteros positivos "
+                "y cerrar exactamente el hueco F1 con las franjas."
+            )
+        heights = list(explicit)
     if min(heights) <= 0:
         raise DesignError("La distribución deja una abertura sin altura positiva.")
     openings: list[dict[str, int | str]] = []
@@ -374,6 +386,8 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
         "clear_height_mm": clear_height,
         "vertical_gap_mm": gap,
         "drawer_weights": list(weights),
+        "layout_source": ("EXPLICIT_HEIGHTS" if "opening_heights_mm" in spec
+                          else "PROPORTIONAL_WEIGHTS"),
         "opening_plan": openings,
         "depth_scope": "CARCASS_ONLY_UNTIL_FACADE_SELECTED",
         "assembled_external_depth_mm": None,
@@ -398,95 +412,206 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
     return result
 
 
+
+# Persistent human labels are top-to-bottom A, B, C, D.
+# F1's D1..D4 remain bottom-to-top internal IDs and are never renamed.
+OPENING_CHOICES = frozenset({
+    "pending", "handle", "push_to_open", "finger_pull", "profile",
+})
+CHOICE_LABELS = {
+    "pending": "por elegir",
+    "handle": "manija (indicativa)",
+    "push_to_open": "presión (indicativa)",
+    "finger_pull": "uñero (indicativo)",
+    "profile": "perfil (indicativo)",
+}
+
+
+def _annotated_openings(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [(chr(65 + i), item)
+            for i, item in enumerate(reversed(plan["opening_plan"]))]
+
+
+def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    styles = plan.get("opening_systems", {})
+    return [
+        {
+            "ref": label,
+            "engine_id": opening["drawer_id"],
+            "kind": "drawer",
+            "nominal_opening_height_mm": opening["opening_height_mm"],
+            "opening_bottom_offset_mm": opening["opening_bottom_offset_mm"],
+            "opening_system_intent": styles.get(label, "pending"),
+        }
+        for label, opening in _annotated_openings(plan)
+    ] + [
+        {"ref": "T", "kind": "top_panel",
+         "concept_overhang_left_mm": plan.get("top_overhang_left_mm", 0),
+         "concept_overhang_right_mm": plan.get("top_overhang_right_mm", 0)},
+        {"ref": "LI", "kind": "left_side"},
+        {"ref": "LD", "kind": "right_side"},
+    ]
+
+
 def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
-    """Short, human-readable front sketch; no fabricated facades or rails."""
     dims = plan["external_dimensions_mm"]
+    refs = _guide_ref_map(plan)
     rows = [
-        "BOCETO FRONTAL · PROPUESTA, NO CORTAR",
-        f"Ancho {dims['width']} mm × alto {dims['height']} mm; "
+        "BOCETO IDENTIFICADO · PROPUESTA, NO CORTAR",
+        f"Ancho de carcasa {dims['width']} mm × alto {dims['height']} mm; "
         f"fondo de carcasa {dims['depth']} mm",
+        "T = tapa superior (solo esquema; LI = lateral izquierdo, LD = derecho)",
         "ARRIBA",
     ]
-    openings = plan["opening_plan"]
-    for index, item in enumerate(reversed(openings)):
-        is_large = item["opening_height_mm"] == max(
-            x["opening_height_mm"] for x in openings
-        ) and len({x["opening_height_mm"] for x in openings}) > 1
-        label = "gaveta grande" if is_large else "cajón"
-        rows.append(
-            f"[ {item['drawer_id']} · {label} · "
-            f"{item['opening_height_mm']} mm de abertura ]"
-        )
-        if index < len(openings) - 1:
+    for item in refs:
+        if item["kind"] == "drawer":
+            large = item["nominal_opening_height_mm"] == max(
+                opening["opening_height_mm"] for opening in plan["opening_plan"]
+            ) and len({opening["opening_height_mm"]
+                       for opening in plan["opening_plan"]}) > 1
             rows.append(
-                f"·· franja de {plan['vertical_gap_mm']} mm "
-                "(NO es divisor ni espacio entre frentes) ··"
+                f"[ {item['ref']} = {item['engine_id']} · "
+                f"{'gaveta' if large else 'cajón'} · "
+                f"{item['nominal_opening_height_mm']} mm · "
+                f"{CHOICE_LABELS[item['opening_system_intent']]} ]"
             )
-    rows.extend(["ABAJO", "Sin fachadas/correderas/patas definidas. "
-                 "Las medidas son ilustrativas."])
+    rows.append("ABAJO")
+    rows.append(
+        f"T sobresale a izquierda/derecha: "
+        f"{plan.get('top_overhang_left_mm', 0)} / "
+        f"{plan.get('top_overhang_right_mm', 0)} mm; "
+        "no está resuelto en la carcasa F1."
+    )
+    rows.append(
+        f"Franjas internas de {plan['vertical_gap_mm']} mm: "
+        "NO son divisores ni holguras visibles."
+    )
+    rows.append("Sin herrajes ni frentes fabricables. El dibujo es modificable.")
     return "\n".join(rows)
 
 
 def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
-    """Annotated SVG using F1 opening_plan, without a second geometry engine."""
+    """Annotated review SVG; all opening coordinates originate in F1."""
     dims = plan["external_dimensions_mm"]
     width, height = dims["width"], dims["height"]
     t = plan["panel_thickness_mm"]
-    scale = min(250 / width, 390 / height)
-    left, top = 115.0, 90.0
+    ext_l = plan.get("top_overhang_left_mm", 0)
+    ext_r = plan.get("top_overhang_right_mm", 0)
+    scale = min(255 / (width + ext_l + ext_r), 380 / height)
+    left, top = 128.0 + ext_l * scale, 104.0
     w, h = width * scale, height * scale
-    inner_left, inner_top = left + t * scale, top + t * scale
+    inner_l, inner_t = left + t * scale, top + t * scale
     inner_w = (width - 2 * t) * scale
     marks: list[str] = []
-    for opening in plan["opening_plan"]:
-        y = inner_top + (plan["clear_height_mm"]
-                         - opening["opening_bottom_offset_mm"]
-                         - opening["opening_height_mm"]) * scale
+    for label, opening in _annotated_openings(plan):
+        y = inner_t + (
+            plan["clear_height_mm"]
+            - opening["opening_bottom_offset_mm"]
+            - opening["opening_height_mm"]
+        ) * scale
         ph = opening["opening_height_mm"] * scale
-        big = (opening["opening_height_mm"] ==
-               max(item["opening_height_mm"] for item in plan["opening_plan"])
-               and len({item["opening_height_mm"]
-                        for item in plan["opening_plan"]}) > 1)
-        label = "GAVETA" if big else "CAJÓN"
+        large = (opening["opening_height_mm"] ==
+                 max(item["opening_height_mm"]
+                     for item in plan["opening_plan"])
+                 and len({item["opening_height_mm"]
+                          for item in plan["opening_plan"]}) > 1)
+        kind = "GAVETA" if large else "CAJÓN"
+        choice = plan.get("opening_systems", {}).get(label, "pending")
         marks.append(
-            f'<rect x="{inner_left:.2f}" y="{y:.2f}" '
+            f'<rect x="{inner_l:.2f}" y="{y:.2f}" '
             f'width="{inner_w:.2f}" height="{ph:.2f}" '
-            f'fill="{"#d4e7e5" if big else "#e8edf4"}" '
+            f'fill="{"#d4e7e5" if large else "#e8edf4"}" '
             'stroke="#62768b" stroke-width="1.5"/>'
-            f'<line x1="{inner_left+inner_w:.2f}" y1="{y+ph/2:.2f}" '
-            f'x2="450" y2="{y+ph/2:.2f}" '
-            'stroke="#738496" stroke-dasharray="4 3"/>'
-            f'<text x="461" y="{y+ph/2+5:.2f}" class="dimension">'
-            f'{opening["drawer_id"]} {label} · {opening["opening_height_mm"]} mm</text>'
+            f'<text x="{inner_l+9:.2f}" y="{y+ph/2+5:.2f}" '
+            'class="ref">'
+            f'{label}</text>'
+            f'<path d="M {inner_l+inner_w:.2f} {y+ph/2:.2f} '
+            f'L 449 {y+ph/2:.2f}" stroke="#738496" '
+            'stroke-dasharray="4 3"/>'
+            f'<text x="457" y="{y+ph/2-3:.2f}" class="dimension">'
+            f'{label} ({opening["drawer_id"]}) · {kind} '
+            f'{opening["opening_height_mm"]} mm</text>'
+            f'<text x="457" y="{y+ph/2+17:.2f}" class="small">'
+            f'{CHOICE_LABELS[choice]}</text>'
+        )
+        if choice == "handle":
+            # Tiny handle symbol, not a real SKU or drill location.
+            mx = inner_l + inner_w / 2
+            marks.append(
+                f'<path d="M {mx-11:.2f} {y+ph/2+5:.2f} '
+                f'L {mx+11:.2f} {y+ph/2+5:.2f}" '
+                'stroke="#43556c" stroke-width="3"/>'
+            )
+        elif choice == "finger_pull":
+            marks.append(
+                f'<path d="M {inner_l+inner_w/2-9:.2f} {y+4:.2f} '
+                f'Q {inner_l+inner_w/2:.2f} {y+15:.2f} '
+                f'{inner_l+inner_w/2+9:.2f} {y+4:.2f}" '
+                'fill="none" stroke="#43556c" stroke-width="2"/>'
+            )
+        elif choice == "profile":
+            marks.append(
+                f'<line x1="{inner_l+2:.2f}" y1="{y+6:.2f}" '
+                f'x2="{inner_l+inner_w-2:.2f}" y2="{y+6:.2f}" '
+                'stroke="#43556c" stroke-width="3"/>'
+            )
+        elif choice == "push_to_open":
+            marks.append(
+                f'<text x="{inner_l+inner_w/2:.2f}" y="{y+ph/2+5:.2f}" '
+                'class="small" text-anchor="middle">PUSH</text>'
+            )
+    top_extension = ""
+    if ext_l or ext_r:
+        top_extension = (
+            f'<rect x="{left-ext_l*scale:.2f}" y="{top:.2f}" '
+            f'width="{w+(ext_l+ext_r)*scale:.2f}" height="{t*scale:.2f}" '
+            'fill="#fbdfb2" stroke="#9c672c" stroke-width="2" '
+            'stroke-dasharray="5 3"/>'
         )
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" '
-        'width="800" height="610" viewBox="0 0 800 610" '
-        'role="img" aria-label="Boceto frontal de propuesta de cajones, sin herrajes">'
-        '<style>'
-        'text{font-family:Arial,sans-serif;fill:#253446}'
-        '.title{font-size:21px;font-weight:bold}'
-        '.dimension{font-size:15px}'
-        '.note{font-size:14px;fill:#556577}'
-        '</style>'
-        '<rect width="800" height="610" rx="14" fill="#fafbfc"/>'
-        '<text x="34" y="37" class="title">Así podría quedar tu mueble</text>'
-        '<text x="34" y="60" class="note">BOCETO · medidas nominales para conversar</text>'
+        'width="820" height="650" viewBox="0 0 820 650" '
+        'role="img" aria-label="Boceto frontal etiquetado de cajones '
+        'y componentes, sujeto a revisión">'
+        '<style>text{font-family:Arial,sans-serif;fill:#253446}'
+        '.title{font-size:20px;font-weight:bold}'
+        '.dimension{font-size:15px}.small{font-size:12px}'
+        '.ref{font-size:19px;font-weight:bold}'
+        '.note{font-size:13px;fill:#556577}</style>'
+        '<rect width="820" height="650" rx="12" fill="#fafbfc"/>'
+        '<text x="28" y="32" class="title">Tu mueble, por piezas identificadas</text>'
+        '<text x="28" y="55" class="note">Di: “sube el cajón A 10 cm” '
+        'o “haz que T sobresalga a ambos lados”.</text>'
         f'<rect x="{left:.2f}" y="{top:.2f}" width="{w:.2f}" '
-        f'height="{h:.2f}" fill="#f5f7f9" stroke="#354657" stroke-width="3"/>'
+        f'height="{h:.2f}" fill="#f5f7f9" '
+        'stroke="#354657" stroke-width="3"/>'
+        + top_extension
         + "".join(marks)
-        + f'<text x="{left+w/2:.2f}" y="{top-12:.2f}" '
-          f'text-anchor="middle" class="dimension">ANCHO {width} mm</text>'
-        + f'<text x="23" y="{top+h/2:.2f}" class="dimension" '
-          f'transform="rotate(-90 23 {top+h/2:.2f})" '
-          f'text-anchor="middle">ALTO {height} mm</text>'
-        + f'<text x="34" y="525" class="note">Fondo de carcasa: {dims["depth"]} mm · '
-          f'Tablero ilustrativo: {t} mm</text>'
-        + f'<text x="34" y="546" class="note">Bandas entre aberturas: '
-          f'{plan["vertical_gap_mm"]} mm (no representan divisores ni fachadas)</text>'
-        + '<text x="34" y="577" class="note">NO CORTAR · No se han '
-          'seleccionado correderas, frente ni herrajes.</text>'
-        + '</svg>'
+        + f'<text x="{left+w/2:.2f}" y="{top-16:.2f}" '
+          'class="dimension" text-anchor="middle">'
+          f'T · TAPA · {width+ext_l+ext_r} mm</text>'
+        + f'<text x="36" y="{top+h/2:.2f}" class="dimension" '
+          f'transform="rotate(-90 36 {top+h/2:.2f})" '
+          'text-anchor="middle">'
+          f'ALTO {height} mm</text>'
+        + f'<text x="{left-25:.2f}" y="{top+h/2:.2f}" '
+          'class="ref">LI</text>'
+        + f'<text x="{left+w+8:.2f}" y="{top+h-14:.2f}" '
+          'class="ref">LD</text>'
+        + f'<text x="30" y="524" class="note">'
+          f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
+          f'Tablero supuesto: {t} mm.</text>'
+        + f'<text x="30" y="547" class="note">'
+          f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
+          '(solo idea, NO calculado como panel).</text>'
+        + f'<text x="30" y="570" class="note">'
+          f'Franjas internas: {plan["vertical_gap_mm"]} mm; '
+          'no son espacios entre frentes ni divisores.</text>'
+        + '<text x="30" y="596" class="note">'
+          'Sistemas: manija, presión, uñero o perfil '
+          '(dibujos genéricos; no herrajes verificados).</text>'
+        + '<text x="30" y="624" class="note">'
+          'BOCETO · NO CORTAR, TALADRAR NI COMPRAR.</text></svg>'
     )
 
 
