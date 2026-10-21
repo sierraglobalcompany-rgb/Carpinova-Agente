@@ -295,3 +295,86 @@ def module_drawers(drawers: Any, *, module_id: str,
                     f"{module_id}: fachadas {a['piece_id']} y {b['piece_id']} se tocan o solapan."
                 )
     return all_parts, blockers, ids
+
+# A compact, REVIEW-ONLY calculation routed through the existing Maestro.
+# It does not produce panels, choose runners or infer manufacturing clearances.
+DRAWER_LAYOUT_FIELDS = frozenset({
+    "type", "width_mm", "height_mm", "depth_mm",
+    "panel_thickness_mm", "construction", "vertical_gap_mm",
+    "drawer_weights",
+})
+
+
+def propose_drawer_layout(spec: Any) -> dict[str, Any]:
+    """Propose 1–4 nominal openings bottom-to-top via the single F1 cabinet.
+
+    The caller supplies every dimension and relative weight explicitly. A
+    chat client can *suggest* [1, 1, 1, 2] for three small/one larger, but
+    MUST show/confirm that interpretation before producing geometry.
+    """
+    if type(spec) is not dict or set(spec) != DRAWER_LAYOUT_FIELDS:
+        raise DesignError("drawer_layout_proposal: campos requeridos/desconocidos; "
+                          "ancho, alto, fondo, tablero, construcción, separación y pesos.")
+    if spec["type"] != "drawer_layout_proposal":
+        raise DesignError("type debe ser drawer_layout_proposal.")
+    cabinet = design({
+        "type": "cabinet",
+        **{key: spec[key] for key in (
+            "width_mm", "height_mm", "depth_mm",
+            "panel_thickness_mm", "construction"
+        )},
+    })
+    gap = _mm(spec["vertical_gap_mm"], "vertical_gap_mm")
+    weights = spec["drawer_weights"]
+    if (type(weights) is not list or not 1 <= len(weights) <= 4
+            or any(type(w) is not int or not 1 <= w <= 100 for w in weights)):
+        raise DesignError("drawer_weights: lista de 1 a 4 enteros entre 1 y 100.")
+    clear_height = cabinet["dimensions"]["clear_height_mm"]
+    space = clear_height - (len(weights) - 1) * gap
+    if space < len(weights):
+        raise DesignError("No caben aperturas positivas tras las separaciones indicadas.")
+    total = sum(weights)
+    heights = [space * w // total for w in weights[:-1]]
+    heights.append(space - sum(heights))
+    if min(heights) <= 0:
+        raise DesignError("La distribución deja una abertura sin altura positiva.")
+    openings: list[dict[str, int | str]] = []
+    cursor = 0
+    for index, height in enumerate(heights, 1):
+        openings.append({
+            "drawer_id": f"D{index}",
+            "opening_bottom_offset_mm": cursor,
+            "opening_height_mm": height,
+        })
+        cursor += height + (gap if index < len(heights) else 0)
+    if cursor != clear_height:
+        raise DesignError("Error de integridad: alturas y separaciones no cierran.")
+    return {
+        "schema_version": "0.1.0",
+        "type": "drawer_layout_proposal",
+        "status": "NEEDS_USER_CONFIRMATION",
+        "source_engine": "F1_CORE_CABINET",
+        "bottom_to_top": True,
+        "external_dimensions_mm": {
+            "width": spec["width_mm"], "height": spec["height_mm"],
+            "depth": spec["depth_mm"],
+        },
+        "panel_thickness_mm": spec["panel_thickness_mm"],
+        "construction": spec["construction"],
+        "clear_height_mm": clear_height,
+        "vertical_gap_mm": gap,
+        "drawer_weights": list(weights),
+        "opening_plan": openings,
+        "parts": [],
+        "piece_count": 0,
+        "fabrication_ready": False, "cutting_ready": False,
+        "drilling_ready": False, "purchase_ready": False,
+        "blockers": [
+            "Propuesta de aperturas nominales: confirmar posición y proporciones "
+            "de todos los cajones antes de diseñar.",
+            "Separaciones geométricas entre franjas: NO son paneles divisores "
+            "ni prueban montaje de correderas o carga.",
+            "Faltan cotas de caja, frente, holguras de herrajes, fondo, "
+            "materiales y autorización de fabricación.",
+        ],
+    }
