@@ -725,8 +725,6 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         (35, "T · TAPA SUPERIOR", top_panel),
         (410, "BS · BASE INFERIOR", bottom_panel),
     ):
-        n = "T" if x == 35 else "BS"
-        other = "top" if n == "T" else "bottom"
         outer_str = f'{info["concept_outer_width_mm"]} × {info["concept_outer_depth_mm"]} mm'
         shapes.extend([
             f'<rect x="{x}" y="624" width="362" height="103" rx="10" '
@@ -754,8 +752,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'Carcasa: {width} × {height} × {depth} mm</text>',
         '<text x="35" y="764" class="card-title">Opciones del mueble</text>',
         f'<text x="35" y="788" class="small">'
-        f'AP · {SUPPORT_LABELS[style]} · {support_h} mm; '
-        f'alto exterior {overall} mm</text>',
+        f'AP · {SUPPORT_LABELS[style]} · {support_h} mm '
+        f'{"(sugeridos) " if plan.get("support_height_is_suggestion") else ""}'
+        f'· ALTO {overall} mm</text>',
         f'<text x="35" y="810" class="small">'
         f'MF · {WALL_LABELS[plan.get("wall_fixing", "pending")]} · '
         f'FP · {BACK_LABELS[plan.get("back_style", "pending")]}</text>',
