@@ -76,7 +76,7 @@ class InstallerTests(unittest.TestCase):
                 skill_path = target / name / "SKILL.md"
                 text = skill_path.read_text(encoding="utf-8")
                 self.assertNotIn("](../../docs/", text)
-                for reference in re.findall(r"\\]\\(([^)]+)\\)", text):
+                for reference in re.findall(r"\]\(([^)]+)\)", text):
                     if reference.startswith(prefix):
                         relative = unquote(reference[len(prefix):])
                         self.assertNotIn("..", Path(relative).parts)
