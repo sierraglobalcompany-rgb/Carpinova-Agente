@@ -191,7 +191,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
                 png = resvg_py.svg_to_bytes(svg_string=svg, width=1160)
                 img = Image.open(BytesIO(png))
                 img.verify()
-                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 930))
+                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 1060))
                 self.assertGreater(len(png), 10000)
 
     def test_12_svg_structure_is_parseable_accessible_and_render_review_only(self):
@@ -199,9 +199,12 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         s = r["modular"]["sketch_svg"]
         root = ET.fromstring(s)
         self.assertEqual(root.get("role"), "img")
-        self.assertEqual(root.get("viewBox"), "0 0 1160 930")
+        self.assertEqual(root.get("viewBox"), "0 0 1160 1060")
         self.assertIn("tapa T, base BS", root.get("aria-label"))
         self.assertIn("LI / LD · LATERALES", s)
+        for choice in ("Manija", "Uñero", "Presión", "Perfil"):
+            self.assertIn(f'>{choice}</text>', s)
+        self.assertIn("Opciones de apertura (símbolos ilustrativos)", s)
         self.assertIn("NO CORTAR, TALADRAR NI COMPRAR", s)
         for flag in ("fabrication_ready", "cutting_ready",
                      "drilling_ready", "purchase_ready"):
