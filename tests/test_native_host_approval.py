@@ -96,7 +96,7 @@ class NativeHostApprovalTests(unittest.TestCase):
         self.assertEqual(list(self.approvals.iterdir()), [])
 
     def test_rejects_long_lived_approval(self):
-        with self.assertRaisesRegex(NativeExportError, "ventana"):
+        with self.assertRaisesRegex(NativeExportError, "Ventana"):
             issue_native_approval(self.project, self.approvals, ttl_seconds=3600)
         self.assertEqual(list(self.approvals.iterdir()), [])
 
