@@ -889,13 +889,31 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         + ". Identifiqué A-D (arriba hacia abajo), T (tapa), LI/LD "
           "(laterales). Puedes pedirme «A 10 cm más alto» o «T sobresale "
           "5 cm»; te mostraré cómo afecta a las demás piezas. "
-          "Los 18 mm de tablero y 28 mm de franjas internas son solo "
-          "supuestos para la propuesta, no especificaciones."
+          "Puedes escoger piso, patas, zócalo o muro con fondo opcional; "
+          "AP/MF/FP son partes identificadas solo para conversar. "
+          "Los 18 mm de tablero y 28 mm de franjas internas son "
+          "supuestos, no especificaciones."
     )
     result["blockers"].insert(
         0, "Boceto editable, NO plano de despiece: confirmar cada opción "
-           "técnica antes de crear piezas."
+           "técnica antes de crear piezas, incluidos apoyos/muro/fondos."
     )
+    if support_style in ("legs", "plinth", "wall_mounted"):
+        result["blockers"].insert(
+            1, "Apoyo AP solo visual: patas, banqueo y suspensión NO tienen "
+               "piezas resistentes ni fijaciones modeladas en F1/F7C."
+        )
+    if wall_contact:
+        result["blockers"].insert(
+            1, "MF contra muro: no hay verificación de tipo de pared, cargas, "
+               "listón francés, fijación directa ni rieles."
+        )
+    if back_style not in ("none", "pending"):
+        result["blockers"].insert(
+            1, "FP fondo posterior solo orientativo: confirmar material, "
+               "espesor, acceso a instalaciones y fijación. Una lámina "
+               "de 2 mm NO acredita arriostramiento estructural."
+        )
     if revisions:
         result["blockers"].insert(
             1, "Las medidas modificadas redistribuyeron la altura de los "
