@@ -534,6 +534,10 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
         f"Carcasa nominal: ancho {dims['width']}, alto {dims['height']}, "
         f"fondo {dims['depth']} mm.",
         "Tablero y separaciones son supuestos provisionales.",
+        ("Construcción propuesta SIN aprobar: tapa y base cubren laterales."
+         if plan["construction"] == "top_bottom_full"
+         else "Construcción propuesta SIN aprobar: tapa y base entre laterales."),
+        "La vista de costado representa LD; LI queda al lado opuesto.",
         "Arriba hacia abajo:",
     ]
     for part in elements:
@@ -849,10 +853,8 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '<text x="35" y="70" class="subtitle">Puedes decir: “A más alto”, '
         '“T sobresale 5 cm” o “BS más ancha”.</text>'
         '<text x="35" y="92" class="note">'
-        'PROPUESTA: tablero y separaciones ilustrativos; nada aprobado para taller.'
-        '</text>'
-        f'<text x="35" y="112" class="note">'
-        f'Unión propuesta: {"T y BS cubren los laterales" if plan["construction"] == "top_bottom_full" else "T y BS entre los laterales"} (sin aprobar).</text>'
+        f'PROPUESTA: {"T y BS cubren los laterales" if plan["construction"] == "top_bottom_full" else "T y BS entre los laterales"}; '
+        'espesores y franjas ilustrativos. No aprobado para taller.</text>'
         '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
         '<text x="800" y="120" class="card-title">COSTADO · esquema</text>'
         + "".join(shapes) + '</svg>'
