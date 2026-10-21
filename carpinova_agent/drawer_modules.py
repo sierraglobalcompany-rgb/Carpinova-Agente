@@ -692,7 +692,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'<text x="{sx+sw/2:.2f}" y="{sy-17:.2f}" '
         'class="dimension" text-anchor="middle">VISTA LATERAL</text>',
         f'<text x="{sx+sw/2:.2f}" y="{sy+sh+19:.2f}" '
-        'class="small" text-anchor="middle">FRENTE ← {depth} mm → FONDO</text>',
+        f'class="small" text-anchor="middle">FRENTE ← {depth} mm → FONDO</text>',
     ])
     for ref, name, panel in (("T", "top", top_panel), ("BS", "bottom", bottom_panel)):
         yy = fy if ref == "T" else fy+fh-ft
