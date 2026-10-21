@@ -9,6 +9,11 @@ on:
       - ".github/workflows/mcp-bridge-ci.yml"
       - "docs/conectar-agente-codex-antigravity.md"
       - "integrations/blender_presentation.py"
+      - "scripts/verify_local_mcp.py"
+      - "carpinova_agent/**"
+      - "integrations/**"
+      - "examples/**"
+      - "tests/**"
 permissions:
   contents: read
 jobs:
@@ -28,108 +33,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/carpinova-mcp-output"
-          python - <<'PY'
-          import asyncio, csv, json, os
-          from pathlib import Path
-          import sys
-          from xml.etree import ElementTree
-          from mcp import ClientSession, StdioServerParameters
-          from mcp.client.stdio import stdio_client
-
-          root = Path(os.environ["RUNNER_TEMP"]) / "carpinova-mcp-output"
-          fixture = Path("examples/pilot-open-kitchen-800.json").read_text(encoding="utf-8")
-          # Existing F7C source fixture, never invent a new geometry dataset.
-          multi = json.dumps({
-              "action": "modular",
-              "module_spec": json.loads(
-                  Path("examples/modular-kitchen-door-fronts.json").read_text(encoding="utf-8")
-              ),
-          }, ensure_ascii=False)
-
-
-          async def check():
-              params = StdioServerParameters(
-                  command=sys.executable,
-                  args=["-m", "carpinova_agent.mcp_bridge"],
-                  env={**os.environ, "CARPINOVA_OUTPUT_ROOT": str(root)},
-              )
-              async with stdio_client(params) as (read, write):
-                  async with ClientSession(read, write) as session:
-                      await session.initialize()
-                      tools = await session.list_tools()
-                      actual = {x.name for x in tools.tools}
-                      expected = {
-                          "carpinova_estado", "carpinova_consultar",
-                          "carpinova_generar_borrador", "carpinova_renderizar_lamina",
-                          "carpinova_leer_entregable",
-                      }
-                      assert actual == expected, (actual, expected)
-                      for name, args in (
-                          ("carpinova_estado", {}),
-                          ("carpinova_consultar", {"solicitud_json": fixture}),
-                          ("carpinova_generar_borrador", {
-                              "solicitud_json": fixture, "proyecto": "primer_mueble"}),
-                          ("carpinova_renderizar_lamina", {
-                              "proyecto": "primer_mueble"}),
-                          ("carpinova_leer_entregable", {
-                              "proyecto": "primer_mueble", "archivo": "lamina/three-views.svg"}),
-                          ("carpinova_consultar", {"solicitud_json": multi}),
-                          ("carpinova_generar_borrador", {
-                              "solicitud_json": multi, "proyecto": "cocina_dos_modulos"}),
-                          ("carpinova_renderizar_lamina", {
-                              "proyecto": "cocina_dos_modulos"}),
-                          ("carpinova_leer_entregable", {
-                              "proyecto": "cocina_dos_modulos",
-                              "archivo": "lamina/three-views.svg"}),
-                      ):
-                          result = await session.call_tool(name, args)
-                          assert not result.isError, (name, result)
-
-          asyncio.run(check())
-          folder = root / "primer_mueble"
-          manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-          maestro = json.loads((folder / "maestro-review.json").read_text(encoding="utf-8"))
-          cad = json.loads((folder / "cad-exchange.json").read_text(encoding="utf-8"))
-          assert manifest["piece_count"] == maestro["modular"]["piece_count"] == len(cad["boxes"]) == 4
-          assert cad["geometry_sha256"] == manifest["geometry_sha256"]
-          assert all(manifest[key] is False for key in (
-              "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"
-          ))
-          with (folder / "parts-review.csv").open(encoding="utf-8", newline="") as f:
-              assert len(list(csv.DictReader(f))) == 4
-          ElementTree.parse(folder / "front-review.svg")
-          ElementTree.parse(folder / "lamina" / "three-views.svg")
-          render = json.loads((folder / "lamina" / "render-manifest.json").read_text(encoding="utf-8"))
-          assert render["geometry_sha256"] == manifest["geometry_sha256"]
-          assert (folder / "lamina" / "three-views.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-          assert (folder / "lamina" / "three-views.pdf").read_bytes().startswith(b"%PDF-")
-          assert all(render[key] is False for key in (
-              "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
-          # F7C kitchen: 2 carcasses, 3 doors and 2 service-back strips.
-          second = root / "cocina_dos_modulos"
-          multi_manifest = json.loads((second / "manifest.json").read_text(encoding="utf-8"))
-          multi_maestro = json.loads((second / "maestro-review.json").read_text(encoding="utf-8"))
-          multi_cad = json.loads((second / "cad-exchange.json").read_text(encoding="utf-8"))
-          multi_render = json.loads(
-              (second / "lamina" / "render-manifest.json").read_text(encoding="utf-8"))
-          assert multi_manifest["piece_count"] == multi_maestro["modular"]["piece_count"] == 13
-          assert len(multi_cad["boxes"]) == 13
-          assert sum(box["role"].startswith("front_") for box in multi_cad["boxes"]) == 3
-          assert sum(box["role"].startswith("back_") for box in multi_cad["boxes"]) == 2
-          assert len(multi_maestro["modular"]["modules"]) == 2
-          assert (multi_manifest["geometry_sha256"] ==
-                  multi_cad["geometry_sha256"] == multi_render["geometry_sha256"])
-          assert all(multi_manifest[k] is False for k in (
-              "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
-          assert (second / "lamina" / "three-views.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-          assert (second / "lamina" / "three-views.pdf").read_bytes().startswith(b"%PDF-")
-          ElementTree.parse(second / "lamina" / "three-views.svg")
-          print("F7C_TWO_MODULE_KITCHEN=PASS; PIECES=13; FRONTS=3; BACKS=2")
-          print("REAL_MCP_STDIO=PASS; FIVE_TOOLS=PASS; FOUR_PARTS=PASS")
-          print("THREE_VIEWS_SVG_PNG_PDF=PASS")
-          print("GEOMETRY_SHA256=" + manifest["geometry_sha256"])
-          print("FABRICATION_AUTHORITY=NO")
-          PY
+          python scripts/verify_local_mcp.py --output-root "$RUNNER_TEMP/carpinova-mcp-output"
       - name: Preserve first MCP furniture project
         uses: actions/upload-artifact@v4
         with:
@@ -286,3 +190,25 @@ jobs:
           name: carpinova-mcp-freecad-blender-real
           retention-days: 14
           path: ${{ runner.temp }}/source/
+
+  windows-mcp-preflight:
+    name: Windows Python 3.12 + actual MCP session + SVG PNG PDF
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install exact direct dependencies certified on Linux
+        run: python -m pip install "mcp==1.30.0" "CairoSVG==2.9.1"
+      - name: Test all Agent Python contracts on Windows
+        run: python -m unittest discover -s tests -q
+      - name: Start REAL MCP stdio and export two projects using Windows Python
+        run: python scripts/verify_local_mcp.py --output-root "$env:RUNNER_TEMP\carpinova-win-mcp"
+      - name: Archive inspectable Windows MCP preflight result
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-mcp-windows-preflight
+          retention-days: 14
+          path: ${{ runner.temp }}/carpinova-win-mcp/

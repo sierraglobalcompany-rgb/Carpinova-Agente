@@ -162,3 +162,14 @@ $env:PYTHONPATH = (Get-Location).Path
 ## Certificación pendiente antes de PC — gates obligatorios
 
 La última CI Linux verificó específicamente **MCP 1.30.0 y CairoSVG 2.9.1** (Python 3.12), fijados como dependencias directas para reproducir el ensayo. **No es un lockfile de todas las dependencias indirectas ni una validación de Windows.** Antes de declarar `PC_READY=YES`, verificar la instalación limpia de Windows, arranque y descubrimiento de las cinco herramientas en Codex/AntiGravity, configuración del bundle Knowledge si se van a responder preguntas del libro, lectura de SVG/PNG/PDF reales, apertura de `.FCStd` y `.blend` en los programas locales, una inspección humana de las imágenes y al menos un mueble con dimensiones aportadas y confirmadas. También se debe integrar la cadena de 12 PR con aprobación del propietario y correr QA en el SHA final de `main`. Sin ello no afirmar 100%.
+
+
+### Una sola prueba de conexión repetible en Linux y Windows
+
+La misma prueba del protocolo (sin duplicar JSON, dibujo ni fórmulas) está en `scripts/verify_local_mcp.py`. Tras instalar Python 3.12, `mcp==1.30.0` y `CairoSVG==2.9.1`, ejecutarla desde la raíz del repositorio:
+
+```powershell
+python scripts/verify_local_mcp.py --output-root 'C:\CarpiNova\preflight_nuevo'
+```
+
+El destino debe ser una carpeta **nueva y vacía**. La prueba inicia un MCP stdio real, descubre cinco herramientas, genera dos muebles de muestra (4 y 13 piezas), devuelve sus resultados, coteja CAD/SVG/CSV/PNG/PDF, y produce `mcp-preflight-report.json`. **No ejecuta FreeCAD ni Blender**, no consulta el libro si no se configuró su bundle, no envía datos a una API y no significa autorización de producción. Esta misma prueba corre sobre `windows-latest` y Linux en GitHub CI: el resultado real de Windows debe ser GREEN antes de considerarla reproducible allí. El PC del propietario requerirá una prueba adicional en el IDE que use.
