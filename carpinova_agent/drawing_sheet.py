@@ -17,6 +17,7 @@ from typing import Any
 
 from .cad_exchange import validate_exchange
 from .core import DesignError
+from .pilot_cli import verify_pilot_bundle
 
 
 _SHEET_FILES = ("three-views.svg", "three-views.png", "three-views.pdf", "render-manifest.json")
@@ -112,22 +113,11 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     Exposes no arbitrary shell commands or extra project geometry.
     """
     folder = Path(project_folder)
-    cad_path = folder / "cad-exchange.json"
-    manifest_path = folder / "manifest.json"
     destination = folder / "lamina"
-    if (not folder.is_dir() or folder.is_symlink()
-            or cad_path.is_symlink() or manifest_path.is_symlink()
-            or destination.exists() or destination.is_symlink()):
-        raise DesignError("Proyecto inválido o lámina existente: no sobrescribir.")
-    if cad_path.stat().st_size > 262144 or manifest_path.stat().st_size > 65536:
-        raise DesignError("Archivos de entrada demasiado grandes.")
-    cad = validate_exchange(json.loads(cad_path.read_text(encoding="utf-8")))
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if (manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
-            or manifest.get("geometry_sha256") != cad["geometry_sha256"]
-            or manifest.get("piece_count") != len(cad["boxes"])
-            or any(manifest.get(f) is not False for f in _RELEASE_FLAGS)):
-        raise DesignError("Manifiesto inconsistente con geometría certificada.")
+    if destination.exists() or destination.is_symlink():
+        raise DesignError("Lámina existente: no sobrescribir.")
+    # One provenance gate for 2D AND native CAD. No duplicate geometry tests.
+    cad = verify_pilot_bundle(folder)
     svg = three_views_svg(cad)
     try:
         import resvg_py

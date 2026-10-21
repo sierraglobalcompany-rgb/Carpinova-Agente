@@ -16,8 +16,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zipfile import ZipFile
 
-from .cad_exchange import validate_exchange
-from .core import DesignError
+from .pilot_cli import verify_pilot_bundle
 
 REVIEW_CONFIRMATION = "AUTORIZO_EXPORTAR_BORRADOR_3D"
 _RELEASE_FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready")
@@ -44,25 +43,6 @@ def _binary(value: str | None, expected: str) -> Path:
     if path.name.lower() not in allowed or resolved.name.lower() not in allowed:
         raise NativeExportError("Nombre de ejecutable no autorizado para " + expected)
     return resolved
-
-
-def _load_review(folder: Path) -> dict[str, Any]:
-    folder = Path(folder)
-    cadfile = folder / "cad-exchange.json"
-    manifestfile = folder / "manifest.json"
-    if (not folder.is_dir() or folder.is_symlink()
-            or cadfile.is_symlink() or manifestfile.is_symlink()
-            or not cadfile.is_file() or not manifestfile.is_file()
-            or cadfile.stat().st_size > 262144 or manifestfile.stat().st_size > 65536):
-        raise NativeExportError("Proyecto fuente inexistente, externo o no confiable.")
-    cad = validate_exchange(json.loads(cadfile.read_text(encoding="utf-8")))
-    review = json.loads(manifestfile.read_text(encoding="utf-8"))
-    if (review.get("status") != "DRAFT_NOT_FOR_CUTTING"
-            or review.get("geometry_sha256") != cad["geometry_sha256"]
-            or review.get("piece_count") != len(cad["boxes"])
-            or any(review.get(k) is not False for k in _RELEASE_FLAGS)):
-        raise NativeExportError("Manifiesto y geometría de revisión no coinciden.")
-    return cad
 
 
 def _checked_report(
@@ -109,7 +89,7 @@ def export_native_project(
     freecad = _binary(freecad_executable, "freecadcmd")
     blender = _binary(blender_executable, "blender")
     folder = Path(project_folder)
-    cad = _load_review(folder)
+    cad = verify_pilot_bundle(folder)
     dest = folder / "native"
     if dest.exists() or dest.is_symlink():
         raise NativeExportError("Ya existe exportación nativa: no sobrescribir.")
