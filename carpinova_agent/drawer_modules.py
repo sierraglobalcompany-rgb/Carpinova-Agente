@@ -445,6 +445,39 @@ def _annotated_openings(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]
             for i, item in enumerate(reversed(plan["opening_plan"]))]
 
 
+def _side_panel_height(plan: dict[str, Any]) -> int:
+    outer = plan["external_dimensions_mm"]["height"]
+    t = plan["panel_thickness_mm"]
+    return outer if plan["construction"] == "sides_full" else outer - 2 * t
+
+
+def _panel_review_dimensions(plan: dict[str, Any], name: str) -> dict[str, Any]:
+    outer = plan["external_dimensions_mm"]
+    t = plan["panel_thickness_mm"]
+    nominal_w = outer["width"] - 2 * t if plan["construction"] == "sides_full" else outer["width"]
+    return {
+        "nominal_width_mm": nominal_w,
+        "nominal_depth_mm": outer["depth"],
+        "nominal_thickness_mm": t,
+        "concept_overhang_left_mm": plan.get(f"{name}_overhang_left_mm", 0),
+        "concept_overhang_right_mm": plan.get(f"{name}_overhang_right_mm", 0),
+        "concept_overhang_front_mm": plan.get(f"{name}_overhang_front_mm", 0),
+        "concept_overhang_rear_mm": plan.get(f"{name}_overhang_rear_mm", 0),
+        "concept_outer_width_mm": outer["width"] + (
+            plan.get(f"{name}_overhang_left_mm", 0) +
+            plan.get(f"{name}_overhang_right_mm", 0)
+        ),
+        "concept_outer_depth_mm": outer["depth"] + (
+            plan.get(f"{name}_overhang_front_mm", 0) +
+            plan.get(f"{name}_overhang_rear_mm", 0)
+        ),
+        "extension_not_modeled_in_F1": any(
+            plan.get(f"{name}_overhang_{side}_mm", 0) > 0
+            for side in ("left", "right", "front", "rear")
+        ),
+    }
+
+
 def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
     styles = plan.get("opening_systems", {})
     return [
@@ -459,10 +492,17 @@ def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
         for label, opening in _annotated_openings(plan)
     ] + [
         {"ref": "T", "kind": "top_panel",
-         "concept_overhang_left_mm": plan.get("top_overhang_left_mm", 0),
-         "concept_overhang_right_mm": plan.get("top_overhang_right_mm", 0)},
-        {"ref": "LI", "kind": "left_side"},
-        {"ref": "LD", "kind": "right_side"},
+         **_panel_review_dimensions(plan, "top")},
+        {"ref": "BS", "kind": "bottom_panel",
+         **_panel_review_dimensions(plan, "bottom")},
+        {"ref": "LI", "kind": "left_side",
+         "nominal_height_mm": _side_panel_height(plan),
+         "nominal_depth_mm": plan["external_dimensions_mm"]["depth"],
+         "nominal_thickness_mm": plan["panel_thickness_mm"]},
+        {"ref": "LD", "kind": "right_side",
+         "nominal_height_mm": _side_panel_height(plan),
+         "nominal_depth_mm": plan["external_dimensions_mm"]["depth"],
+         "nominal_thickness_mm": plan["panel_thickness_mm"]},
         {"ref": "AP", "kind": "floor_support",
          "style": plan.get("support_style", "floor_direct"),
          "concept_height_mm": plan.get("support_height_mm", 0)},
@@ -709,7 +749,11 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
 DRAWER_GUIDE_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
     "large_drawer_position", "drawer_adjustments_mm",
-    "top_overhang_left_mm", "top_overhang_right_mm", "opening_systems",
+    "top_overhang_left_mm", "top_overhang_right_mm",
+    "top_overhang_front_mm", "top_overhang_rear_mm",
+    "bottom_overhang_left_mm", "bottom_overhang_right_mm",
+    "bottom_overhang_front_mm", "bottom_overhang_rear_mm",
+    "opening_systems",
     "support_style", "support_height_mm", "wall_contact", "wall_fixing",
     "wall_bottom_above_floor_mm", "back_style", "back_thickness_mm",
 })
@@ -774,14 +818,24 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "Sistemas de apertura: usar A-D y pending/handle/"
             "push_to_open/finger_pull/profile. Aún no especifican herrajes."
         )
-    left = spec.get("top_overhang_left_mm", 0)
-    right = spec.get("top_overhang_right_mm", 0)
+    extensions = {
+        (panel, side): spec.get(f"{panel}_overhang_{side}_mm", 0)
+        for panel in ("top", "bottom")
+        for side in ("left", "right", "front", "rear")
+    }
     if any(type(value) is not int or not 0 <= value <= 200
-           for value in (left, right)):
+           for value in extensions.values()):
         raise DesignError(
-            "Saliente de tapa T: indicar en mm entre 0 y 200 para "
-            "izquierda/derecha (solo concepto)."
+            "Saliente T/BS: indicar entre 0 y 200 mm enteros por lado "
+            "(izquierda, derecha, frente, fondo); solo concepto."
         )
+    left, right = extensions["top", "left"], extensions["top", "right"]
+    bottom_left = extensions["bottom", "left"]
+    bottom_right = extensions["bottom", "right"]
+    outer_width = spec["width_mm"] + max(left, bottom_left) + max(right, bottom_right)
+    outer_depth = spec["depth_mm"] + max(
+        extensions["top", "front"], extensions["bottom", "front"]
+    ) + max(extensions["top", "rear"], extensions["bottom", "rear"])
     support_style = spec.get("support_style", "floor_direct")
     if support_style not in ("floor_direct", "legs", "plinth", "wall_mounted"):
         raise DesignError(
@@ -885,7 +939,18 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         "opening_systems": dict(choices),
         "top_overhang_left_mm": left,
         "top_overhang_right_mm": right,
-        "unvalidated_top_extension": bool(left or right),
+        "unvalidated_top_extension": any(extensions["top", side] for side in ("left", "right", "front", "rear")),
+        "unvalidated_bottom_extension": any(extensions["bottom", side] for side in ("left", "right", "front", "rear")),
+        **{f"{panel}_overhang_{side}_mm": extension
+           for (panel, side), extension in extensions.items()},
+        "concept_envelope": {
+            "width_mm": outer_width, "depth_mm": outer_depth,
+            "height_mm": overall_h,
+            "exceeds_carcass_width_mm": outer_width - spec["width_mm"],
+            "exceeds_carcass_depth_mm": outer_depth - spec["depth_mm"],
+            "not_validated_for_manufacturing": True,
+        },
+        "large_drawer_ref": refs[0] if position == "top" else refs[-1],
         "revisions": revisions,
         "proposed_layout_spec": proposed,
         "review_state": dict(spec),
@@ -963,10 +1028,15 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             1, "Las medidas modificadas redistribuyeron la altura de los "
                "cajones no fijados; revisar TODOS los cambios de revisions."
         )
-    if left or right:
+    if result["unvalidated_top_extension"] or result["unvalidated_bottom_extension"]:
         result["blockers"].insert(
-            1, "Voladizo de T SOLO ilustrado: el motor F1 actual no "
-               "modela tapa saliente ni ha validado su soporte/rigidez. "
-               "No convertir este boceto directamente en F7C."
+            1, "Salientes T/BS SOLO ilustrados: F1/F7C no modelan tapas "
+               "ni bases sobresalientes; falta validar apoyos, uniones, "
+               "rigidez y medidas exteriores antes de despiece CAD."
+        )
+        result["blockers"].insert(
+            2, "Los salientes cambian la envolvente ilustrativa a "
+               f'{outer_width} x {outer_depth} mm en planta; confirmar si '
+               "el límite exterior admite el aumento."
         )
     return result
