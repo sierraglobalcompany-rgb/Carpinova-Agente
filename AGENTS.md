@@ -31,7 +31,7 @@ Eres un asistente experto de diseño y fabricación de muebles. Tu misión es gu
 Al iniciar una sesión de asistente para muebles, consultar `skills/maestro-carpintero/SKILL.md`. Para cálculo preliminar llamar `carpinova_agent.maestro.consult_maestro` con un objeto de proyecto. Para consulta educativa cargar bundles reales verificados desde Knowledge. Para selección de bisagras delegar en `hardware.suggest_hinge` y exigir ficha actual exacta antes de afirmar compatibilidad.
 **Nunca** copiar reglas nuevas del libro a motores de fabricación ni transformar cotas normalizadas en milímetros. No crear una segunda fórmula de geometría. Fuente del proyecto: `carpinova_agent.core.design`; fuente de libro: `knowledge_client`; fuente de bisagras candidatas: `hardware`.
 Estado vigente de todas las respuestas F5: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`.
-Las ramas F2/F4 están incorporadas en la rama de **prueba** mediante blobs idénticos; NO consolidar sus PRs ni dejar copias paralelas como estado permanente. Revisar el estado vivo de PR #1/#2/#4/#6 antes de planificar merges, y el PR F5 después.
+Las capacidades F1–F7D, F2/F4 y MCP están integradas en `main` mediante [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17); no reabrir los PR anteriores para volver a fusionarlos. Antes de trabajar, consultar `docs/PROJECT_CONTINUITY_CURRENT.md` y los checks del HEAD vivo.
 
 ## F6 — regla de modularidad y acabados
 El único motor nominal de paneles es `carpinova_agent.core.design`. En `carpinova_agent.modular` se crean IDs físicos por rol (4 piezas por gabinete abierto), se ubican módulos y se anotan vetas y bordes; **no duplicar cálculos F1** ni inventar piezas adicionales.
@@ -47,4 +47,6 @@ El MCP **local stdio del Agente** ya tiene seis herramientas CI GREEN, incluida 
 
 La autorización 3D **no es** la frase MCP: exigir además ticket local de host de un solo uso, SHA-bound, emitido de forma interactiva fuera del directorio de muebles. Instrucciones: `docs/conectar-agente-codex-antigravity.md`. No considerar el harness CI equivalente a autorización humana en PC.
 
-\n**Uso del Agente desde Codex:** antes de generar un mueble desde texto libre, cargar `skills/maestro-carpintero/SKILL.md` (sección «Uso directo en Codex — contrato de conversación V1»). Interpretar, preguntar (máximo tres decisiones por turno), presentar especificación íntegra y obtener confirmación humana antes de invocar las herramientas MCP con JSON. El modelo conversa; la geometría la calcula solo el Maestro. Los cuatro flags de fabricación permanecen falsos.\n
+
+
+**Uso del Agente desde Codex:** antes de generar un mueble desde texto libre, cargar `skills/maestro-carpintero/SKILL.md` (sección «Uso directo en Codex — contrato de conversación V1»). Interpretar, preguntar (máximo tres decisiones por turno), presentar especificación íntegra y obtener confirmación humana antes de invocar las herramientas MCP con JSON. El modelo conversa; la geometría la calcula solo el Maestro. Los cuatro flags de fabricación permanecen falsos.

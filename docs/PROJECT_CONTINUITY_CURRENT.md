@@ -4,12 +4,14 @@
 
 ## 1. Identidad y evidencia exacta
 
-- **Repositorio exclusivo:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente). CarpiNova-Knowledge y CarpiNova-PC son dependencias **solo lectura** y no deben modificarse desde este proyecto.
-- **Rama de desarrollo operativa:** `feat/connect-carpinova-mcp-stdio`, [PR #16](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/16) **OPEN / DRAFT**.
-- **SHA funcional certificado previo a esta actualización documental:** `2d8affe4b36b4a5eadc63ec24454347475f69185`. **`main` todavía es** `0bdb386a4875eaf2d1dcab99301348ae4bce7657`. No confundir el repositorio actualizado en una rama PR con un `main` ya integrado.
-- **QA del SHA funcional:** [MCP + Windows + CAD #39548887879](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39548887879), **3/3 jobs SUCCESS**; **490 tests Windows Python 3.12**; cliente MCP recibió `image/png` **real** para las dos láminas y ambos renders Blender; modelos nativos de **4 y 13 piezas** verificados en FreeCAD/Blender Ubuntu. Los bytes PNG también se cotejan contra `png_sha256` o `presentation_png_sha256` de los manifiestos existentes, y una imagen modificada se rechaza. Ensayo de 12 PR, geometría, Knowledge, herrajes y Maestro SUCCESS en ese SHA: **6/6 workflows GREEN**.
-- Este documento puede tener un commit posterior **solo documental**. Para cualquier afirmación de GREEN, **comprobar los workflows del HEAD actual**, no atribuir automáticamente el resultado anterior al nuevo SHA.
-- Artifacts de CI (`carpinova-first-mcp-furniture`, `carpinova-mcp-windows-preflight`, `carpinova-mcp-freecad-blender-real`) caducan el **04-nov-2026**. Son evidencia de demostración, **no** dependencia de reconstrucción: el código, los ejemplos y los scripts están versionados.
+- **Repositorio y fuente de reconstrucción:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama **main**, no PRs históricos.
+- **Integración funcional:** [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) **MERGED**. Commit de merge en main: `7420940843649bf2c0939bcb36167b98be27dd79`; HEAD funcional probado antes del merge: `db5336783d9426b6e3b73a44f4234266bfc2ba56`.
+- **Igualdad de árboles comprobada:** Git tree de ambos commits = `841d2da3846e3b4d7c639064651ee2ad9d52acdc`. Main incluye los 130 archivos frente al antiguo main, sin perder el contenido auditado de la pila F1–F7D/MCP y F7C de cuatro cajones.
+- **QA funcional SHA db533678:** **505 pruebas en Windows Python 3.12 PASS**, MCP stdio seis herramientas, SVG/PNG/PDF, configuraciones de cliente; geometría, Maestro, Knowledge y herrajes GREEN; FreeCAD y Blender reales con muebles de 4, 13 y **28 piezas embutidas y 28 sobrepuestas** GREEN. [MCP/Windows/CAD](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39561886879). El CI de main posterior al merge debe comprobarse **por el SHA exacto** antes de certificar estado del repositorio.
+- **Source Knowledge de solo lectura:** [CarpiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge) SHA `4df02ef54562fac5a820cbad92b0edee547c310b`. CarpiNova-PC fuera de alcance.
+- Artifacts de Actions son evidencias temporales, no dependencia: reconstruir desde código versionado y `requirements-mcp.txt` manteniendo las limitaciones de compatibilidad documentadas.
+- **No hay QA de la PC física del dueño ni liberación de fabricación.** No inventar ese resultado.
+
 
 ## 2. Objetivo, arquitectura y leyes
 
@@ -37,16 +39,18 @@ Requisitos Windows: Git, **Python 3.12**, PowerShell, conectividad para instalar
 git clone https://github.com/sierraglobalcompanyv2/Carpinova-Agente.git
 cd Carpinova-Agente
 git fetch origin
-git switch feat/connect-carpinova-mcp-stdio
+git switch main
 git rev-parse HEAD
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare_windows.ps1
+# Solo en la validación final y con permiso expreso del propietario:
+python scripts/install_codex_skills.py --scope user --with-mcp
 ```
 
-**Puerta de seguridad del checkout:** comparar el SHA mostrado por `git rev-parse HEAD` con el HEAD **vivo** del [PR #16](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/16), o usar `git switch --detach 6a114e4297ac43e9aef43a99531ae3f3ffbed800` para reproducir el checkpoint exacto anterior (en ese caso, comprobar las seis ejecuciones y no trabajar sobre detached HEAD). Nunca ejecutar un clon de `main` antiguo como si contuviera el nuevo Agente.
+**Puerta de seguridad del checkout:** comparar `git rev-parse HEAD` con el SHA **vivo de main**, no con el antiguo PR #16. El commit `7420940` identifica la integración funcional, pero el HEAD puede avanzar por revisiones de documentación. Verificar por árbol y CI; no usar un branch DRAFT como fuente principal.
 
 `scripts/prepare_windows.ps1` es el **mismo que usa Windows Actions**: crea `.venv`, instala solo las versiones directas de `requirements-mcp.txt` (`mcp==1.30.0`, `resvg_py==0.5.0`, `Pillow==13.0.0`), corre todos los tests y un cliente MCP real, genera dos borradores y comprueba los formatos y flags. Deja evidencia bajo `work/preflight-*/`, incluyendo `resolved-packages-windows.txt`, lista efectiva de dependencias transitivas. **No hay lockfile transitorio completo multiplataforma**, por lo que el entorno no es una reproducción binaria idéntica garantizada.
 
-Genera únicamente **ejemplos** de conexión (sin instalarlos en clientes reales): `work/configuracion-local/codex-config.toml.example` y `antigravity-mcp.json.example`. La carpeta de autorizaciones `%LOCALAPPDATA%\CarpiNova\native-approvals` se crea **fuera del repositorio**. CAD nativo permanece **desactivado**. Guía de uso y aprobación: [conectar-agente-codex-antigravity.md](conectar-agente-codex-antigravity.md).
+El preflight genera **ejemplos** sin cambiar todavía la configuración real. El instalador opt-in `scripts/install_codex_skills.py --scope user --with-mcp` registra cuatro skills y el MCP en la fase final, sin sobrescribir configuraciones divergentes. Los ejemplos son: `work/configuracion-local/codex-config.toml.example` y `antigravity-mcp.json.example`. La carpeta de autorizaciones `%LOCALAPPDATA%\CarpiNova\native-approvals` se crea **fuera del repositorio**. CAD nativo permanece **desactivado**. Guía de uso y aprobación: [conectar-agente-codex-antigravity.md](conectar-agente-codex-antigravity.md).
 
 ### Knowledge completo para un nuevo PC (dependencia externa)
 
@@ -69,22 +73,27 @@ uv run --project ..\CarpiNova-Knowledge python -m carpinova_knowledge build-book
 
 La sexta herramienta MCP necesita **tres puertas**: `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` configurado por el host, ejecutables permitidos FreeCADCmd/Blender con rutas absolutas, **y** aprobación del operador en terminal TTY independiente `python -m carpinova_agent.native_export --approve-project <proyecto> --approval-dir <carpeta externa>`. El operador lee el nombre, piezas y SHA y confirma; el ticket de un solo uso, vinculado a la ruta y geometría, vence como máximo en 15 minutos y se consume antes de lanzar CAD. La frase MCP **no** sustituye ese acto. Mantener la carpeta externa protegida contra escritura por herramientas del agente; un proceso con acceso a ella podría falsificar aprobaciones. No ejecutar CAD como consecuencia automática del texto del usuario.
 
-## 5. Los 12 PR siguen DRAFT: orden y reglas para integrarlos
+## 5. Integración consolidada y cierre de PR históricos
 
-Los PR **#1 → #4 → #2 → #6 → #7 → #9 → #11 → #12 → #13 → #14 → #15 → #16** están OPEN/DRAFT; `main` continúa intacto. Las ramas base no son todas la anterior (F2/F4 dependen de `main`): respetar el orden de integración **comprobado** en el ensayo y revisar cada HEAD/base antes de hacer merge. Existe un conflicto histórico **README F4/F5**, reconciliado únicamente en el ensayo temporal mediante `scripts/reconcile_stack_readme.py`. No interpretar ese ensayo como aprobación para actualizar `main`.
+- La pila F1 → F3 → F2 → F4 → F5 → F6 → F7A → F7C → F7D → MCP, más overlay/inset de cuatro cajones y bootstrap Codex, quedó incorporada a main mediante **un solo merge PR #17** (aprobación explícita del dueño; QA exact-head antes del merge).
+- La reconciliación histórica F4/F5 de README se preservó en el árbol del PR #17. El ensayo original había verificado `STACK_TREE_EQUAL_TO_FEATURE_HEAD=YES`; la comparación de árboles entre el merge main y el PR #17 es **idéntica**.
+- El PR #1 se marcó merged automáticamente al integrarse su ancestro. Los demás PR históricos conservan trazabilidad y deben cerrarse solo como **superseded/integrados por PR #17** tras verificar postmerge CI; no intentar fusionarlos de nuevo ni reintroducir cambios superpuestos.
+- No borrar ramas ni Knowledge. Reabrir incidencias solamente con evidencia y arreglarlas donde corresponde, nunca recrear una pila paralela.
 
-**Nunca fusionar sin autorización expresa del propietario.** Si se autoriza, fusionar de forma controlada y repetir CI/QA desde un clon limpio del **`main` resultante**, no usar los 487 tests de la rama como certificado automático del release final.
 
-## 6. NEXT y salida de etapa
+## 6. NEXT, límites y criterios de salida
 
 | Gate | Estado |
 | --- | --- |
-| Fuente, skills, MCP 2D/3D e imágenes 2D/3D visualizables por MCP, ejemplo 4/13 piezas | **GREEN CI** en SHA funcional indicado |
-| Seis workflows + integración temporal de 12 PR | **GREEN CI** |
-| `main` fusionado y reconstruido | **PENDING OWNER APPROVAL** |
-| Codex/AntiGravity MCP en Windows real del dueño | **NOT VERIFIED** |
-| Knowledge completo y CAD nativo abiertos en ese Windows | **NOT VERIFIED** |
-| Mueble real con revisión visual y medidas del sitio | **NOT VERIFIED** |
-| Ingeniería de corte, taladro, estructura y fabricación | **BLOCKED** |
+| Pila integrada en main, árbol idéntico a SHA funcional | **MERGED / TREE VERIFIED** |
+| Windows 505 pruebas, Maestro, Knowledge, hardware, MCP e imágenes | **GREEN en HEAD funcional db533678** |
+| FreeCAD + Blender 4/13/28 inset/28 overlay piezas | **GREEN en HEAD funcional db533678** |
+| CI del HEAD main luego del merge/documentación | **VERIFICAR SHA VIVO** |
+| Instalador de cuatro skills y MCP en PC del usuario | **IMPLEMENTADO / NO EJECUTADO EN PC** |
+| Knowledge completo y FreeCAD/Blender instalados en PC del usuario | **NO VERIFICADO** |
+| Diseño real revisado por el dueño con medidas y herrajes reales | **PENDIENTE** |
+| Corte final, taladros, cargas, anclajes y fabricación certificada | **BLOQUEADO** |
 
-**Para el siguiente chat:** conectar este repo, leer primero este documento **en la rama PR #16**, `AGENTS.md`, README, las cuatro skills y el manual Windows; verificar SHA/PR/workflows vivos. Continuar solo con funciones faltantes demostradas, cumplir KISS/anti-ruido/anti-parches y dejar evidencia en el mismo archivo + PR. No usar Codex por ping-pong innecesario ni modificar Knowledge/PC. **Próximo avance real: autorización para integración a main, seguida de QA nuevo; luego validar en PC y diseñar un mueble real.**
+**NEXT_SAFE_ACTION:** primero comprobar el CI del HEAD real de main; documentar la consolidación y cerrar PR históricos ya absorbidos, sin alterar árboles de fuente. Usar Codex **solo al final**, en una sesión limitada de PC para instalar las cuatro skills/MCP y probar el diseño verbal 50 × 50 × 80 cm, tres cajones y una gaveta: confirmar 500×500×800 mm, 4 cajas, solapes o embutido, manijas/perfil T, material y espesores antes de producir el paquete. No pedir al usuario JSON manual. El piloto de 28 piezas sigue siendo **nominal**: ningún cálculo de corte, corredera SKU o perforación está autorizado hasta corroboración real.
+
+**Para cualquier chat nuevo:** iniciar por `main/docs/PROJECT_CONTINUITY_CURRENT.md`, `AGENTS.md`, la skill Maestro y el manual Windows; corroborar HEAD y CI vivos. Mantener las cuatro leyes KISS, anti-ruido con evidencia, anti-parches y diseño UX sin duplicar motores. No modificar CarpiNova-Knowledge ni CarpiNova-PC. No inferir que la PC del usuario está certificada a partir de GitHub Actions.
