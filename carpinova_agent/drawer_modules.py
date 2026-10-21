@@ -856,7 +856,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'PROPUESTA: {"T y BS cubren los laterales" if plan["construction"] == "top_bottom_full" else "T y BS entre los laterales"}; '
         'espesores y franjas ilustrativos. No aprobado para taller.</text>'
         '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
-        '<text x="800" y="120" class="card-title">COSTADO · esquema</text>'
+        '<text x="800" y="120" class="card-title">VISTA LATERAL · COSTADO</text>'
         + "".join(shapes) + '</svg>'
     )
 
