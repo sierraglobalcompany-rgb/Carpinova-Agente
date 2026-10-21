@@ -617,32 +617,81 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
 
 DRAWER_GUIDE_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
-    "large_drawer_position",
+    "large_drawer_position", "drawer_adjustments_mm",
+    "top_overhang_left_mm", "top_overhang_right_mm", "opening_systems",
 })
 
 
-def guide_drawer_layout(spec: Any) -> dict[str, Any]:
-    """Friendly, opt-in F1 sketch with disclosed EXAMPLE assumptions only.
+def _apportion_nominal(remaining: int, weights: list[int]) -> list[int]:
+    """Exact integer distribution; same largest-remainder rule as F1 plan."""
+    if not weights:
+        if remaining != 0:
+            raise DesignError("Las modificaciones alteran la altura total; falta compensación.")
+        return []
+    if remaining < len(weights):
+        raise DesignError("Las modificaciones dejan algún cajón sin altura suficiente.")
+    total = sum(weights)
+    result = [remaining * w // total for w in weights]
+    residue = remaining - sum(result)
+    ranked = sorted(range(len(weights)),
+                    key=lambda i: (-(remaining * weights[i] % total), i))
+    for i in ranked[:residue]:
+        result[i] += 1
+    if min(result) <= 0:
+        raise DesignError("La nueva proporción deja una abertura sin altura.")
+    return result
 
-    No user is expected to know panel thickness, gaps, ratios or jargon.
-    Defaults are proposals, not facts, purchase specs or manufacturing approval.
+
+def guide_drawer_layout(spec: Any) -> dict[str, Any]:
+    """Revisable concept only; never silently turn decisions into CAD.
+
+    A-D label openings top-to-bottom, whereas F1 D1-D4 remain bottom-to-top.
+    All parameters except dimensions, count and explicitly requested edits are
+    EXAMPLE assumptions. Revisions must show affected other drawers.
     """
-    if type(spec) is not dict or spec.get("type") != "drawer_layout_guide" or (
-        set(spec) - DRAWER_GUIDE_FIELDS
-    ) or not {"type", "width_mm", "height_mm", "depth_mm",
-              "small_drawers"}.issubset(spec):
+    if (type(spec) is not dict or spec.get("type") != "drawer_layout_guide"
+            or set(spec) - DRAWER_GUIDE_FIELDS
+            or not {"type", "width_mm", "height_mm", "depth_mm",
+                    "small_drawers"}.issubset(spec)):
         raise DesignError(
-            "Para boceto guiado: ancho, alto, fondo y cantidad de cajones pequeños."
+            "Boceto guiado: ancho, alto, fondo y cantidad de cajones pequeños."
         )
     n = spec["small_drawers"]
     if type(n) is not int or not 1 <= n <= 3:
-        raise DesignError("small_drawers debe estar entre 1 y 3.")
+        raise DesignError("small_drawers debe ser entero entre 1 y 3.")
     position = spec.get("large_drawer_position", "bottom")
     if position not in ("bottom", "top"):
         raise DesignError("La gaveta grande va arriba o abajo.")
+    refs = [chr(65 + i) for i in range(n + 1)]
+    adjustments = spec.get("drawer_adjustments_mm", {})
+    if (type(adjustments) is not dict
+            or any(ref not in refs or type(delta) is not int
+                   or not -2000 <= delta <= 2000
+                   for ref, delta in adjustments.items())):
+        raise DesignError(
+            "Modificaciones: usar letras de los cajones y milímetros enteros "
+            "con signo. Ejemplo A +100, B -100."
+        )
+    choices = spec.get("opening_systems", {})
+    if (type(choices) is not dict
+            or any(ref not in refs or type(option) is not str
+                   or option not in OPENING_CHOICES
+                   for ref, option in choices.items())):
+        raise DesignError(
+            "Sistemas de apertura: usar A-D y pending/handle/"
+            "push_to_open/finger_pull/profile. Aún no especifican herrajes."
+        )
+    left = spec.get("top_overhang_left_mm", 0)
+    right = spec.get("top_overhang_right_mm", 0)
+    if any(type(value) is not int or not 0 <= value <= 200
+           for value in (left, right)):
+        raise DesignError(
+            "Saliente de tapa T: indicar en mm entre 0 y 200 para "
+            "izquierda/derecha (solo concepto)."
+        )
     weights = ([2] + [1] * n if position == "bottom"
                else [1] * n + [2])
-    illustrative_spec = {
+    proposed = {
         "type": "drawer_layout_proposal",
         "width_mm": spec["width_mm"],
         "height_mm": spec["height_mm"],
@@ -652,26 +701,82 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         "vertical_gap_mm": 28,
         "drawer_weights": weights,
     }
-    result = propose_drawer_layout(illustrative_spec)
-    result["type"] = "drawer_layout_guide"
-    result["guided"] = True
-    result["proposed_layout_spec"] = illustrative_spec
-    result["suggestions_not_confirmed"] = {
-        "panel_thickness_mm": 18,
-        "construction": "sides_full",
-        "vertical_gap_mm": 28,
-        "drawer_weights": list(weights),
-        "large_drawer_position": position,
-    }
+    base = propose_drawer_layout(proposed)
+    base_top = [x["opening_height_mm"]
+                for x in reversed(base["opening_plan"])]
+    if adjustments and any(adjustments.values()):
+        fixed = {refs.index(ref): base_top[refs.index(ref)] + delta
+                 for ref, delta in adjustments.items()
+                 if delta != 0}
+        if any(height <= 0 for height in fixed.values()):
+            raise DesignError("El cambio solicitado deja un cajón sin altura.")
+        free = [i for i in range(len(refs)) if i not in fixed]
+        remaining = sum(base_top) - sum(fixed.values())
+        assigned = _apportion_nominal(remaining, [base_top[i] for i in free])
+        heights = [0] * len(refs)
+        for i, height in fixed.items():
+            heights[i] = height
+        for i, height in zip(free, assigned):
+            heights[i] = height
+        # Pass exact heights back through the existing F1 proposal validation.
+        proposed["opening_heights_mm"] = list(reversed(heights))
+        result = propose_drawer_layout(proposed)
+    else:
+        result = base
+    new_top = [x["opening_height_mm"]
+               for x in reversed(result["opening_plan"])]
+    revisions = [
+        {
+            "ref": ref,
+            "before_mm": old, "after_mm": new,
+            "delta_mm": new - old,
+            "cause": ("USER_REQUESTED" if adjustments.get(ref, 0) != 0
+                      else "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL_HEIGHT"),
+        }
+        for ref, old, new in zip(refs, base_top, new_top) if old != new
+    ]
+    result.update({
+        "type": "drawer_layout_guide",
+        "guided": True,
+        "opening_systems": dict(choices),
+        "top_overhang_left_mm": left,
+        "top_overhang_right_mm": right,
+        "unvalidated_top_extension": bool(left or right),
+        "revisions": revisions,
+        "proposed_layout_spec": proposed,
+        "review_state": dict(spec),
+        "suggestions_not_confirmed": {
+            "panel_thickness_mm": 18, "construction": "sides_full",
+            "vertical_gap_mm": 28, "drawer_weights": list(weights),
+            "large_drawer_position": position,
+        },
+        "can_generate_f7c": False,
+    })
+    result["element_refs"] = _guide_ref_map(result)
+    result["sketch_text"] = drawer_layout_sketch_text(result)
+    result["sketch_svg"] = drawer_layout_sketch_svg(result)
     result["human_summary"] = (
-        "Te propongo una gaveta grande "
+        f"Te propongo {n} cajones pequeños y una gaveta grande "
         + ("abajo" if position == "bottom" else "arriba")
-        + f" y {n} cajones más pequeños. Mira el boceto antes de elegir "
-          "medidas y herrajes. Los 18 mm de tablero y 28 mm entre aberturas "
-          "son solo supuestos para dibujar; NO son especificaciones."
+        + ". Identifiqué A-D (arriba hacia abajo), T (tapa), LI/LD "
+          "(laterales). Puedes pedirme «A 10 cm más alto» o «T sobresale "
+          "5 cm»; te mostraré cómo afecta a las demás piezas. "
+          "Los 18 mm de tablero y 28 mm de franjas internas son solo "
+          "supuestos para la propuesta, no especificaciones."
     )
     result["blockers"].insert(
-        0, "Boceto guiado con supuestos no aprobados: primero confirmar "
-           "distribución, tablero y geometría antes de cualquier borrador."
+        0, "Boceto editable, NO plano de despiece: confirmar cada opción "
+           "técnica antes de crear piezas."
     )
+    if revisions:
+        result["blockers"].insert(
+            1, "Las medidas modificadas redistribuyeron la altura de los "
+               "cajones no fijados; revisar TODOS los cambios de revisions."
+        )
+    if left or right:
+        result["blockers"].insert(
+            1, "Voladizo de T SOLO ilustrado: el motor F1 actual no "
+               "modela tapa saliente ni ha validado su soporte/rigidez. "
+               "No convertir este boceto directamente en F7C."
+        )
     return result
