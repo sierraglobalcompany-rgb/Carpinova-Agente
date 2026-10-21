@@ -230,6 +230,51 @@ class McpBridgeContractTests(unittest.TestCase):
                     carpinova_leer_entregable("viewer", "lamina/render-manifest.json")
 
 
+    def test_real_mcp_four_drawers_inset_and_overlay_28_pieces(self):
+        """Use the existing MCP tool entrypoints, not a mock geometry engine."""
+        from carpinova_agent.cad_exchange import validate_exchange
+        from carpinova_agent.modular_outputs import modular_bom_csv
+        from io import StringIO
+        import csv
+        for style in ("INSET", "OVERLAY"):
+            with self.subTest(style=style), TemporaryDirectory() as root:
+                fixture = ROOT / "examples" / (
+                    "four-drawer-500x500x800-" + style + "-UNCONFIRMED.json"
+                )
+                raw = fixture.read_text(encoding="utf-8")
+                with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                    consult = carpinova_consultar(raw)
+                    self.assertEqual(consult["modular"]["piece_count"], 28)
+                    draft = carpinova_generar_borrador(raw, "four_" + style.lower())
+                    self.assertEqual(draft["piece_count"], 28)
+                    self.assertEqual(len(draft["files"]), 5)
+                    for flag in ("fabrication_ready", "cutting_ready",
+                                 "drilling_ready", "purchase_ready"):
+                        self.assertIs(draft[flag], False)
+                    cad = json.loads(carpinova_leer_entregable(
+                        "four_" + style.lower(), "cad-exchange.json"
+                    )["contenido"])
+                    validate_exchange(cad)
+                    self.assertEqual(len(cad["boxes"]), 28)
+                    self.assertEqual(cad["geometry_sha256"], draft["geometry_sha256"])
+                    self.assertEqual(cad["bounds_xyz_mm"],
+                                     [500, 800, 518 if style == "OVERLAY" else 500])
+                    csv_content = carpinova_leer_entregable(
+                        "four_" + style.lower(), "parts-review.csv"
+                    )["contenido"]
+                    rows = list(csv.DictReader(StringIO(csv_content)))
+                    self.assertEqual(len(rows), 28)
+                    self.assertEqual(
+                        {r["piece_id"] for r in rows},
+                        {b["piece_id"] for b in cad["boxes"]}
+                    )
+                    svg = carpinova_leer_entregable(
+                        "four_" + style.lower(), "front-review.svg"
+                    )["contenido"]
+                    self.assertIn("M1-D4-DRAWER_FACADE", svg)
+                    self.assertFalse((Path(root) / ("four_" + style.lower()) /
+                                      "native").exists())
+
     def test_native_execution_requires_explicit_local_enable(self):
         with TemporaryDirectory() as root:
             with patch.dict(os.environ, {
