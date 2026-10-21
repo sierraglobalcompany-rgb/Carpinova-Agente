@@ -614,24 +614,32 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
     if plan["construction"] == "sides_full":
         shapes.extend([
             f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
-            f'height="{fh:.2f}" class="panel-side"/>',
+            f'height="{fh:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LI"/>',
             f'<rect x="{fx+fw-ft:.2f}" y="{fy:.2f}" width="{ft:.2f}" '
-            f'height="{fh:.2f}" class="panel-side"/>',
+            f'height="{fh:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LD"/>',
             f'<rect x="{fx+ft:.2f}" y="{fy:.2f}" width="{int_w:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="T"/>',
             f'<rect x="{fx+ft:.2f}" y="{fy+fh-ft:.2f}" '
-            f'width="{int_w:.2f}" height="{ft:.2f}" class="panel-actual"/>',
+            f'width="{int_w:.2f}" height="{ft:.2f}" '
+            'class="panel-actual" data-view="front" data-ref="BS"/>',
         ])
     else:
         shapes.extend([
             f'<rect x="{fx:.2f}" y="{fy:.2f}" width="{fw:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="T"/>',
             f'<rect x="{fx:.2f}" y="{fy+fh-ft:.2f}" width="{fw:.2f}" '
-            f'height="{ft:.2f}" class="panel-actual"/>',
+            f'height="{ft:.2f}" class="panel-actual" '
+            'data-view="front" data-ref="BS"/>',
             f'<rect x="{fx:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
-            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+            f'height="{fh-2*ft:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LI"/>',
             f'<rect x="{fx+fw-ft:.2f}" y="{fy+ft:.2f}" width="{ft:.2f}" '
-            f'height="{fh-2*ft:.2f}" class="panel-side"/>',
+            f'height="{fh-2*ft:.2f}" class="panel-side" '
+            'data-view="front" data-ref="LD"/>',
         ])
     for label, opening in _annotated_openings(plan):
         y = int_y + (plan["clear_height_mm"] -
