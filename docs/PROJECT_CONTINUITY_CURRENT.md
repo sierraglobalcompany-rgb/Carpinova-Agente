@@ -48,4 +48,18 @@ P2 — Fabricación: ajuste dimensional de corte por cantos, optimización de ta
 4. Mantener **esta misma ruta** `docs/PROJECT_CONTINUITY_CURRENT.md` actualizada con SHA, QA, bloqueos y NEXT al final de cada checkpoint. Registrar enlaces de PR/actions; no crear V1/V2/V3 de handoff que acumulen ruido.
 5. Cuando el usuario diga «continúa», ejecutar cambios concretos en la fuente y pruebas; no desviarse al desarrollo de Knowledge/PC. Cuando la dependencia sea externa, clasificar BLOCKED con evidencia, no inventar éxito.
 
-**Última clasificación verificable (SHA `ec139352`):** AGENT_SOURCE_ON_GITHUB=YES · SIX_MCP_TOOLS=PASS · MCP_NATIVE_3D_LINUX=PASS · PR_STACK_CI=GREEN · WINDOWS_MCP_468_TESTS=GREEN · OWNER_PC_IDE=NOT_VERIFIED · WINDOWS_NATIVE_CAD=NOT_VERIFIED · MAIN_RELEASE=PENDING_OWNER · FABRICATION=BLOCKED.
+**Checkpoint funcional anterior (SHA `ec139352`):** AGENT_SOURCE_ON_GITHUB=YES · SIX_MCP_TOOLS=PASS · MCP_NATIVE_3D_LINUX=PASS · PR_STACK_CI=GREEN · WINDOWS_MCP_468_TESTS=GREEN · OWNER_PC_IDE=NOT_VERIFIED · WINDOWS_NATIVE_CAD=NOT_VERIFIED · MAIN_RELEASE=PENDING_OWNER · FABRICATION=BLOCKED.
+
+## Última mejora auditada — integridad de cinco archivos y UTF-8 (21-oct-2026)
+
+**Código certificado SHA `5950b786ca72d38637bc460d9740460d80ea649b`: 6/6 workflows SUCCESS.** [MCP/Windows/CAD Actions #39539281697](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39539281697) verificó **476 pruebas Windows**, seis herramientas MCP, gabinete FreeCAD/Blender de 4 piezas, cocina de 13 piezas, ambas desde el CAD original; [ensayo de integración de 12 PR #39539281693](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39539281693) SUCCESS sin tocar main.
+
+**Causa raíz corregida:** `write_pilot_bundle()` escribe ahora los cinco archivos como **bytes UTF-8** exactos, evitando que Windows duplique retornos de carro producidos por `csv.writer`. No introducir normalizadores de archivos que oculten defectos. La regresión de bytes exactos y siete controles nuevos de procedencia están en `tests/test_pilot_source_integrity.py`. CSV anteriores alterados por saltos de línea deben regenerarse desde fuente; no asumir que sirven para entregar despieces.
+
+**Validador único:** `pilot_cli.verify_pilot_bundle()` comprueba Maestro JSON, croquis SVG, CSV, CADExchange y manifest antes de producir láminas 2D o archivos 3D. Regenera el contrato desde **el mismo motor Maestro**, rechaza cambios parciales aunque se recalcule SHA-256, archivos faltantes/enlazados/excesivos y banderas de producción distintas de false. No crea segundo motor. SHA-256 sin clave **no demuestra autoría ni aprobación humana**: la prueba garantiza consistencia interna, no firma digital.
+
+**Evidencia:** `REAL_MCP_STDIO=PASS; SIX_TOOLS=PASS`; `MCP_NATIVE_CAD_PASS=primer_mueble; PIECES=4`; `MCP_NATIVE_CAD_PASS=cocina_dos_modulos; PIECES=13`; `MCP_NATIVE_FREECAD_BLENDER=PASS; FABRICATION_AUTHORITY=NO`. Los artifacts de Actions vencen el 04-nov-2026; el código y su reconstrucción permanecen en GitHub.
+
+**NEXT antes de usar PC:** PR #16 continúa DRAFT; primero consolidación de 12 PR únicamente con aprobación del propietario, QA desde el main resultante, y luego Windows real con Codex/AntiGravity, bundle Knowledge y FreeCAD/Blender local, seguido de un mueble real con medidas confirmadas. No declarar manufacturabilidad, mecanizados ni cortes finales.
+
+**Estado comprobado de código:** GITHUB_SOURCE=YES · PILOT_FIVE_FILE_PROVENANCE=GREEN · WINDOWS_476_TESTS=GREEN · SIX_MCP_TOOLS=GREEN · LINUX_NATIVE_3D=GREEN · STACK_12_PR_REHEARSAL=GREEN · OWNER_WINDOWS_IDE=NOT_VERIFIED · MAIN_MERGE=PENDING_OWNER · FABRICATION=BLOCKED.
