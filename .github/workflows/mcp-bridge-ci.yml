@@ -37,6 +37,14 @@ jobs:
 
           root = Path(os.environ["RUNNER_TEMP"]) / "carpinova-mcp-output"
           fixture = Path("examples/pilot-open-kitchen-800.json").read_text(encoding="utf-8")
+          # Existing F7C source fixture, never invent a new geometry dataset.
+          multi = json.dumps({
+              "action": "modular",
+              "module_spec": json.loads(
+                  Path("examples/modular-kitchen-door-fronts.json").read_text(encoding="utf-8")
+              ),
+          }, ensure_ascii=False)
+
 
           async def check():
               params = StdioServerParameters(
@@ -64,6 +72,14 @@ jobs:
                               "proyecto": "primer_mueble"}),
                           ("carpinova_leer_entregable", {
                               "proyecto": "primer_mueble", "archivo": "lamina/three-views.svg"}),
+                          ("carpinova_consultar", {"solicitud_json": multi}),
+                          ("carpinova_generar_borrador", {
+                              "solicitud_json": multi, "proyecto": "cocina_dos_modulos"}),
+                          ("carpinova_renderizar_lamina", {
+                              "proyecto": "cocina_dos_modulos"}),
+                          ("carpinova_leer_entregable", {
+                              "proyecto": "cocina_dos_modulos",
+                              "archivo": "lamina/three-views.svg"}),
                       ):
                           result = await session.call_tool(name, args)
                           assert not result.isError, (name, result)
@@ -88,6 +104,26 @@ jobs:
           assert (folder / "lamina" / "three-views.pdf").read_bytes().startswith(b"%PDF-")
           assert all(render[key] is False for key in (
               "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
+          # F7C kitchen: 2 carcasses, 3 doors and 2 service-back strips.
+          second = root / "cocina_dos_modulos"
+          multi_manifest = json.loads((second / "manifest.json").read_text(encoding="utf-8"))
+          multi_maestro = json.loads((second / "maestro-review.json").read_text(encoding="utf-8"))
+          multi_cad = json.loads((second / "cad-exchange.json").read_text(encoding="utf-8"))
+          multi_render = json.loads(
+              (second / "lamina" / "render-manifest.json").read_text(encoding="utf-8"))
+          assert multi_manifest["piece_count"] == multi_maestro["modular"]["piece_count"] == 13
+          assert len(multi_cad["boxes"]) == 13
+          assert sum(box["role"].startswith("front_") for box in multi_cad["boxes"]) == 3
+          assert sum(box["role"].startswith("back_") for box in multi_cad["boxes"]) == 2
+          assert len(multi_maestro["modular"]["modules"]) == 2
+          assert (multi_manifest["geometry_sha256"] ==
+                  multi_cad["geometry_sha256"] == multi_render["geometry_sha256"])
+          assert all(multi_manifest[k] is False for k in (
+              "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
+          assert (second / "lamina" / "three-views.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+          assert (second / "lamina" / "three-views.pdf").read_bytes().startswith(b"%PDF-")
+          ElementTree.parse(second / "lamina" / "three-views.svg")
+          print("F7C_TWO_MODULE_KITCHEN=PASS; PIECES=13; FRONTS=3; BACKS=2")
           print("REAL_MCP_STDIO=PASS; FIVE_TOOLS=PASS; FOUR_PARTS=PASS")
           print("THREE_VIEWS_SVG_PNG_PDF=PASS")
           print("GEOMETRY_SHA256=" + manifest["geometry_sha256"])
@@ -98,4 +134,4 @@ jobs:
         with:
           name: carpinova-first-mcp-furniture
           retention-days: 14
-          path: ${{ runner.temp }}/carpinova-mcp-output/primer_mueble/
+          path: ${{ runner.temp }}/carpinova-mcp-output/
