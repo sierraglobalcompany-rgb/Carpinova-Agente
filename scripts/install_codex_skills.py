@@ -108,15 +108,22 @@ def configure_mcp(repo: Path, config: Path, *, write: bool = True) -> str:
         raise ValueError('MCP example contiene secciones inesperadas.')
     data = expected['mcp_servers']['carpinova']
     env = data['env']
-    if (data['args'] != ['-m', 'carpinova_agent.mcp_bridge']
-            or 'CARPINOVA_NATIVE_EXECUTION_ENABLED' in env
-            or env.get('PYTHONPATH') != str(repo)
-            or not Path(data['command']).is_absolute()
-            or not Path(data['command']).is_file()
-            or not Path(env['CARPINOVA_OUTPUT_ROOT']).is_absolute()
-            or not Path(env['CARPINOVA_OUTPUT_ROOT']).is_dir()
-            or not Path(env['CARPINOVA_NATIVE_APPROVAL_DIR']).is_absolute()):
-        raise ValueError('MCP example no coincide con el entorno local comprobado.')
+    checks = {
+        'args': data['args'] == ['-m', 'carpinova_agent.mcp_bridge'],
+        'native_execution_disabled': 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in env,
+        'repo_pythonpath': env.get('PYTHONPATH') == str(repo),
+        'python_absolute': Path(data['command']).is_absolute(),
+        'python_exists': Path(data['command']).is_file(),
+        'output_absolute': Path(env['CARPINOVA_OUTPUT_ROOT']).is_absolute(),
+        'output_exists': Path(env['CARPINOVA_OUTPUT_ROOT']).is_dir(),
+        'approval_absolute': Path(env['CARPINOVA_NATIVE_APPROVAL_DIR']).is_absolute(),
+    }
+    invalid = [key for key, passed in checks.items() if not passed]
+    if invalid:
+        # Keep fail-closed: identify the failing invariant without logging
+        # the user's paths, credentials or host environment values.
+        raise ValueError('MCP example no coincide con el entorno local comprobado: '
+                         + ', '.join(invalid))
     if config.is_symlink():
         raise ValueError('Config Codex no puede ser un enlace simbólico.')
     prior = config.read_bytes() if config.exists() else b''
