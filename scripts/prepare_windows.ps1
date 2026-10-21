@@ -58,7 +58,7 @@ if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
 }
 $report = Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($report.status -ne "MCP_LOCAL_PROTOCOL_PASS" -or
-    $report.tools.Count -ne 5 -or $report.projects.Count -ne 2 -or
+    $report.tools.Count -ne 6 -or $report.projects.Count -ne 2 -or
     $report.fabrication_authority -ne $false -or
     $report.pc_owner_session_certified -ne $false) {
     throw "Reporte de prueba inconsistente."
@@ -108,7 +108,7 @@ $packages = @(& $python -m pip freeze)
 if ($LASTEXITCODE -ne 0) { throw "No se pudieron registrar versiones instaladas." }
 [System.IO.File]::WriteAllLines((Join-Path $OutputRoot "resolved-packages-windows.txt"), [string[]]$packages, $utf8)
 Write-Host "MCP_CLIENT_CONFIGS=PASS; TWO_FORMATS=PASS"
-Write-Host "CARPINOVA_WINDOWS_PREFLIGHT=PASS; FIVE_TOOLS=PASS; FABRICATION_AUTHORITY=NO"
+Write-Host "CARPINOVA_WINDOWS_PREFLIGHT=PASS; SIX_TOOLS=PASS; FABRICATION_AUTHORITY=NO"
 Write-Host "Evidence: $reportPath"
 Write-Host "Review IDE config examples: $config"
 Write-Host "OWNER_IDE_SESSION=NOT_CERTIFIED; WINDOWS_NATIVE_CAD=NOT_CERTIFIED"

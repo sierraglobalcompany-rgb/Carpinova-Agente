@@ -81,6 +81,7 @@ class SkillContractTest(unittest.TestCase):
         names = (
             "carpinova_estado", "carpinova_consultar",
             "carpinova_generar_borrador", "carpinova_renderizar_lamina",
+            "carpinova_exportar_3d",
             "carpinova_leer_entregable",
         )
         for name in names:

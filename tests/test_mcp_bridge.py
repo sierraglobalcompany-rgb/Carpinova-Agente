@@ -13,6 +13,7 @@ from carpinova_agent.core import DesignError
 from carpinova_agent.mcp_bridge import (
     carpinova_consultar, carpinova_estado, carpinova_generar_borrador,
     carpinova_leer_entregable, carpinova_renderizar_lamina,
+    carpinova_exportar_3d,
 )
 from carpinova_agent.pilot_cli import PilotError
 
@@ -151,6 +152,19 @@ class McpBridgeContractTests(unittest.TestCase):
                 with self.assertRaises(PilotError):
                     carpinova_leer_entregable("viewer", "lamina/render-manifest.json")
 
+
+    def test_native_execution_requires_explicit_local_enable(self):
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {
+                "CARPINOVA_OUTPUT_ROOT": root,
+                "CARPINOVA_NATIVE_EXECUTION_ENABLED": "0",
+                "CARPINOVA_FREECADCMD": "",
+                "CARPINOVA_BLENDER": "",
+            }):
+                carpinova_generar_borrador(REQUEST, "safe")
+                with self.assertRaisesRegex(ValueError, "habilitación"):
+                    carpinova_exportar_3d("safe", "AUTORIZO_EXPORTAR_BORRADOR_3D")
+                self.assertFalse((Path(root) / "safe" / "native").exists())
 
 if __name__ == "__main__":
     unittest.main()
