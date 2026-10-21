@@ -10,7 +10,7 @@ Ayudar a diseñar cocinas, clósets, cajones, nichos, escritorios y mobiliario p
 
 ### Punto de entrada operativo (Codex/AntiGravity)
 
-El servidor **`python -m carpinova_agent.mcp_bridge`** implementa seis herramientas: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d` y `carpinova_leer_entregable`. La [guía de conexión](docs/conectar-agente-codex-antigravity.md) documenta los requisitos locales; la conexión GitHub de este chat **no equivale a ejecutar el servidor en tu PC**.
+El servidor **`python -m carpinova_agent.mcp_bridge`** implementa seis herramientas: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d` y `carpinova_leer_entregable`. La herramienta ya puede devolver **láminas PNG y renders Blender como imágenes por MCP**, usando `carpinova_leer_entregable` con el archivo de revisión permitido. La [guía de conexión](docs/conectar-agente-codex-antigravity.md) documenta los requisitos locales; la conexión GitHub de este chat **no equivale a ejecutar el servidor en tu PC**.
 
 Un solo Maestro produce geometría, despiece nominal y CADExchange. El mismo contrato alimenta planos 2D y los adaptadores nativos FreeCAD/Blender. Ningún flujo produce aún hoja final de corte, patrones de taladro ni autorización de fabricación.
 

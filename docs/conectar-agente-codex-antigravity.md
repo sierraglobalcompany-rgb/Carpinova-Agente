@@ -44,7 +44,7 @@ Mantener las herramientas en **modo Ask/confirmación**. Reiniciar el cliente y 
 | carpinova_generar_borrador | Cinco archivos nominales desde una solicitud JSON confirmada |
 | carpinova_renderizar_lamina | Vistas frontal, lateral y planta en SVG, PNG y PDF desde el CAD original |
 | carpinova_exportar_3d | Exportar archivos nativos FreeCAD/Blender solamente con consentimiento y entorno local habilitado |
-| carpinova_leer_entregable | Lectura restringida a archivos **textuales** del proyecto; no devuelve PDF binario |
+| carpinova_leer_entregable | Lee JSON/CSV/SVG permitidos como texto y devuelve **image/png** por MCP para `lamina/three-views.png` o `native/presentation.png`; nunca PDF binario |
 
 El preflight en Windows dentro de GitHub **no** certifica que el IDE de tu PC ya esté conectado. Requiere la comprobación real en ese equipo. El conector GitHub usado en ChatGPT no inicia servidores MCP locales en tu computadora.
 
@@ -58,7 +58,7 @@ Prompt práctico para Codex o AntiGravity:
 
 Cada borrador incluye maestro-review.json, front-review.svg, parts-review.csv, cad-exchange.json y manifest.json. El subdirectorio lamina contiene three-views.svg, three-views.png, three-views.pdf y render-manifest.json.
 
-El SVG es vectorial; el PDF es **rasterizado, de revisión**, y no reemplaza planos profesionales de taller. Las vistas proyectan las mismas cajas CAD nominales y cotas exteriores, no dibujan agujeros, bisagras, uniones físicas ni líneas ocultas resueltas.
+El SVG es vectorial; el PDF es **rasterizado, de revisión**, y no reemplaza planos profesionales de taller. **Para que el Agente vea la imagen dentro del protocolo**, después de `carpinova_renderizar_lamina` debe llamar `carpinova_leer_entregable(proyecto, archivo="lamina/three-views.png")`. La respuesta es un bloque `image/png` MCP (no una ruta). Para el render 3D, solo después de la exportación CAD autorizada, usar `archivo="native/presentation.png"`. Se limita a imágenes PNG válidas de hasta 4 MiB y proyecto/manifiesto coherentes; no devuelve `.blend`, `.FCStd` ni PDF binario. Algunos clientes pueden no visualizar estos bloques aunque el protocolo funcione; validar la interfaz en Windows del propietario. Las vistas proyectan las mismas cajas CAD nominales y cotas exteriores, no dibujan agujeros, bisagras, uniones físicas ni líneas ocultas resueltas.
 
 ## 4. FreeCAD y Blender
 
