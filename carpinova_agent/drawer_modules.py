@@ -533,6 +533,7 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
         "BOCETO FRONTAL Y LATERAL · SOLO PROPUESTA, NO CORTAR",
         f"Carcasa nominal: ancho {dims['width']}, alto {dims['height']}, "
         f"fondo {dims['depth']} mm.",
+        "Tablero y separaciones son supuestos provisionales.",
         "Arriba hacia abajo:",
     ]
     for part in elements:
@@ -749,14 +750,15 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '<text x="801" y="698" class="small">'
         'Alto × fondo × espesor (nominal F1)</text>',
         f'<text x="801" y="715" class="note">'
-        f'Carcasa: {width} × {height} × {depth} mm</text>',
+        f'Carcasa: ancho {width}, alto {height}, fondo {depth} mm</text>',
         '<text x="35" y="764" class="card-title">Opciones del mueble</text>',
         f'<text x="35" y="788" class="small">'
         f'AP · {SUPPORT_LABELS[style]} · {support_h} mm '
         f'{"(sugeridos) " if plan.get("support_height_is_suggestion") else ""}'
         f'· ALTO {overall} mm</text>',
         f'<text x="35" y="810" class="small">'
-        f'MF · {WALL_LABELS[plan.get("wall_fixing", "pending")]} · '
+        f'MF · {WALL_LABELS[plan.get("wall_fixing", "pending")]} '
+        f'(elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm", 0))}); '
         f'FP · {BACK_LABELS[plan.get("back_style", "pending")]}</text>',
         f'<text x="35" y="835" class="small">'
         f'Franjas interiores {plan["vertical_gap_mm"]} mm: NO son divisores ni juntas de frentes.</text>',
@@ -792,6 +794,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '<text x="35" y="43" class="title">Tu mueble, explicado por partes</text>'
         '<text x="35" y="70" class="subtitle">Puedes decir: “A más alto”, '
         '“T sobresale 5 cm” o “BS más ancha”.</text>'
+        '<text x="35" y="92" class="note">'
+        'PROPUESTA: tablero y separaciones ilustrativos; nada aprobado para taller.'
+        '</text>'
         '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
         '<text x="800" y="120" class="card-title">COSTADO · esquema</text>'
         + "".join(shapes) + '</svg>'
