@@ -99,6 +99,8 @@ jobs:
         run: |
           export CARPINOVA_FREECADCMD="$(command -v freecadcmd || command -v FreeCADCmd)"
           export CARPINOVA_BLENDER="$(command -v blender)"
+          echo "FREECAD_EXECUTABLE_TARGET=$(readlink -f "$CARPINOVA_FREECADCMD")"
+          echo "BLENDER_EXECUTABLE_TARGET=$(readlink -f "$CARPINOVA_BLENDER")"
           test -f "$CARPINOVA_FREECADCMD"
           test -f "$CARPINOVA_BLENDER"
           # No arbitrary program/tool names are sent by the MCP client:

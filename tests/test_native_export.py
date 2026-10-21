@@ -62,7 +62,7 @@ class NativeExportTests(unittest.TestCase):
             "geometry_sha256": self.cad["geometry_sha256"],
             "native_measurements": self._proof(),
         }
-        if "FreeCADCmd.exe" in command[0]:
+        if command[1].endswith(".FCScript"):
             target = Path(kwargs["env"]["CARPINOVA_FCSTD_OUTPUT"])
             with ZipFile(target, "w") as file:
                 file.writestr("Document.xml", "<Document/>")
@@ -140,6 +140,21 @@ class NativeExportTests(unittest.TestCase):
         )
         self.assertEqual(result["piece_count"], 4)
 
+    def test_debian_freecadcmd_python3_target_allowed(self):
+        target = self.root / "freecadcmd-python3"
+        target.write_bytes(b"fixture")
+        link = self.root / "freecadcmd"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("No symlink support")
+        result = export_native_project(
+            self.project, confirmation=REVIEW_CONFIRMATION, enabled=True,
+            freecad_executable=str(link), blender_executable=str(self.bl),
+            runner=self.fake_runner,
+        )
+        self.assertEqual(result["piece_count"], 4)
+
     def test_bad_binary_symlink_target_fails_closed(self):
         evil = self.root / "cmd.exe"
         evil.write_bytes(b"fake")
@@ -186,7 +201,7 @@ class NativeExportTests(unittest.TestCase):
     def test_mismatch_native_geometry_rejected_without_files(self):
         def tampered(command, **kwargs):
             x = self.fake_runner(command, **kwargs)
-            if "FreeCADCmd.exe" in command[0]:
+            if command[1].endswith(".FCScript"):
                 item = json.loads(x.stdout.split("=", 1)[1])
                 item["native_measurements"]["verified_piece_count"] = 3
                 x.stdout = "FREECAD_NATIVE_RESULT=" + json.dumps(item)

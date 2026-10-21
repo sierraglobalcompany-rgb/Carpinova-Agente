@@ -39,7 +39,7 @@ def _binary(value: str | None, expected: str) -> Path:
     # Require BOTH the configured entrypoint and its resolved target to have
     # an allowlisted basename: a link to sh/cmd/python is always rejected.
     resolved = path.resolve(strict=True)
-    allowed = ({"freecadcmd", "freecadcmd.exe"} if expected == "freecadcmd"
+    allowed = ({"freecadcmd", "freecadcmd.exe", "freecadcmd-python3"} if expected == "freecadcmd"
                else {"blender", "blender.exe"})
     if path.name.lower() not in allowed or resolved.name.lower() not in allowed:
         raise NativeExportError("Nombre de ejecutable no autorizado para " + expected)
