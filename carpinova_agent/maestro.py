@@ -153,9 +153,10 @@ def consult_maestro(
                 {
                     "field": "module_spec.finish_and_hardware",
                     "question": (
-                        "¿Frentes embutidos o sobrepuestos? Confirma "
-                        "materiales, correderas y sistema de apertura "
-                        "(tirador, uñero, push-to-open o perfil)."
+                        "¿Frentes embutidos o sobrepuestos? ¿La "
+                        "profundidad incluye espesor del frente? "
+                        "Confirma materiales, correderas y sistema "
+                        "de apertura (tirador, uñero, push-to-open o perfil)."
                     ),
                     "unit": "construction_choice",
                 },
