@@ -10,9 +10,9 @@ El cálculo de cada caja se realiza **una única vez** en `carpinova_agent.core.
 - `opening_depth_mm`, `box_height_mm`, `panel_thickness_mm`, `bottom_thickness_mm`.
 - `slide_clearance_left_mm`, `slide_clearance_right_mm`: luces suministradas expresamente, **NO recomendadas ni validadas para corredera concreta**.
 - `front_setback_mm`, `rear_setback_mm` y `material_id`, `bottom_material_id`.
-- `facade="pending"` o `facade` rectangular embutido explícito con `style="inset"`, material/espesor, luces izquierda/derecha/superior/inferior; veta/canto opcionales, no inferidos.
+- `facade="pending"` o fachada rectangular explícita: `style="inset"` con cuatro luces positivas, o `style="overlay"` con cuatro solapes definidos y acotados por el espesor de carcasa. Ambas exigen material/espesor, conservan veta/canto no inferidos y admiten `opening_system=pending|handle|push_to_open|finger_pull|profile` como **intención, nunca geometría de herrajes**.
 
-Por seguridad, este incremento no permite cajones dentro de un módulo que ya tenga puertas configuradas: primero hay que analizar apertura/colisiones. Tampoco ofrece todavía **frente de cajón sobrepuesto**: requeriría coordinación con múltiples frentes vecinos y acabado común. No añadir geometría incompleta de ese tipo.
+Por seguridad, siguen bloqueados cajones dentro de un módulo con puertas configuradas hasta validar apertura/colisiones. Los **frentes sobrepuestos sí están implementados** en F7C y se comprueba que no se toquen/solapen; también se verifica el ancho/alto del módulo y el fondo exterior que aumenta por fachada `overlay` en `max_assembled_depth_mm`.
 
 ## Modelo físico
 
@@ -25,7 +25,7 @@ El cajón usa X a la derecha, Y arriba y Z atrás:
 - Fondo inferior: plano XZ en origen `[x_left, y_bottom, z_front]`.
 - Costados izquierdo/derecho: plano YZ, apoyados nominalmente sobre el fondo aplicado inferior.
 - Frente y trasera **estructurales**: plano XY, entre costados, con sus Z correspondientes.
-- Fachada embutida: plano XY, Z=0, definida por las cuatro holguras; se exige `front_setback_mm > facade.thickness_mm` para evitar la superposición de volúmenes con caja.
+- Fachada embutida: plano XY, Z=0, definida por cuatro holguras; sobrepuesta: plano XY, Z negativo por espesor de frente, definida por cuatro solapes explícitos. Se exige `front_setback_mm > facade.thickness_mm` para no superponer el volumen de la fachada y la caja. Ambos estilos se validan mediante CADExchange único.
 - Al apilar, las **aberturas** verticales nunca deben tocarse ni solaparse.
 - Si hay fondo posterior, toda la caja queda por delante de su plano (control conservador). No se fabrican perforaciones para tuberías, correderas ni tornillos.
 
@@ -41,14 +41,16 @@ python -m carpinova_agent.modular_cli --input examples/modular-two-drawers-inset
 python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output /tmp/drawers-cad.json
 ```
 
+**Transparencia de opciones en los entregables:** `parts-review.csv` incluye, para cada `drawer_facade`, las columnas `drawer_facade_style` (`inset`/`overlay`) y `opening_system_intent` (`handle`, `push_to_open`, `finger_pull`, `profile` o `pending`). Para las otras piezas van vacías. `front-review.svg` incluye ambos datos en el título de cada fachada con la advertencia «SIN MECANIZADO». La información procede de F7C y no constituye instrucciones de perforación. El maestro-review JSON conserva las opciones y los bloqueos para auditar.
+
 ## Gates y siguientes pasos
 
 - Pruebas de cinco piezas del motor F1 contra las mismas piezas físicas del módulo; validación de aperturas, frentes, interferencia con fondo, material, seguridad de CSV y checksum CAD.
-- GitHub Actions ejecuta Blender real con `.blend` y FreeCAD real con `.FCStd` sobre **17 piezas**, mide `bound_box` y `Shape.BoundBox` y compara con el mismo contrato CAD.
+- GitHub Actions ejecuta Blender real (`.blend`) y FreeCAD real (`.FCStd`): casos de 4, 13 y **28 piezas** para ambos estilos de cajón, con comprobación de volúmenes contra CADExchange. El caso histórico de 17 piezas sigue siendo una referencia nominal, no una autorización de fabricación.
 - Pendientes: inspección visual humana de los archivos, guías de montaje/ensayo del frente, cargas, rigidez, deslizamiento, ruedas y perfiles, SKU/longitud/placa/sistema exacto de corredera, patrones perforación y uniones.
 - **Siempre `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`**. Sin certificado de corte, taladro ni compra.
 
-**NEXT_SAFE_ACTION**: revisión owner de esta rama DRAFT; consolidar/aprobar PRs anteriores en orden, recertificar QA exact-head; luego incorporar correderas de fabricante por referencia, frentes decorativos sobrepuestos y secuencia de montaje bajo nuevos casos medibles. No crear «solución» que duplique F1 o aparezca solo en Blender.
+**NEXT_SAFE_ACTION:** validar en el Codex del propietario, únicamente al final, el flujo conversacional de cuatro cajones y la recuperación de los entregables. `main` es la fuente operativa; los PR de implementación están integrados. Faltan fichas reales de correderas, cargas, perfiles, taladros y confirmación física para autorizar fabricación. No crear un motor paralelo ni suponer que la aprobación de CI equivale a certificación de taller.
 
 ## Entrevista Maestro: decisiones antes de acabados
 
