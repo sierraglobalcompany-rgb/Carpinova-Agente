@@ -133,6 +133,77 @@ class McpBridgeContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(DesignError, "existente"):
                     carpinova_renderizar_lamina("lamina_001")
 
+
+    def test_mcp_read_review_png_returns_real_image_content(self):
+        try:
+            from mcp.server.fastmcp import Image as MCPImage
+            import resvg_py
+            from PIL import Image as PILImage
+        except ImportError:
+            self.skipTest("Optional rendering and official MCP SDK absent")
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                carpinova_generar_borrador(REQUEST, "image_001")
+                carpinova_renderizar_lamina("image_001")
+                result = carpinova_leer_entregable(
+                    "image_001", "lamina/three-views.png")
+                self.assertIsInstance(result, MCPImage)
+                self.assertEqual(
+                    result.data,
+                    (Path(root) / "image_001/lamina/three-views.png").read_bytes(),
+                )
+
+    def test_png_preview_rejects_bad_manifest_and_external_symlink(self):
+        try:
+            import resvg_py
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Optional renderer absent")
+        with TemporaryDirectory() as root, TemporaryDirectory() as outside:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                carpinova_generar_borrador(REQUEST, "image_guard")
+                carpinova_renderizar_lamina("image_guard")
+                sheet = Path(root) / "image_guard/lamina"
+                manifest = sheet / "render-manifest.json"
+                original = manifest.read_text(encoding="utf-8")
+                item = json.loads(original)
+                item["geometry_sha256"] = "0" * 64
+                manifest.write_text(json.dumps(item), encoding="utf-8")
+                with self.assertRaisesRegex(PilotError, "no corresponde"):
+                    carpinova_leer_entregable(
+                        "image_guard", "lamina/three-views.png")
+                manifest.write_text(original, encoding="utf-8")
+                image = sheet / "three-views.png"
+                target = Path(outside) / "external.png"
+                target.write_bytes(image.read_bytes())
+                image.unlink()
+                try:
+                    image.symlink_to(target)
+                except (OSError, NotImplementedError):
+                    self.skipTest("Symlink privileges unavailable")
+                with self.assertRaises(PilotError):
+                    carpinova_leer_entregable(
+                        "image_guard", "lamina/three-views.png")
+
+    def test_png_preview_blocks_arbitrary_binaries_and_oversized_files(self):
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                carpinova_generar_borrador(REQUEST, "image_limit")
+                for forbidden in (
+                    "lamina/three-views.pdf", "native/native.blend",
+                    "native/native.FCStd", "../private.png",
+                ):
+                    with self.subTest(forbidden=forbidden):
+                        with self.assertRaises(PilotError):
+                            carpinova_leer_entregable("image_limit", forbidden)
+                folder = Path(root) / "image_limit/lamina"
+                folder.mkdir()
+                (folder / "three-views.png").write_bytes(
+                    b"\x89PNG\r\n\x1a\n" + b"X" * (4 * 1024 * 1024))
+                with self.assertRaisesRegex(PilotError, "límite"):
+                    carpinova_leer_entregable(
+                        "image_limit", "lamina/three-views.png")
+
     def test_mcp_render_rejects_unknown_project(self):
         with TemporaryDirectory() as root:
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
