@@ -108,6 +108,75 @@ def write_pilot_bundle(request: dict[str, Any], output_dir: Path) -> dict[str, A
     return json.loads(bundle["manifest.json"])
 
 
+
+def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
+    """Verify all five immutable review artifacts against ONE Maestro model.
+
+    The CAD digest alone is NOT provenance: it is an unkeyed checksum that
+    could be recomputed after editing a box. Re-derive the original CAD, CSV
+    and SVG from the recorded Maestro model and reject partial changes.
+    Always return the original, strictly validated CADExchange.
+    """
+    folder = Path(project_folder)
+    limits = {
+        "maestro-review.json": 1048576,
+        "front-review.svg": 1048576,
+        "parts-review.csv": 1048576,
+        "cad-exchange.json": 262144,
+        "manifest.json": 65536,
+    }
+    if not folder.is_dir() or folder.is_symlink():
+        raise PilotError("El directorio del proyecto original no es confiable.")
+    contents: dict[str, str] = {}
+    for filename, max_bytes in limits.items():
+        file = folder / filename
+        if not file.is_file() or file.is_symlink() or file.stat().st_size > max_bytes:
+            raise PilotError("Archivo original faltante, enlazado o excesivo: " + filename)
+        try:
+            contents[filename] = file.read_text(encoding="utf-8")
+        except UnicodeError as exc:
+            raise PilotError("Archivo de revisión no es UTF-8 válido: " + filename) from exc
+    try:
+        answer = json.loads(contents["maestro-review.json"])
+        manifest = json.loads(contents["manifest.json"])
+        saved_cad = json.loads(contents["cad-exchange.json"])
+    except (ValueError, TypeError) as exc:
+        raise PilotError("Archivos JSON de revisión inválidos.") from exc
+    if not isinstance(answer, dict) or not isinstance(manifest, dict):
+        raise PilotError("No existe respuesta de Maestro o manifiesto de revisión válido.")
+    model = answer.get("modular")
+    if (not isinstance(model, dict)
+            or answer.get("status") != "DRAFT_NOT_FOR_CUTTING"
+            or any(answer.get(flag) is not False or model.get(flag) is not False
+                   for flag in _BLOCKED_FLAGS)):
+        raise PilotError("Fuente Maestro no aprobada como borrador.")
+    if (manifest.get("schema_version") != "1.0"
+            or manifest.get("source") != "MAESTRO_MODULAR_F1_F7C"
+            or manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
+            or manifest.get("files") != list(_FILES)
+            or manifest.get("piece_count") != len(model.get("parts", []))
+            or any(manifest.get(flag) is not False for flag in _BLOCKED_FLAGS)):
+        raise PilotError("Manifiesto no corresponde a la fuente Maestro.")
+    expected_cad = cad_exchange(model)
+    actual_cad = validate_exchange(saved_cad)
+    if (expected_cad != actual_cad
+            or manifest.get("geometry_sha256") != expected_cad["geometry_sha256"]
+            or len(actual_cad["boxes"]) != len(model["parts"])):
+        raise PilotError("CAD, piezas o geometría diferentes del Maestro original.")
+
+    def normalized_lines(source: str) -> str:
+        # Windows text write() can convert csv.writer CRLF to CRCRLF.
+        # Do not treat a platform newline conversion as a new design.
+        return source.replace("\r\r\n", "\r\n").replace("\r\n", "\n")
+
+    for filename, expected in (
+        ("front-review.svg", modular_front_svg(model)),
+        ("parts-review.csv", modular_bom_csv(model)),
+    ):
+        if normalized_lines(contents[filename]) != normalized_lines(expected):
+            raise PilotError("Entregable no coincide con Maestro: " + filename)
+    return actual_cad
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="CarpiNova: primer paquete geométrico de REVISIÓN, NO para cortar."
