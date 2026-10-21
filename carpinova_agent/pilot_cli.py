@@ -100,7 +100,7 @@ def write_pilot_bundle(request: dict[str, Any], output_dir: Path) -> dict[str, A
         staging = Path(temp) / "review"
         staging.mkdir()
         for name in _FILES:
-            (staging / name).write_text(bundle[name], encoding="utf-8")
+            (staging / name).write_bytes(bundle[name].encode("utf-8"))
         if output_dir.exists() or output_dir.is_symlink():
             raise PilotError("Otra ejecución creó la salida; no se sobrescribe.")
         # Rename a complete directory within the same filesystem.
@@ -133,7 +133,7 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
         if not file.is_file() or file.is_symlink() or file.stat().st_size > max_bytes:
             raise PilotError("Archivo original faltante, enlazado o excesivo: " + filename)
         try:
-            contents[filename] = file.read_text(encoding="utf-8")
+            contents[filename] = file.read_bytes().decode("utf-8")
         except UnicodeError as exc:
             raise PilotError("Archivo de revisión no es UTF-8 válido: " + filename) from exc
     try:
@@ -164,16 +164,11 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
             or len(actual_cad["boxes"]) != len(model["parts"])):
         raise PilotError("CAD, piezas o geometría diferentes del Maestro original.")
 
-    def normalized_lines(source: str) -> str:
-        # Windows text write() can convert csv.writer CRLF to CRCRLF.
-        # Do not treat a platform newline conversion as a new design.
-        return source.replace("\r\r\n", "\r\n").replace("\r\n", "\n")
-
     for filename, expected in (
         ("front-review.svg", modular_front_svg(model)),
         ("parts-review.csv", modular_bom_csv(model)),
     ):
-        if normalized_lines(contents[filename]) != normalized_lines(expected):
+        if contents[filename] != expected:
             raise PilotError("Entregable no coincide con Maestro: " + filename)
     return actual_cad
 

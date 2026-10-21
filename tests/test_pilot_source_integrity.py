@@ -34,6 +34,17 @@ class ProjectProvenanceTests(unittest.TestCase):
         self.assertEqual(cad["geometry_sha256"], self.manifest["geometry_sha256"])
         self.assertEqual(len(cad["boxes"]), 4)
 
+
+    def test_csv_raw_utf8_has_no_windows_double_carriage_return(self):
+        # csv.writer deliberately emits CRLF. Writing text mode on Windows
+        # historically doubled carriage returns and corrupted the BOM.
+        from carpinova_agent.modular_outputs import modular_bom_csv
+        maestro = json.loads((self.project / "maestro-review.json").read_bytes().decode("utf-8"))
+        expected = modular_bom_csv(maestro["modular"]).encode("utf-8")
+        actual = (self.project / "parts-review.csv").read_bytes()
+        self.assertEqual(actual, expected)
+        self.assertNotIn(b"\r\r\n", actual)
+
     def test_altered_csv_is_rejected_before_generating_cad(self):
         p = self.project / "parts-review.csv"
         self.mutate_text(p.name, p.read_text(encoding="utf-8") + "\nFAKE,part\n")
