@@ -15,6 +15,7 @@ from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 
 from .intake import guide_project
 from .modular import design_modular_run
+from .drawer_modules import propose_drawer_layout
 from .construction_advice import construction_advice
 
 
@@ -124,10 +125,42 @@ def consult_maestro(
                 "no seleccionar bisagra hasta aclarar."
             )
     if action == "modular":
-        modular = design_modular_run(inp["module_spec"])
+        spec = inp["module_spec"]
+        modular = (propose_drawer_layout(spec)
+                   if spec.get("type") == "drawer_layout_proposal"
+                   else design_modular_run(spec))
         result["modular"] = modular
         result["blockers"].extend(modular["blockers"])
-        if modular["status"] == "NEEDS_SITE_MEASUREMENTS":
+        if modular["status"] == "NEEDS_USER_CONFIRMATION":
+            result["questions"].extend([
+                {
+                    "field": "module_spec.drawer_weights",
+                    "question": (
+                        "¿Confirmas el orden de abajo hacia arriba y "
+                        "las proporciones de estas aperturas, incluida "
+                        "la posición de la gaveta grande?"
+                    ),
+                    "unit": "ratio_and_order",
+                },
+                {
+                    "field": "module_spec.vertical_gap_mm",
+                    "question": (
+                        "¿Confirmas esta separación nominal entre "
+                        "frentes o quieres revisarla?"
+                    ),
+                    "unit": "mm",
+                },
+                {
+                    "field": "module_spec.finish_and_hardware",
+                    "question": (
+                        "¿Frentes embutidos o sobrepuestos? Confirma "
+                        "materiales, correderas y sistema de apertura "
+                        "(tirador, uñero, push-to-open o perfil)."
+                    ),
+                    "unit": "construction_choice",
+                },
+            ])
+        elif modular["status"] == "NEEDS_SITE_MEASUREMENTS":
             for location in ("top", "middle", "bottom"):
                 result["questions"].append({
                     "field": f"module_spec.site_width_mm.{location}",
