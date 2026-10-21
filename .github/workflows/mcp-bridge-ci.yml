@@ -1,7 +1,7 @@
 name: CarpiNova MCP stdio real integration
 on:
   push:
-    branches: ["feat/connect-carpinova-mcp-stdio"]
+    branches: ["feat/connect-carpinova-mcp-stdio", "main"]
   pull_request:
     paths:
       - "carpinova_agent/mcp_bridge.py"
