@@ -88,7 +88,8 @@ class SkillContractTest(unittest.TestCase):
                 self.assertTrue(callable(getattr(mcp_bridge, name)))
                 self.assertIn(name, readme)
                 self.assertIn(name, skill)
-        self.assertIn("MCP local", agents)
+        self.assertIn("local stdio del Agente", agents)
+        self.assertIn("cinco herramientas", agents)
         self.assertNotIn("No hay MCP interactivos conectados", readme)
 
 if __name__ == "__main__":
