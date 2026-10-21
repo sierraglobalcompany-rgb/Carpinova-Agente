@@ -4,13 +4,12 @@
 
 ## 1. Identidad y evidencia exacta
 
-- **Repositorio y fuente de reconstrucción:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama **main**, no PRs históricos.
-- **Integración funcional:** [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) **MERGED**, con documentación normalizada después en [PR #18](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/18) **MERGED**. Commit de merge en main: `7420940843649bf2c0939bcb36167b98be27dd79`; HEAD funcional probado antes del merge: `db5336783d9426b6e3b73a44f4234266bfc2ba56`.
-- **Igualdad de árboles comprobada:** Git tree de ambos commits = `841d2da3846e3b4d7c639064651ee2ad9d52acdc`. Main incluye los 130 archivos frente al antiguo main, sin perder el contenido auditado de la pila F1–F7D/MCP y F7C de cuatro cajones.
-- **QA funcional SHA db533678:** **505 pruebas en Windows Python 3.12 PASS**, MCP stdio seis herramientas, SVG/PNG/PDF, configuraciones de cliente; geometría, Maestro, Knowledge y herrajes GREEN; FreeCAD y Blender reales con muebles de 4, 13 y **28 piezas embutidas y 28 sobrepuestas** GREEN. [MCP/Windows/CAD](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39561886879). El CI de main posterior al merge debe comprobarse **por el SHA exacto** antes de certificar estado del repositorio.
-- **Source Knowledge de solo lectura:** [CarpiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge) SHA `4df02ef54562fac5a820cbad92b0edee547c310b`. CarpiNova-PC fuera de alcance.
-- Artifacts de Actions son evidencias temporales, no dependencia: reconstruir desde código versionado y `requirements-mcp.txt` manteniendo las limitaciones de compatibilidad documentadas.
-- **No hay QA de la PC física del dueño ni liberación de fabricación.** No inventar ese resultado.
+- **Fuente única:** repositorio [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama **main**. Esta continuidad pertenece al mismo repositorio; los chats, PRs cerrados y artifacts de Actions NO son dependencias de reconstrucción.
+- **Consolidación:** PR #17 integró F1–F7D y seis herramientas MCP; PRs #18–#19 depuraron documentación y PRs #20–#26 corrigieron casos reales. [PR #26](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/26) **MERGED**, commit funcional probado `608ac92a80615acc16fe802992e6f349692351c9`, commit de integración en main `eb88dc42e70d2115e15005d5f213b09fc37c7a47`.
+- **Igualdad de árboles verificada**: merge PR #26 y SHA funcional tienen el mismo árbol Git `a825db59b5f12fdb8fe03674be5793a269762177`. Los commits documentales posteriores NO modifican ese motor, pero siempre comprobar el HEAD **vivo** y su CI antes de afirmar la certificación actual.
+- **QA del commit funcional PR #26:** **532 tests Python 3.12 en Windows PASS**; protocolo MCP con seis herramientas, instalador aislado de cuatro skills, SVG/PNG/PDF, Maestro, geometría, herrajes, Knowledge y FreeCAD/Blender reales (4, 13 y 28 piezas con inset/overlay) aprobados en cinco workflows. [CI MCP Windows/CAD](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39633113961). **No inferir que un CI previo también pasó para un nuevo commit sin consultar sus propios runs.**
+- **Knowledge externo solo lectura:** [CarpiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge), fuente fijada SHA `4df02ef54562fac5a820cbad92b0edee547c310b`; CarpiNova-PC fuera de alcance en este chat.
+- Los artifacts de Actions son evidencia temporal; la reconstrucción parte de `main`, sus dependencias declaradas y los scripts versionados. NO se ha validado el Codex del PC físico del dueño.
 
 
 ## 2. Objetivo, arquitectura y leyes
@@ -25,7 +24,7 @@ Construir muebles **preliminares revisables** desde conversación guiada: pedir 
 
 **Cuatro skills existentes:** `skills/maestro-carpintero/SKILL.md`, `skills/diseno-muebles/SKILL.md`, `skills/tecnicas-constructivas/SKILL.md`, `skills/seleccion-herrajes/SKILL.md`. No crear una quinta sin necesidad demostrada.
 
-**Seis herramientas MCP stdio locales:** `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d`, `carpinova_leer_entregable`. Entrada: `python -m carpinova_agent.mcp_bridge`. **La sexta herramienta sigue siendo exportar CAD; no se añade una séptima.** La herramienta existente `carpinova_leer_entregable` devuelve texto en JSON/CSV/SVG y contenido MCP `image/png` al solicitar `lamina/three-views.png` o `native/presentation.png` (sin exponer binarios arbitrarios, PDF ni archivos nativos); controla el SHA-256 del archivo PNG en el manifiesto, su integridad básica y tamaño máximo 4 MiB. El cliente debe admitir contenido de imagen para visualizarlo. ChatGPT conectado a GitHub **no** equivale a tener estas herramientas ejecutándose dentro del PC del dueño.
+**Seis herramientas MCP stdio locales:** `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d`, `carpinova_leer_entregable`. Entrada: `python -m carpinova_agent.mcp_bridge`. **La quinta herramienta exporta 3D y la sexta lee entregables; el contrato conserva exactamente seis herramientas MCP.** La herramienta existente `carpinova_leer_entregable` devuelve texto en JSON/CSV/SVG y contenido MCP `image/png` al solicitar `lamina/three-views.png` o `native/presentation.png` (sin exponer binarios arbitrarios, PDF ni archivos nativos); controla el SHA-256 del archivo PNG en el manifiesto, su integridad básica y tamaño máximo 4 MiB. El cliente debe admitir contenido de imagen para visualizarlo. ChatGPT conectado a GitHub **no** equivale a tener estas herramientas ejecutándose dentro del PC del dueño.
 
 **Fuente Knowledge:** repositorio [CarPiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge), SHA probado `4df02ef54562fac5a820cbad92b0edee547c310b`; el bundle `FULL_BOOK` (v1.2.0, 252 páginas distribuidas, 295 fuente) se construye en `.github/workflows/maestro-ci.yml`. `.github/workflows/knowledge-ci.yml` prueba además un **piloto parcial**. No están versionados aquí ni el PDF original ni el bundle completo. Un resultado textual con cita no es especificación fabricable.
 
@@ -73,27 +72,35 @@ uv run --project ..\CarpiNova-Knowledge python -m carpinova_knowledge build-book
 
 La sexta herramienta MCP necesita **tres puertas**: `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` configurado por el host, ejecutables permitidos FreeCADCmd/Blender con rutas absolutas, **y** aprobación del operador en terminal TTY independiente `python -m carpinova_agent.native_export --approve-project <proyecto> --approval-dir <carpeta externa>`. El operador lee el nombre, piezas y SHA y confirma; el ticket de un solo uso, vinculado a la ruta y geometría, vence como máximo en 15 minutos y se consume antes de lanzar CAD. La frase MCP **no** sustituye ese acto. Mantener la carpeta externa protegida contra escritura por herramientas del agente; un proceso con acceso a ella podría falsificar aprobaciones. No ejecutar CAD como consecuencia automática del texto del usuario.
 
-## 5. Integración consolidada y cierre de PR históricos
+## 5. Integración consolidada, capacidades vigentes y no-ruido
 
-- La pila F1 → F3 → F2 → F4 → F5 → F6 → F7A → F7C → F7D → MCP, más overlay/inset de cuatro cajones y bootstrap Codex, quedó incorporada a main mediante **un solo merge PR #17** (aprobación explícita del dueño; QA exact-head antes del merge).
-- La reconciliación histórica F4/F5 de README se preservó en el árbol del PR #17. El ensayo original había verificado `STACK_TREE_EQUAL_TO_FEATURE_HEAD=YES`; la comparación de árboles entre el merge main y el PR #17 es **idéntica**.
-- El PR #1 se marcó merged automáticamente al integrarse su ancestro. Los otros **11 PR históricos ya fueron cerrados administrativamente**, cada uno con comentario que enlaza a la integración PR #17; sus ramas y commits siguen disponibles. Verificación posterior: **0 PR abiertos**. No reintroducir cambios superpuestos.
-- No borrar ramas ni Knowledge. Reabrir incidencias solamente con evidencia y arreglarlas donde corresponde, nunca recrear una pila paralela.
+- Integración F1 → F3 → F2 → F4 → F5 → F6 → F7A → F7C → F7D y MCP efectuada mediante PR #17; los once PRs históricos adicionales se cerraron sin doble merge. PRs de mejoras #20 a #26 se integraron en `main`, sin motores, MCP ni skills paralelos.
+- **PR #20–#21:** las cuatro skills de Codex conservan referencias navegables aun instaladas fuera del clon; preflight y bootstrap de MCP en Windows comprobados conjuntamente sin modificar `~/.codex` ni `~/.agents` reales del runner.
+- **PR #22–#23:** `action=modular` con `module_spec.type=drawer_layout_proposal` propone de 1 a 4 aperturas desde medidas confirmadas con F1, pesos proporcionales y milímetros enteros por mayores residuos. Estado `NEEDS_USER_CONFIRMATION`, cero piezas; no es CAD ni prueba de consentimiento.
+- **PR #24:** el `modular_run` permite opcional `max_assembled_depth_mm` para comparar fondo **total montado** con el límite confirmado; carcasa 500 + fachada overlay 18 = 518 mm. Si excede máximo de 500 mm, `NEEDS_DEPTH_REVISION` bloquea el borrador/CAD.
+- **PR #25:** referencia opcional `modules[i].drawer_layout_reference` verifica con **el mismo** F1 la distribución antes de generar piezas; no cambia silenciosamente IDs, proporciones, alturas, posiciones o geometría de carcasa. No es firma de aprobación humana.
+- **PR #26:** `parts-review.csv` conserva al final `drawer_facade_style` y `opening_system_intent`; `front-review.svg` muestra ambos en títulos con marca **SIN MECANIZADO**. `handle`, `push_to_open`, `finger_pull`, `profile` son intenciones, no herrajes ni taladros certificados. Para piezas no fachada, esos campos quedan vacíos.
+- **Fuente de cálculo:** un Maestro, un F1/F6/F7C, un CADExchange; FreeCAD/Blender solo traducen/validan geometría. Los módulos legacy sin referencia de propuesta siguen admitidos, con los bloqueos de fabricación. Este archivo es el único checkpoint canónico, sin handoffs paralelos.
 
 
-## 6. NEXT, límites y criterios de salida
+## 6. Gates, bloqueos y NEXT operativo
 
-| Gate | Estado |
+| Gate | Estado comprobado |
 | --- | --- |
-| Pila integrada en main, árbol idéntico a SHA funcional | **MERGED / TREE VERIFIED** |
-| Windows 505 pruebas, Maestro, Knowledge, hardware, MCP e imágenes | **GREEN en HEAD funcional db533678** |
-| FreeCAD + Blender 4/13/28 inset/28 overlay piezas | **GREEN en HEAD funcional db533678** |
-| CI del HEAD main luego del merge/documentación | **VERIFICAR SHA VIVO** |
-| Instalador de cuatro skills y MCP en PC del usuario | **IMPLEMENTADO / NO EJECUTADO EN PC** |
-| Knowledge completo y FreeCAD/Blender instalados en PC del usuario | **NO VERIFICADO** |
-| Diseño real revisado por el dueño con medidas y herrajes reales | **PENDIENTE** |
-| Corte final, taladros, cargas, anclajes y fabricación certificada | **BLOQUEADO** |
+| F1/F6/F7C, distribución, frentes, profundidad, decisiones CSV/SVG | **INTEGRADO en main mediante PR #26; árbol idéntico** |
+| Windows Python 3.12 | **532 PASS en HEAD funcional 608ac92** |
+| Maestro, Knowledge, herrajes, geometría y MCP real 6 tools | **GREEN en HEAD funcional 608ac92** |
+| FreeCAD + Blender nativos, 4/13/28 inset/28 overlay | **GREEN en HEAD funcional 608ac92** |
+| Preflight/instalador cuatro skills y MCP en Windows runner aislado | **GREEN en CI; sin tocar el HOME del usuario** |
+| GitHub Actions posterior al merge/documentación | **CONSULTAR SIEMPRE CI y SHA vivo de main** |
+| Codex real instalado, cuatro skills y seis MCP en PC del propietario | **PENDIENTE de aceptación final en ese equipo** |
+| FreeCAD/Blender y Knowledge completo en PC del propietario | **NO COMPROBADO** |
+| Referencias de correderas, tornillos, perfiles tipo T, pesos y cargas | **SIN FICHA/VALIDACIÓN DE FABRICACIÓN** |
+| `fabrication_ready`, `cutting_ready`, `drilling_ready`, `purchase_ready` | **FALSE: BLOQUEO ABSOLUTO de producción** |
 
-**NEXT_SAFE_ACTION:** comprobar siempre el CI del HEAD real de main; la consolidación de código y el cierre de los PR históricos ya están completados (0 abiertos). No repetir esas integraciones ni añadir nuevos handoffs. Usar Codex **solo al final**, en una sesión limitada de PC para instalar las cuatro skills/MCP y probar el diseño verbal 50 × 50 × 80 cm, tres cajones y una gaveta: confirmar 500×500×800 mm, 4 cajas, solapes o embutido, manijas/perfil T, material y espesores antes de producir el paquete. No pedir al usuario JSON manual. El piloto de 28 piezas sigue siendo **nominal**: ningún cálculo de corte, corredera SKU o perforación está autorizado hasta corroboración real.
+**NEXT_SAFE_ACTION:** no inventar otro módulo, skill, script o ciclo de PR sin fallo reproducido. Si los cinco workflows del HEAD vivo de main son GREEN, la etapa útil siguiente es una sola aceptación **en la PC del propietario usando Codex únicamente al final**, con lectura de `docs/conectar-agente-codex-antigravity.md`: preflight PowerShell, instalación de las 4 skills, MCP y prueba conversacional de gabinete 500×500×800 mm con tres cajones + gaveta (la posición se pregunta); consultar alturas F1, confirmar fachada embutida/sobrepuesta y profundidad total; conservar `drawer_layout_reference`, solicitar manijas/uñero/perfil/push-to-open, comprobar `parts-review.csv`, `front-review.svg` y CAD/FreeCAD/Blender bajo autorización TTY independiente. El usuario **no** escribe JSON. Recoger un solo informe PASS/FAIL de causas reales sin hacer commits en Codex.
+
+Los pilotos de 28 piezas son diseños NOMINALES: carecen de aprobación de taller, dimensiones finales con compensación de cantos/merma, herrajes SKU validados, taladros y anclajes. No llamar a eso planos de fabricación.
+
 
 **Para cualquier chat nuevo:** iniciar por `main/docs/PROJECT_CONTINUITY_CURRENT.md`, `AGENTS.md`, la skill Maestro y el manual Windows; corroborar HEAD y CI vivos. Mantener las cuatro leyes KISS, anti-ruido con evidencia, anti-parches y diseño UX sin duplicar motores. No modificar CarpiNova-Knowledge ni CarpiNova-PC. No inferir que la PC del usuario está certificada a partir de GitHub Actions.
