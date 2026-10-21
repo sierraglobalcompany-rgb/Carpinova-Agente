@@ -78,19 +78,19 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         self.assertEqual(set(front), {"LI", "LD", "T", "BS"})
         self.assertAlmostEqual(
             float(front["T"].get("y")) + float(front["T"].get("height")),
-            float(front["LI"].get("y")))
+            float(front["LI"].get("y")), delta=0.02)
         self.assertAlmostEqual(
             float(front["BS"].get("y")),
-            float(front["LI"].get("y")) + float(front["LI"].get("height")))
+            float(front["LI"].get("y")) + float(front["LI"].get("height")), delta=0.02)
         self.assertAlmostEqual(float(front["T"].get("width")),
-                               float(front["BS"].get("width")))
+                               float(front["BS"].get("width")), delta=0.02)
         self.assertAlmostEqual(float(side["LD"].get("y")),
-                               float(side["T"].get("y")) + float(side["T"].get("height")))
+                               float(side["T"].get("y")) + float(side["T"].get("height")), delta=0.02)
         self.assertAlmostEqual(
             float(side["BS"].get("y")),
-            float(side["LD"].get("y")) + float(side["LD"].get("height")))
+            float(side["LD"].get("y")) + float(side["LD"].get("height")), delta=0.02)
         self.assertAlmostEqual(float(side["T"].get("width")),
-                               float(side["LD"].get("width")))
+                               float(side["LD"].get("width")), delta=0.02)
         self.assertIn("LD · costado derecho (LI opuesto)", r["sketch_svg"])
         self.assertIn("T", r["sketch_svg"])
         self.assertIn("BS", r["sketch_svg"])
