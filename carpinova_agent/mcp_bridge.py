@@ -13,6 +13,7 @@ from typing import Any
 
 from .maestro import MaestroError, consult_maestro
 from .drawing_sheet import create_render_bundle
+from .native_export import export_native_project, REVIEW_CONFIRMATION
 from .pilot_cli import PilotError, write_pilot_bundle
 
 
@@ -85,6 +86,8 @@ def carpinova_estado() -> dict[str, Any]:
         "knowledge_bundle_configured": bool(os.environ.get("CARPINOVA_KNOWLEDGE_BUNDLE_DIR")),
         "output_root_configured": bool(os.environ.get("CARPINOVA_OUTPUT_ROOT")),
         "freecad_blender_mcp_connected": False,
+        "native_export_configured": bool(os.environ.get("CARPINOVA_FREECADCMD") and os.environ.get("CARPINOVA_BLENDER")),
+        "native_export_enabled": os.environ.get("CARPINOVA_NATIVE_EXECUTION_ENABLED") == "1",
         **_FABRICATION,
     }
 
@@ -140,6 +143,32 @@ def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
     }
 
 
+def carpinova_exportar_3d(proyecto: str, confirmacion: str) -> dict[str, Any]:
+    """Local fixed-script CAD export; host enables and operator confirms.
+
+    Executables, scripts and paths are NOT supplied by the language model.
+    All geometry comes from an existing verified project.
+    """
+    name = _project_id(proyecto)
+    folder = _output_root() / name
+    result = export_native_project(
+        folder,
+        confirmation=confirmacion,
+        enabled=os.environ.get("CARPINOVA_NATIVE_EXECUTION_ENABLED") == "1",
+        freecad_executable=os.environ.get("CARPINOVA_FREECADCMD"),
+        blender_executable=os.environ.get("CARPINOVA_BLENDER"),
+    )
+    return {
+        "proyecto": name,
+        "status": result["status"],
+        "geometry_sha256": result["geometry_sha256"],
+        "piece_count": result["piece_count"],
+        "native_directory": str(folder / "native"),
+        "files": [str(folder / "native" / x) for x in result["files"]],
+        **_FABRICATION,
+    }
+
+
 def carpinova_leer_entregable(proyecto: str, archivo: str) -> dict[str, Any]:
     """Read only the allowlisted artefacts from a previously generated bundle."""
     name = _project_id(proyecto)
@@ -168,7 +197,7 @@ def create_server():
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:
         raise RuntimeError(
-            "MCP SDK ausente. Instalar: python -m pip install 'mcp>=1.27,<2'"
+            "MCP SDK ausente. Instalar: python -m pip install -r requirements-mcp.txt"
         ) from exc
     server = FastMCP("CarpiNova Maestro", instructions=(
         "Diseño y consulta de carpintería: consultar, generar borrador y "
@@ -181,6 +210,7 @@ def create_server():
     server.tool()(carpinova_consultar)
     server.tool()(carpinova_generar_borrador)
     server.tool()(carpinova_renderizar_lamina)
+    server.tool()(carpinova_exportar_3d)
     server.tool()(carpinova_leer_entregable)
     return server
 
