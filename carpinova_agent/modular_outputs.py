@@ -7,6 +7,7 @@ from io import StringIO
 from typing import Any
 
 from .core import DesignError
+from .drawer_modules import OPENING_SYSTEMS
 
 
 def _review_draft(model: Any) -> dict[str, Any]:
@@ -26,6 +27,25 @@ def _review_draft(model: Any) -> dict[str, Any]:
     return model
 
 
+def _drawer_review_labels(piece: dict[str, Any]) -> tuple[str, str]:
+    """Carry existing decorative choices into review files, not CAD tooling.
+
+    Both values are sourced from F7C. Do not infer hardware specifications,
+    drilled-hole coordinates or ready-to-manufacture status.
+    """
+    if piece["role"] != "drawer_facade":
+        return "", ""
+    styles = {
+        "F7C_EXPLICIT_INSET_FACADE": "inset",
+        "F7C_EXPLICIT_OVERLAY_FACADE": "overlay",
+    }
+    style = styles.get(piece.get("source_engine"))
+    intent = piece.get("opening_system")
+    if style is None or type(intent) is not str or intent not in OPENING_SYSTEMS:
+        raise DesignError("Frente de cajón sin estilo o apertura válida para revisión.")
+    return style, intent
+
+
 def modular_bom_csv(model: dict[str, Any]) -> str:
     """CSV of *nominal* geometric faces for review, not machine-cut dimensions."""
     draft = _review_draft(model)
@@ -38,6 +58,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
         "edgebanding_thickness_mm", "edgebanding_nominal_total_mm",
         "origin_x_mm", "origin_y_mm", "origin_z_mm",
         "dimension_formula", "production_status", "hinge_side_requested", "drawer_id",
+        "drawer_facade_style", "opening_system_intent",
     ])
     for piece in draft["parts"]:
         writer.writerow([
@@ -53,6 +74,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
              piece["edgebanding_nominal_total_mm"] is not None else "UNCONFIRMED"),
             *piece["nominal_origin_xyz_mm"], piece["source_formula"],
             "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""), piece.get("drawer_id",""),
+            *_drawer_review_labels(piece),
         ])
     return buffer.getvalue()
 
@@ -95,6 +117,11 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
+        if role == "drawer_facade":
+            style, intent = _drawer_review_labels(piece)
+            # Explicit text metadata only; not a depiction of real hardware.
+            name += (f" | {escape(style, quote=True)} | "
+                     f"{escape(intent, quote=True)} | SIN MECANIZADO")
         panel_class = "front" if role.startswith("front_") or role=="drawer_facade" else "panel"
         shapes.append(
             f'<rect x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
