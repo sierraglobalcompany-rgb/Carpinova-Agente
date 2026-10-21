@@ -160,8 +160,8 @@ def consult_maestro(
                 {
                     "field": "module_spec.vertical_gap_mm",
                     "question": (
-                        "¿Confirmas esta separación nominal entre "
-                        "frentes o quieres revisarla?"
+                        "¿Confirmas la franja nominal entre aberturas "
+                        "(no entre frentes ni un divisor) o quieres cambiarla?"
                     ),
                     "unit": "mm",
                 },
