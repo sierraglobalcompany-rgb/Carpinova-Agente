@@ -1,0 +1,6 @@
+# CarpiNova Agente optional MCP + nominal 2D export.
+# Direct versions tested in GitHub CI on Python 3.12 Windows/Linux.
+# This is not a full transitive dependency lock file.
+mcp==1.30.0
+resvg_py==0.5.0
+Pillow==13.0.0
