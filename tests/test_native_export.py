@@ -121,6 +121,41 @@ class NativeExportTests(unittest.TestCase):
                                       runner=self.fake_runner)
         self.assertFalse((self.project / "native").exists())
 
+    def test_trusted_binary_symlink_allowed_but_arbitrary_target_rejected(self):
+        correct = self.root / "bin"
+        correct.mkdir()
+        freecad_link = correct / "freecadcmd"
+        blender_link = correct / "blender"
+        try:
+            freecad_link.symlink_to(self.fc)
+            blender_link.symlink_to(self.bl)
+        except (OSError, NotImplementedError):
+            self.skipTest("No symlink privilege on this runner")
+        # Both target names are allowed by contract (case-insensitive).
+        result = export_native_project(
+            self.project, confirmation=REVIEW_CONFIRMATION, enabled=True,
+            freecad_executable=str(freecad_link),
+            blender_executable=str(blender_link),
+            runner=self.fake_runner,
+        )
+        self.assertEqual(result["piece_count"], 4)
+
+    def test_bad_binary_symlink_target_fails_closed(self):
+        evil = self.root / "cmd.exe"
+        evil.write_bytes(b"fake")
+        link = self.root / "blender"
+        try:
+            link.symlink_to(evil)
+        except (OSError, NotImplementedError):
+            self.skipTest("No symlink privilege on this runner")
+        with self.assertRaisesRegex(NativeExportError, "no autorizado"):
+            export_native_project(
+                self.project, confirmation=REVIEW_CONFIRMATION, enabled=True,
+                freecad_executable=str(self.fc), blender_executable=str(link),
+                runner=self.fake_runner,
+            )
+        self.assertEqual(self.calls, [])
+
     def test_changed_source_manifest_blocks_execution(self):
         p = self.project / "manifest.json"
         obj = json.loads(p.read_text(encoding="utf-8"))

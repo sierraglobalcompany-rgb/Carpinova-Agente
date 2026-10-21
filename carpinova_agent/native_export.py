@@ -33,14 +33,17 @@ def _binary(value: str | None, expected: str) -> Path:
     if not value:
         raise NativeExportError("Configuración faltante: CARPINOVA_" + expected.upper())
     path = Path(value).expanduser()
-    if not path.is_absolute() or not path.is_file() or path.is_symlink():
+    if not path.is_absolute() or not path.is_file():
         raise NativeExportError("Aplicación nativa debe ser un ejecutable local absoluto y existente.")
-    name = path.name.lower()
+    # Ubuntu may package freecadcmd/blender as system-managed symlinks.
+    # Require BOTH the configured entrypoint and its resolved target to have
+    # an allowlisted basename: a link to sh/cmd/python is always rejected.
+    resolved = path.resolve(strict=True)
     allowed = ({"freecadcmd", "freecadcmd.exe"} if expected == "freecadcmd"
                else {"blender", "blender.exe"})
-    if name not in allowed:
+    if path.name.lower() not in allowed or resolved.name.lower() not in allowed:
         raise NativeExportError("Nombre de ejecutable no autorizado para " + expected)
-    return path.resolve(strict=True)
+    return resolved
 
 
 def _load_review(folder: Path) -> dict[str, Any]:
