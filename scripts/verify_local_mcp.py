@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from xml.etree import ElementTree
 
 # When invoked as scripts/verify_local_mcp.py Python places scripts/ first
@@ -128,30 +129,27 @@ async def execute_native(root: Path) -> None:
     """Exercise opt-in real native tools via the SAME MCP protocol/session."""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
-    from carpinova_agent.native_export import REVIEW_CONFIRMATION
+    from carpinova_agent.native_export import REVIEW_CONFIRMATION, issue_native_approval
     required = (
         "CARPINOVA_NATIVE_EXECUTION_ENABLED",
         "CARPINOVA_FREECADCMD", "CARPINOVA_BLENDER",
     )
     if any(not os.environ.get(x) for x in required):
         raise ValueError("Native host opt-in and executables must be configured.")
-    env = {**os.environ, "CARPINOVA_OUTPUT_ROOT": str(root),
-           "PYTHONPATH": str(PROJECT_ROOT)}
-    params = StdioServerParameters(
-        command=sys.executable, args=["-m", "carpinova_agent.mcp_bridge"], env=env,
-    )
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            names = {item.name for item in (await session.list_tools()).tools}
-            assert names == TOOLS, "MCP native tools mismatch"
-            for name, _, _ in verified_requests():
-                result = await session.call_tool(
-                    "carpinova_exportar_3d",
-                    {"proyecto": name, "confirmacion": REVIEW_CONFIRMATION},
-                )
-                assert not result.isError, f"Native CAD export failed: {name}: {result}"
-
+    # Trusted CI operator issues separate, short-lived per-project approvals.
+    # No MCP tool can issue these records and they are OUTSIDE review root.
+    approval_storage = TemporaryDirectory(prefix="carpinova-host-approvals-")
+    try:
+        approvals = Path(approval_storage.name)
+        for name, _, _ in verified_requests():
+            issue_native_approval(root / name, approvals)
+        env = {
+            **os.environ,
+            "CARPINOVA_OUTPUT_ROOT": str(root),
+            "PYTHONPATH": str(PROJECT_ROOT),
+            "CARPINOVA_NATIVE_APPROVAL_DIR": str(approvals),
+        }
+    
 
 def validate_native(root: Path) -> list[dict]:
     """Proof from native CAD reports, actual files and canonical SHA/part IDs."""

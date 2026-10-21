@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import os
+from unittest.mock import patch
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -11,6 +13,7 @@ from zipfile import ZipFile
 
 from carpinova_agent.native_export import (
     NativeExportError, REVIEW_CONFIRMATION, export_native_project,
+    issue_native_approval,
 )
 from carpinova_agent.pilot_cli import write_pilot_bundle
 
@@ -32,6 +35,15 @@ class NativeExportTests(unittest.TestCase):
         self.bl = self.root / "blender.exe"
         self.fc.write_bytes(b"fake runner fixture")
         self.bl.write_bytes(b"fake runner fixture")
+        self.approval_temp = TemporaryDirectory()
+        self.addCleanup(self.approval_temp.cleanup)
+        self.approvals = Path(self.approval_temp.name)
+        self.env_patch = patch.dict(os.environ, {
+            "CARPINOVA_NATIVE_APPROVAL_DIR": str(self.approvals),
+        })
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
+        issue_native_approval(self.project, self.approvals)
         self.cad = json.loads((self.project / "cad-exchange.json").read_text(encoding="utf-8"))
         self.calls: list[list[str]] = []
 
