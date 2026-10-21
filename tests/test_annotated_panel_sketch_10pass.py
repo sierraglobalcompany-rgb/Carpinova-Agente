@@ -172,6 +172,28 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         self.assertEqual(rpc["status"], "NEEDS_USER_CONFIRMATION")
         self.assertEqual(len(rpc["questions"]), 1)
 
+    def test_13_real_png_render_of_front_and_side_views_when_engine_available(self):
+        try:
+            import resvg_py
+            from PIL import Image
+        except ImportError:
+            self.skipTest("optional PNG renderer unavailable outside MCP preflight")
+        from io import BytesIO
+        for kwargs in (
+            {}, {"top_overhang_left_mm": 50,
+                 "bottom_overhang_right_mm": 100},
+            {"support_style": "legs", "support_height_mm": 100},
+            {"top_overhang_front_mm": 75,
+             "bottom_overhang_rear_mm": 50},
+        ):
+            with self.subTest(kwargs=kwargs):
+                svg = guide_drawer_layout(sample(**kwargs))["sketch_svg"]
+                png = resvg_py.svg_to_bytes(svg_string=svg, width=1160)
+                img = Image.open(BytesIO(png))
+                img.verify()
+                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 930))
+                self.assertGreater(len(png), 10000)
+
     def test_12_svg_structure_is_parseable_accessible_and_render_review_only(self):
         r = consult_maestro({"action": "modular", "module_spec": sample()})
         s = r["modular"]["sketch_svg"]
