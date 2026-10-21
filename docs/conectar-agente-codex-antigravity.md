@@ -4,13 +4,14 @@
 
 El Agente tiene cuatro skills, la base Knowledge como dependencia externa, Maestro como único orquestador, un motor F1/F6/F7C y CADExchange común para FreeCAD/Blender. El piloto de gabinete genera cinco archivos. Antes faltaba la conexión estándar a clientes de agentes.
 
-Este incremento añade un MCP local por **stdio**, con cuatro herramientas y sin un nuevo motor:
+Este incremento añade un MCP local por **stdio**, con **cinco herramientas** y sin un nuevo motor:
 
 | Herramienta | Resultado |
 | --- | --- |
 | carpinova_estado | Acciones soportadas, skills y bloqueos |
 | carpinova_consultar(solicitud_json) | Preguntas, Knowledge con bundle local, herrajes referenciales o proyecto de Maestro |
 | carpinova_generar_borrador(solicitud_json, proyecto) | Carpeta nueva con 5 archivos de revisión nominal |
+| carpinova_renderizar_lamina(proyecto) | Plano de tres vistas SVG, PNG y PDF, desde el mismo CADExchange (requiere CairoSVG) |
 | carpinova_leer_entregable(proyecto, archivo) | Leer JSON/SVG/CSV/CAD/manifest del proyecto guardado |
 
 Los archivos son: maestro-review.json, front-review.svg, parts-review.csv, cad-exchange.json y manifest.json. El usuario debe confirmar medidas, unidades, materiales, fondo, puertas, soporte, cantos y herrajes antes de considerar el diseño completo. Un CSV nominal no autoriza corte.
@@ -68,10 +69,10 @@ Para comprobar la conexión sin datos del usuario, se puede usar exclusivamente 
 ## De boceto a FreeCAD y Blender
 
 1. CarpiNova determina proyecto y módulos desde medidas del usuario y devuelve los cinco archivos con hash de geometría.
-2. Abrir front-review.svg en navegador: es ya un archivo de imagen **vectorial**; la conversión a PNG para entregas comerciales está pendiente de certificación.
+2. Abrir `front-review.svg` como boceto frontal y llamar a `carpinova_renderizar_lamina` para obtener `lamina/three-views.svg`, `three-views.png` y `three-views.pdf`; son vistas nominales, no planos de corte.
 3. Abrir parts-review.csv para revisar lista de piezas, material, cantos y las limitaciones. No es hoja final de corte.
 4. En equipo autorizado con FreeCAD y Blender realmente instalados, reutilizar exactamente cad-exchange.json en integrations/freecad_from_contract.py e integrations/blender_from_contract.py. Guardar .FCStd y .blend y cotejar hash/IDs/piezas. NO hay MCP FreeCAD/Blender interactivo instalado por este PR.
-5. Vista 3D estética, cámara, iluminación, texturas, láminas explicativas, PDFs de planos y despiece terminado requieren nuevas tareas de **salida**, no un nuevo motor o nuevas skills duplicadas.
+5. FreeCAD `.FCStd` y Blender `.blend` nativos ya se validaron en CI con la geometría original. El render opcional de Blender agrega cámara, luces y colores de referencia, pero no texturas fotorrealistas ni mecanizados. Los planos de fabricación siguen requiriendo ingeniería y taller.
 
 ## Conexión directa desde ChatGPT
 
@@ -79,13 +80,13 @@ El conector GitHub disponible en este chat permite inspeccionar/cambiar código,
 
 ## Cierre por evidencias
 
-- El cliente descubre cuatro herramientas mediante protocolo MCP real.
+- El cliente descubre cinco herramientas mediante protocolo MCP real.
 - Consulta Maestro y genera los cinco archivos a partir del mismo JSON.
 - Rechaza rutas arbitrarias y sobrescritura; solo admite proyecto con nombre seguro en carpeta autorizada.
 - El croquis y CSV tienen exactamente las piezas del CAD y hash reproducible.
 - Las cuatro banderas de fabricación permanecen falsas.
 - El operador ejecuta aparte FreeCAD y Blender, compara piezas y revisa visualmente.
-- A continuación se implementa presentación de imagen PNG/PDF y validación con el primer mueble real.
+- La presentación de tres vistas SVG/PNG/PDF ya está verificada. Los archivos nativos `.FCStd`, `.blend` y render 3D se certifican de forma separada. Falta un mueble real medido en sitio y validación de taller.
 
 Fuentes:
 https://developers.openai.com/codex/mcp
@@ -121,3 +122,38 @@ rutas de terceros. La lámina nunca sobrescribe trabajos anteriores.
 Ejemplo de diálogo: “Usa carpinova_generar_borrador para mi proyecto
 verificado de mueble, luego carpinova_renderizar_lamina y enséñame
 three-views.png y three-views.pdf, conservando el hash del CAD”.
+
+
+## Entrega 3D nativa certificada (CI — 21-oct-2026)
+
+**Evidencia de [Actions #39529257090](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39529257090), SHA `70fe113de16bb91276ce2179aedd893669ffceda`:** cinco workflows GREEN. El job `native-cad-deliverables` NO crea otra geometría: descarga el artifact producido por el cliente MCP real en el **mismo run**. FreeCADCmd y Blender consumen exactamente el `cad-exchange.json` de cada carpeta y leen las medidas de sus sólidos/mallas reales.
+
+Se certificaron dos muestras del motor existente: `primer_mueble` (4 piezas, FreeCAD error 0 mm, Blender error máximo 0,00002861 mm) y `cocina_dos_modulos` (13 piezas, tres frentes, dos fondos parciales, FreeCAD 0 mm, Blender máximo 0,00011253 mm). El resultado tiene estos archivos **por cada proyecto**:
+
+| Archivo | Función |
+| --- | --- |
+| `native.FCStd` | Documento FreeCAD editable, paneles geométricos nominales |
+| `native.blend` | Escena Blender editable, medidas verificadas |
+| `presentation.blend` | Escena Blender editable con cámara, iluminación y materiales ilustrativos |
+| `presentation.png` | Render 3D de revisión a 960 × 720 píxeles |
+| `freecad-native.log`, `blender-native.log`, `blender-presentation.log` | Evidencias reales y errores de medidas |
+| `cad-exchange.json`, `manifest.json`, `lamina/*`, CSV/SVG | Datos de origen y vistas 2D que comparten hash |
+| `native-deliverable-summary.json` (raíz) | Resumen de ambos proyectos y hashes verificados |
+
+Descargar en esa ejecución el artifact **`carpinova-mcp-freecad-blender-real`**. El artifact expira según la retención de GitHub Actions; se debe preservar una copia privada si va a utilizarse más adelante. Los archivos proceden del runner de CI: **no** demuestran que FreeCAD, Blender o el MCP estén instalados o conectados en el PC del usuario.
+
+### Uso posterior en Codex/AntiGravity local
+
+1. Conectar el MCP stdio como se explica arriba y obtener `cad-exchange.json` y el manifiesto del mueble con medidas previamente aprobadas. Revisar `geometry_sha256` y `fabrication_ready=false`.
+2. Para FreeCAD, en su consola Python local (con este repositorio disponible en el entorno de Python de FreeCAD), ejecutar `integrations.freecad_from_contract.build_freecad(Path(archivo_cad), Path(salida_fcstd))`. Las rutas deben ser absolutas, la salida nueva y el proceso autorizado por el operador. El manual `docs/PILOTO_FREECAD_BLENDER.md` da la entrada técnica.
+3. Para Blender, en una terminal autorizada desde la raíz del repositorio, usar el ejecutable instalado en el PC y el script auditado (adaptar rutas reales; no copiar rutas de CI):
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path
+& 'RUTA_ABSOLUTA_DEL_EJECUTABLE_BLENDER' --background --factory-startup --disable-autoexec --python-use-system-env --python-exit-code 12 --python integrations/blender_from_contract.py -- --input 'RUTA_ABSOLUTA_CAD_JSON' --output 'RUTA_ABSOLUTA_NATIVE_BLEND'
+& 'RUTA_ABSOLUTA_DEL_EJECUTABLE_BLENDER' --background --factory-startup --disable-autoexec --python-use-system-env --python-exit-code 12 --python integrations/blender_presentation.py -- --input-cad 'RUTA_ABSOLUTA_CAD_JSON' --input-blend 'RUTA_ABSOLUTA_NATIVE_BLEND' --output-blend 'RUTA_ABSOLUTA_PRESENTATION_BLEND' --output-png 'RUTA_ABSOLUTA_PRESENTATION_PNG'
+```
+
+4. Abrir `.FCStd`, `presentation.blend` y `presentation.png` para revisión. Comparar IDs, cantidad de piezas, orientación, aspecto y el mismo hash con el manifiesto original.
+
+**Límite de confianza:** la herramienta MCP todavía **no lanza programas nativos por sí misma**: un operador o un cliente Codex/AntiGravity con permisos explícitos debe ejecutar los adaptadores. No instalar MCP FreeCAD/Blender de terceros sin auditoría de código, permisos, procedencia, versiones y aislamiento. Un render bonito o una comprobación numérica de 0,05 mm no equivalen a instrucciones seguras de corte, perforación, anclaje o fabricación. Mantener los cuatro flags en falso.
