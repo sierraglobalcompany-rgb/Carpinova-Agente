@@ -92,3 +92,42 @@ El servidor `carpinova_agent.mcp_bridge` tiene **seis herramientas**: `carpinova
 **Checkpoint de ejecución real:** [CI del sexto tool](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) comprobó cliente MCP→FreeCADCmd→Blender→render con 4/13 piezas y hash compartido; no se ejecutó en PC del propietario ni se liberó fabricación.
 
 **Puerta humana de exportación 3D (obligatoria):** aun con `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` y la frase `AUTORIZO_EXPORTAR_BORRADOR_3D`, la exportación se niega sin aprobación local independiente de un solo uso, ligada al SHA, y generada **desde terminal del operador** según [guía vigente](../../docs/conectar-agente-codex-antigravity.md). Nunca crear el comprobante por el modelo ni simular consentimiento en el PC. No fabricar.
+
+\n## Uso directo en Codex — contrato de conversación V1
+
+Al recibir una instrucción natural de diseño, Codex es **solo el intérprete y la interfaz de conversación**. CarpiNova Maestro sigue siendo el motor determinista. Este flujo NO exige que el usuario escriba JSON ni que se introduzca otro LLM, motor, MCP o skill.
+
+### Paso 1 — entender sin inventar
+
+- Confirmar medidas, unidades y orientación (ancho, profundidad, altura), lugar, tipo de mueble y si la altura solicitada incluye patas o zócalo.
+- «Tres cajones y una gaveta» es **ambiguo**: preguntar si son cuatro cajones (tres normales y una gaveta grande). Preguntar distribución/altura útil y cargas cuando afecten geometría. Para cuatro cajas, el motor acepta como máximo cuatro por módulo.
+- Preguntar decisión de **frente de cajón**: `inset` (embutido) o `overlay` (sobrepuesto), explicando diferencia visual y dimensional. Para `inset` exigir las cuatro holguras y para `overlay` los cuatro solapes; nunca imponer 2 mm, 3 mm u otra cifra en nombre del taller.
+- Preguntar apertura: manija visible (`handle`), push-to-open, uñero (`finger_pull`), perfil (`profile`) o pendiente (`pending`). **«Módulo/perfil T» NO identifica un perfil exacto:** aclarar sección/fabricante/tipo y uso. Son elecciones conceptuales hasta verificar herrajes o mecanizados, NO taladros/fresados ya modelados.
+- Preguntar composición/material y espesor REAL de tablero, apoyos, fondo, obstáculos, vetas, cantos y correderas según el proyecto. No inventar medidas de guía ni compatibilidad de SKU.
+- Preguntar hasta **tres decisiones agrupadas por turno**: primero datos que pueden bloquear geometría o layout, después estética/herrajes, después acabados y montaje. No repetir datos confirmados.
+
+### Paso 2 — diseñar UNA especificación auditable
+
+- Presentar una tabla compacta: `Confirmado / Opción propuesta pendiente de confirmar / Falta crítico / No calculado`.
+- Si se desea proponer anchos o alturas de aperturas, marcarlos como **propuesta editable** y mostrar todas las cotas con su fórmula y el cierre dimensional. No tratar el diseño preliminar como dato declarado por el usuario.
+- Preparar internamente el objeto `{"action":"modular","module_spec":{...}}` usando SOLO campos reales de F6/F7C. El usuario ve las decisiones, medidas, holguras y la totalidad del JSON, o una representación íntegra y equivalente antes de confirmar. Nunca incluir campos desconocidos para forzar compatibilidad.
+- Ante un diseño fuera del contrato (perfiles fresados sin geometría, correderas no documentadas, frentes/puertas incompatibles, cargas o anclajes no comprobados), explicar limitación y pasar a `CONCEPT_ONLY` o marcar bloqueos. No simular un despiece fabricable.
+
+### Paso 3 — ejecución SOLO tras confirmación explícita
+
+1. `carpinova_estado` para comprobar las herramientas presentes; sin servidor conectado, explicar bloqueo y no inventar resultados.
+2. Antes de producir archivos, obtener confirmación expresa del diseño propuesto y del JSON. No interpretar «sigue» como autorización para fabricar ni exportar CAD nativo.
+3. `carpinova_consultar(solicitud_json=JSON_aprobado)` para obtener preguntas y bloqueos; si la geometría no está en `DRAFT_NOT_FOR_CUTTING`, corregir y confirmar nuevamente.
+4. `carpinova_generar_borrador(solicitud_json=JSON_aprobado, proyecto=NOMBRE_NUEVO)`; no sobrescribir otro proyecto. Conservar `manifest.json`, SHA, CSV nominal y vistas.
+5. `carpinova_renderizar_lamina(proyecto=NOMBRE_NUEVO)` y `carpinova_leer_entregable(proyecto, "lamina/three-views.png")`. Mostrar la imagen y resumen legible de piezas, medida, material, veta y canto confirmado o pendiente.
+6. Solo si el host habilitó FreeCAD/Blender y el propietario autorizó independientemente desde su terminal, `carpinova_exportar_3d` y luego leer `native/presentation.png`. Si falla, conservar salida 2D válida y explicar el bloqueo 3D; NO intentar habilitar apps ni emitir aprobaciones desde el modelo.
+
+### Paso 4 — QA obligatorio en el chat
+
+- Verificar ancho/alto/profundidad y equivalencia de cm→mm; número de cajones/cajas; IDs físicos únicos; cierre vertical de aberturas; separación de fachadas; cero colisiones; correspondencia entre CADExchange, CSV, SVG, PNG y manifest.
+- Separar **medidas nominales** de **medidas finales de corte**, compensación de canto, uniones, holguras reales de corredera, soportes, ranuras, perforaciones, compra y estabilidad. En el MVP los cuatro flags siguen `false`.
+- Indicar claramente los supuestos NO confirmados por persona, los datos necesarios para terminar y el estado de cada entregable. Ningún render por sí solo es una instrucción para taller.
+
+### Escenario obligatorio de aceptación
+
+Solicitud: «Mueble de 50 × 50 cm y altura 80 cm; tres cajones y una gaveta; quiero elegir manijas o sin manijas y frentes que sobresalgan o entren». El agente confirma que 500 × 500 × 800 mm son cotas exteriores sujetas a aclaración, si la gaveta es un cuarto cajón, el alto con patas, el sistema de apertura y el tipo de frente. Después, solo con datos aprobados, presenta un borrador F7C con **28 piezas nominales** si son 4 cajas de cinco paneles, 4 fachadas y 4 piezas de carcasa sin fondo; si se añade fondo, la cuenta cambia. No inventa taladros ni autoriza fabricación.
