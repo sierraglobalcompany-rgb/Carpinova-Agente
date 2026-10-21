@@ -5,6 +5,7 @@ arbitrary Python execution, fabrication authority, or CAD application launch.
 """
 from __future__ import annotations
 
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -14,17 +15,19 @@ from typing import Any
 from .maestro import MaestroError, consult_maestro
 from .drawing_sheet import create_render_bundle
 from .native_export import export_native_project, REVIEW_CONFIRMATION
-from .pilot_cli import PilotError, write_pilot_bundle
+from .pilot_cli import PilotError, write_pilot_bundle, verify_pilot_bundle
 
 
 _MAX_REQUEST_BYTES = 65536
 _MAX_ARTIFACT_BYTES = 262144
+_MAX_PREVIEW_BYTES = 4 * 1024 * 1024
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
 _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
     "cad-exchange.json", "manifest.json",
     "lamina/three-views.svg", "lamina/render-manifest.json",
 ))
+_IMAGE_FILES = frozenset(("lamina/three-views.png", "native/presentation.png"))
 _FABRICATION = {
     "fabrication_ready": False, "cutting_ready": False,
     "drilling_ready": False, "purchase_ready": False,
@@ -169,11 +172,16 @@ def carpinova_exportar_3d(proyecto: str, confirmacion: str) -> dict[str, Any]:
     }
 
 
-def carpinova_leer_entregable(proyecto: str, archivo: str) -> dict[str, Any]:
-    """Read only the allowlisted artefacts from a previously generated bundle."""
+def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
+    """Read allowlisted review text OR transmit verified PNG as MCP image.
+
+    For PNG the MCP return value is ImageContent (not a filesystem path).
+    Only lamina/three-views.png and native/presentation.png are supported.
+    No PDF, arbitrary binary files, file URLs or arbitrary client paths.
+    """
     name = _project_id(proyecto)
-    if type(archivo) is not str or archivo not in _ALLOWED_FILES:
-        raise PilotError("Solo se pueden leer entregables textuales permitidos del borrador.")
+    if type(archivo) is not str or archivo not in _ALLOWED_FILES | _IMAGE_FILES:
+        raise PilotError("Solo se pueden leer entregables de revisión permitidos.")
     root = _output_root()
     folder = root / name
     path = folder / archivo
@@ -181,15 +189,52 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> dict[str, Any]:
             or (path.parent != folder and path.parent.is_symlink())
             or not path.resolve().is_relative_to(root) or not path.is_file()):
         raise PilotError("Archivo inexistente o fuera del directorio de revisión.")
-    if path.stat().st_size > _MAX_ARTIFACT_BYTES:
+    cap = _MAX_PREVIEW_BYTES if archivo in _IMAGE_FILES else _MAX_ARTIFACT_BYTES
+    if path.stat().st_size > cap:
         raise PilotError("El entregable excede el límite de lectura del Agente.")
+    if archivo in _IMAGE_FILES:
+        # An image is a view of a still-consistent Maestro project, not
+        # authority to cut, fabricate, drill or purchase.
+        try:
+            cad = verify_pilot_bundle(folder)
+            manifest_name = (
+                "render-manifest.json" if archivo.startswith("lamina/")
+                else "native-manifest.json"
+            )
+            manifest_path = path.parent / manifest_name
+            if (manifest_path.is_symlink()
+                    or not manifest_path.is_file()
+                    or manifest_path.stat().st_size > 65536):
+                raise PilotError("No existe un manifiesto de imagen confiable.")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise PilotError("Vista sin un proyecto o manifiesto de revisión válido.") from exc
+        if (type(manifest) is not dict
+                or manifest.get("geometry_sha256") != cad["geometry_sha256"]
+                or manifest.get("piece_count") != len(cad["boxes"])
+                or any(manifest.get(field) is not False for field in _FABRICATION)):
+            raise PilotError("La imagen no corresponde al proyecto de revisión.")
+        raw = path.read_bytes()
+        if not raw.startswith(b"\x89PNG\r\n\x1a\n") or len(raw) > _MAX_PREVIEW_BYTES:
+            raise PilotError("La imagen no es un PNG de revisión válido.")
+        # Preserve optional dependency boundary: ordinary text tools run
+        # without Pillow or MCP Python SDK installed.
+        try:
+            from PIL import Image as PILImage
+            from mcp.server.fastmcp import Image as MCPImage
+            with PILImage.open(BytesIO(raw)) as checked:
+                if (checked.format != "PNG" or checked.width * checked.height > 16_000_000):
+                    raise PilotError("Resolución de imagen no permitida.")
+                checked.verify()
+        except (ImportError, OSError, ValueError) as exc:
+            raise PilotError("No se puede verificar o transmitir el PNG.") from exc
+        return MCPImage(data=raw, format="png")
     contents = path.read_text(encoding="utf-8")
     return {
         "proyecto": name, "archivo": archivo, "contenido": contents,
         "encoding": "utf-8", "status": "DRAFT_NOT_FOR_CUTTING",
         **_FABRICATION,
     }
-
 
 def create_server():
     """Import the optional official MCP SDK only when launching this bridge."""
@@ -201,7 +246,7 @@ def create_server():
         ) from exc
     server = FastMCP("CarpiNova Maestro", instructions=(
         "Diseño y consulta de carpintería: consultar, generar borrador y "
-        "leer archivos de revisión. Pedir medidas faltantes antes del diseño. "
+        "leer archivos y previsualizar PNG de revisión. Pedir medidas faltantes antes del diseño. "
         "Todos los resultados son NOMINALES y NO autorizan fabricación, "
         "corte, taladro o compra. No ejecutar otras herramientas por analogía."
     ))
