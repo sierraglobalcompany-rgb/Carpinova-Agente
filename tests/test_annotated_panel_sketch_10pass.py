@@ -48,15 +48,15 @@ class TenPassPanelSketchAudit(unittest.TestCase):
 
     def test_02_alternate_existing_F1_construction_has_different_panels(self):
         base = guide_drawer_layout(sample())["proposed_layout_spec"]
-        base["construction"] = "top_bottom_full"
+        base["construction"] = "sides_full"
         r = propose_drawer_layout(base)
         data = {part["ref"]: part for part in
                 __import__("carpinova_agent.drawer_modules",
                            fromlist=["_guide_ref_map"])._guide_ref_map(r)}
-        self.assertEqual(data["T"]["nominal_width_mm"], 500)
-        self.assertEqual(data["BS"]["nominal_width_mm"], 500)
-        self.assertEqual(data["LI"]["nominal_height_mm"], 764)
-        self.assertEqual(data["LD"]["nominal_height_mm"], 764)
+        self.assertEqual(data["T"]["nominal_width_mm"], 464)
+        self.assertEqual(data["BS"]["nominal_width_mm"], 464)
+        self.assertEqual(data["LI"]["nominal_height_mm"], 800)
+        self.assertEqual(data["LD"]["nominal_height_mm"], 800)
         ET.fromstring(r["sketch_svg"])
 
     def test_15_default_t_and_bs_cover_sides_in_BOTH_front_and_profile(self):
@@ -73,6 +73,17 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         side = {node.get("data-ref"): node for node in root.iter()
                 if node.get("data-view") == "side"}
         self.assertEqual(set(side), {"LD", "T", "BS"})
+        front = {node.get("data-ref"): node for node in root.iter()
+                 if node.get("data-view") == "front"}
+        self.assertEqual(set(front), {"LI", "LD", "T", "BS"})
+        self.assertAlmostEqual(
+            float(front["T"].get("y")) + float(front["T"].get("height")),
+            float(front["LI"].get("y")))
+        self.assertAlmostEqual(
+            float(front["BS"].get("y")),
+            float(front["LI"].get("y")) + float(front["LI"].get("height")))
+        self.assertAlmostEqual(float(front["T"].get("width")),
+                               float(front["BS"].get("width")))
         self.assertAlmostEqual(float(side["LD"].get("y")),
                                float(side["T"].get("y")) + float(side["T"].get("height")))
         self.assertAlmostEqual(
@@ -92,6 +103,16 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         side = {node.get("data-ref"): node for node in root.iter()
                 if node.get("data-view") == "side"}
         self.assertEqual(set(side), {"LD", "T-BS-hidden"})
+        front = {node.get("data-ref"): node for node in root.iter()
+                 if node.get("data-view") == "front"}
+        self.assertEqual(set(front), {"LI", "LD", "T", "BS"})
+        self.assertEqual(float(front["LI"].get("y")),
+                         float(front["T"].get("y")))
+        self.assertEqual(float(front["LI"].get("height")), 366)
+        self.assertGreater(float(front["T"].get("x")),
+                           float(front["LI"].get("x")))
+        self.assertLess(float(front["T"].get("width")),
+                        float(front["LI"].get("height")))
         self.assertEqual(side["LD"].get("class"), "panel-side")
         self.assertEqual(side["T-BS-hidden"].get("class"), "hidden-panel")
         self.assertEqual(float(side["LD"].get("height")), 366)
