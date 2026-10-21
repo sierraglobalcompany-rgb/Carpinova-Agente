@@ -16,7 +16,8 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zipfile import ZipFile
 
-from .pilot_cli import verify_pilot_bundle
+from .pilot_cli import PilotError, verify_pilot_bundle
+from .core import DesignError
 
 REVIEW_CONFIRMATION = "AUTORIZO_EXPORTAR_BORRADOR_3D"
 _RELEASE_FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready")
@@ -89,7 +90,10 @@ def export_native_project(
     freecad = _binary(freecad_executable, "freecadcmd")
     blender = _binary(blender_executable, "blender")
     folder = Path(project_folder)
-    cad = verify_pilot_bundle(folder)
+    try:
+        cad = verify_pilot_bundle(folder)
+    except (PilotError, DesignError) as exc:
+        raise NativeExportError("Manifiesto, CAD y Maestro no coinciden.") from exc
     dest = folder / "native"
     if dest.exists() or dest.is_symlink():
         raise NativeExportError("Ya existe exportación nativa: no sobrescribir.")

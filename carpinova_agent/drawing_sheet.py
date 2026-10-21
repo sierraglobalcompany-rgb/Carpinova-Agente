@@ -17,7 +17,7 @@ from typing import Any
 
 from .cad_exchange import validate_exchange
 from .core import DesignError
-from .pilot_cli import verify_pilot_bundle
+from .pilot_cli import PilotError, verify_pilot_bundle
 
 
 _SHEET_FILES = ("three-views.svg", "three-views.png", "three-views.pdf", "render-manifest.json")
@@ -117,7 +117,10 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     if destination.exists() or destination.is_symlink():
         raise DesignError("Lámina existente: no sobrescribir.")
     # One provenance gate for 2D AND native CAD. No duplicate geometry tests.
-    cad = verify_pilot_bundle(folder)
+    try:
+        cad = verify_pilot_bundle(folder)
+    except (PilotError, DesignError) as exc:
+        raise DesignError("Paquete de revisión inconsistente con Maestro.") from exc
     svg = three_views_svg(cad)
     try:
         import resvg_py
