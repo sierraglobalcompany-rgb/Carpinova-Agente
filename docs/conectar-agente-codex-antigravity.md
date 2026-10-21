@@ -110,12 +110,12 @@ Commit certificado del circuito completo: `ec139352c83d3d32def9d1421bcf83cf1ca8e
 
 ### Aprobación humana independiente de la frase enviada por MCP (obligatoria)
 
-**La frase de la herramienta no acredita consentimiento humano.** Antes de habilitar exportación 3D, crea una carpeta local para autorizaciones **fuera de `CARPINOVA_OUTPUT_ROOT`**, por ejemplo `work/configuracion-local/native-approvals`. Configura también en el servidor MCP (como variable de entorno, **no como argumento del modelo**) `CARPINOVA_NATIVE_APPROVAL_DIR` apuntando a esa carpeta absoluta. El servidor seguirá necesitando `CARPINOVA_NATIVE_EXECUTION_ENABLED=1`, `CARPINOVA_FREECADCMD` y `CARPINOVA_BLENDER`.
+**La frase de la herramienta no acredita consentimiento humano.** El instalador Windows **ya crea** la carpeta de aprobaciones en `%LOCALAPPDATA%\CarpiNova\native-approvals`, fuera del repositorio y de `CARPINOVA_OUTPUT_ROOT`, y la incluye en los ejemplos TOML/JSON mediante `CARPINOVA_NATIVE_APPROVAL_DIR`. No habilita ejecución nativa. El operador debe proteger el directorio frente a escritura por el agente. En Linux u otras instalaciones manuales, configurar un directorio externo equivalente en el entorno del host, nunca como argumento del modelo. El servidor seguirá necesitando `CARPINOVA_NATIVE_EXECUTION_ENABLED=1`, `CARPINOVA_FREECADCMD` y `CARPINOVA_BLENDER`.
 
 Desde una terminal **humana e interactiva** separada del agente, con Python del proyecto y tras revisar el modelo, ejecutar:
 
 ~~~powershell
-.\.venv\Scripts\python.exe -m carpinova_agent.native_export --approve-project "C:\RUTA\A\work\muebles\NOMBRE_PROYECTO" --approval-dir "C:\RUTA\A\work\configuracion-local\native-approvals"
+.\.venv\Scripts\python.exe -m carpinova_agent.native_export --approve-project "C:\RUTA\A\work\muebles\NOMBRE_PROYECTO" --approval-dir "$env:LOCALAPPDATA\CarpiNova\native-approvals"
 ~~~
 
 El comando presenta la ubicación del proyecto, cantidad de piezas, SHA-256 y el bloqueo de fabricación. **La persona debe escribir `AUTORIZO` seguido de los últimos ocho caracteres del SHA**. Solo así genera una autorización de uso único, ligada al proyecto y al hash, que vence en máximo quince minutos. La sexta herramienta comprueba y **consume** esa autorización antes de lanzar los programas. Si falla o vence, hay que aprobar nuevamente desde terminal humana. **Codex/AntiGravity no deben emitir ese archivo mediante sus herramientas de terminal**, pues perdería su propósito de límite confiable. La carpeta de aprobaciones debe tener permisos controlados por el operador; no es una firma criptográfica resistente a un proceso que ya tenga acceso de escritura a esa carpeta. Los tests GitHub crean aprobaciones simuladas únicamente como parte del *harness* controlado: no equivalen a la firma del propietario.

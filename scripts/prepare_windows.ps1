@@ -13,6 +13,18 @@ $python = Join-Path $venv "Scripts\python.exe"
 $requirements = Join-Path $repo "requirements-mcp.txt"
 $projects = Join-Path $work "muebles"
 $config = Join-Path $work "configuracion-local"
+# Host approvals must be outside the repo and review output. Native execution
+# remains disabled unless the owner explicitly opts in later.
+if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    throw "Windows necesita LOCALAPPDATA para aprobaciones externas."
+}
+$approvals = [System.IO.Path]::GetFullPath(
+    (Join-Path $env:LOCALAPPDATA "CarpiNova\native-approvals")
+)
+if ($approvals.StartsWith($repo + [System.IO.Path]::DirectorySeparatorChar,
+                          [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Las aprobaciones deben estar fuera del repositorio."
+}
 if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) {
     throw "Falta requirements-mcp.txt; clonar el repositorio completo."
 }
@@ -21,6 +33,12 @@ if (-not (Test-Path -LiteralPath $work)) {
 }
 if (-not (Test-Path -LiteralPath $projects)) {
     New-Item -ItemType Directory -Path $projects | Out-Null
+}
+if (-not (Test-Path -LiteralPath $approvals)) {
+    New-Item -ItemType Directory -Path $approvals -Force | Out-Null
+}
+if (-not (Test-Path -LiteralPath $approvals -PathType Container)) {
+    throw "Las aprobaciones requieren un directorio del operador."
 }
 if (-not $OutputRoot) {
     $OutputRoot = Join-Path $work ("preflight-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -74,6 +92,7 @@ function Escape-Toml([string]$value) {
 $tp = Escape-Toml $python
 $tr = Escape-Toml $repo
 $to = Escape-Toml $projects
+$ta = Escape-Toml $approvals
 $codex = @"
 [mcp_servers.carpinova]
 command = "$tp"
@@ -84,13 +103,18 @@ tool_timeout_sec = 60
 [mcp_servers.carpinova.env]
 PYTHONPATH = "$tr"
 CARPINOVA_OUTPUT_ROOT = "$to"
+CARPINOVA_NATIVE_APPROVAL_DIR = "$ta"
 "@
 $antigravity = @{
     mcpServers = @{
         carpinova = @{
             command = $python
             args = @("-m", "carpinova_agent.mcp_bridge")
-            env = @{ PYTHONPATH = $repo; CARPINOVA_OUTPUT_ROOT = $projects }
+            env = @{
+                PYTHONPATH = $repo
+                CARPINOVA_OUTPUT_ROOT = $projects
+                CARPINOVA_NATIVE_APPROVAL_DIR = $approvals
+            }
         }
     }
 } | ConvertTo-Json -Depth 8
@@ -100,15 +124,16 @@ $antigravityFile = Join-Path $config "antigravity-mcp.json.example"
 [System.IO.File]::WriteAllText($codexFile, $codex, $utf8)
 [System.IO.File]::WriteAllText($antigravityFile, $antigravity, $utf8)
 # Verify both client examples are PARSEABLE, exact-path configurations.
-$verify = "import json,pathlib,sys,tomllib; c=tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')); a=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')); x=c['mcp_servers']['carpinova']; y=a['mcpServers']['carpinova']; assert x['command']==y['command']==sys.argv[3]; assert x['env']['PYTHONPATH']==y['env']['PYTHONPATH']==sys.argv[4]; assert x['env']['CARPINOVA_OUTPUT_ROOT']==y['env']['CARPINOVA_OUTPUT_ROOT']==sys.argv[5]; assert x['args']==y['args']==['-m','carpinova_agent.mcp_bridge']"
-& $python -c $verify $codexFile $antigravityFile $python $repo $projects
+$verify = "import json,pathlib,sys,tomllib; c=tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')); a=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')); x=c['mcp_servers']['carpinova']; y=a['mcpServers']['carpinova']; assert x['command']==y['command']==sys.argv[3]; assert x['env']['PYTHONPATH']==y['env']['PYTHONPATH']==sys.argv[4]; assert x['env']['CARPINOVA_OUTPUT_ROOT']==y['env']['CARPINOVA_OUTPUT_ROOT']==sys.argv[5]; assert x['env']['CARPINOVA_NATIVE_APPROVAL_DIR']==y['env']['CARPINOVA_NATIVE_APPROVAL_DIR']==sys.argv[6]; assert x['args']==y['args']==['-m','carpinova_agent.mcp_bridge']; assert 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in x['env'] and 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in y['env']"
+& $python -c $verify $codexFile $antigravityFile $python $repo $projects $approvals
 if ($LASTEXITCODE -ne 0) { throw "Una configuración MCP generada es inválida." }
 # Preserve the actual resolved dependency graph as local rebuild evidence.
 $packages = @(& $python -m pip freeze)
 if ($LASTEXITCODE -ne 0) { throw "No se pudieron registrar versiones instaladas." }
 [System.IO.File]::WriteAllLines((Join-Path $OutputRoot "resolved-packages-windows.txt"), [string[]]$packages, $utf8)
-Write-Host "MCP_CLIENT_CONFIGS=PASS; TWO_FORMATS=PASS"
+Write-Host "MCP_CLIENT_CONFIGS=PASS; TWO_FORMATS=PASS; HOST_APPROVAL_DIR=CONFIGURED; NATIVE_EXECUTION=DISABLED"
 Write-Host "CARPINOVA_WINDOWS_PREFLIGHT=PASS; SIX_TOOLS=PASS; FABRICATION_AUTHORITY=NO"
 Write-Host "Evidence: $reportPath"
 Write-Host "Review IDE config examples: $config"
+Write-Host "Host approval directory (protect from agent writes): $approvals"
 Write-Host "OWNER_IDE_SESSION=NOT_CERTIFIED; WINDOWS_NATIVE_CAD=NOT_CERTIFIED"

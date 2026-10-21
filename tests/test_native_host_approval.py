@@ -95,6 +95,29 @@ class NativeHostApprovalTests(unittest.TestCase):
                       "--approval-dir", str(self.approvals)])
         self.assertEqual(list(self.approvals.iterdir()), [])
 
+    def test_valid_owner_terminal_issues_one_sha_bound_approval(self):
+        cad = json.loads((self.project / "cad-exchange.json").read_text(encoding="utf-8"))
+        answer = "AUTORIZO " + cad["geometry_sha256"][-8:]
+        with patch("sys.stdin") as terminal, patch("builtins.input", return_value=answer):
+            terminal.isatty.return_value = True
+            self.assertEqual(main(["--approve-project", str(self.project),
+                                   "--approval-dir", str(self.approvals)]), 0)
+        tickets = list(self.approvals.glob("native-*.json"))
+        self.assertEqual(len(tickets), 1)
+        approval = json.loads(tickets[0].read_text(encoding="utf-8"))
+        self.assertEqual(approval["project"], str(self.project.resolve()))
+        self.assertEqual(approval["geometry_sha256"], cad["geometry_sha256"])
+
+    def test_native_failure_consumes_approval_and_prevents_replay(self):
+        ticket = issue_native_approval(self.project, self.approvals)
+        with self.assertRaisesRegex(AssertionError, "must not have launched"):
+            self.attempt()
+        self.assertEqual(len(self.invocations), 1)
+        self.assertFalse(ticket.exists())
+        with self.assertRaisesRegex(NativeExportError, "aprobación local"):
+            self.attempt()
+        self.assertEqual(len(self.invocations), 1)
+
     def test_rejects_long_lived_approval(self):
         with self.assertRaisesRegex(NativeExportError, "Ventana"):
             issue_native_approval(self.project, self.approvals, ttl_seconds=3600)
