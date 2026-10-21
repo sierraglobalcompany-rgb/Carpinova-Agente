@@ -80,7 +80,7 @@ El Agente conserva las skills diseño, maestro, selección de herrajes y técnic
 
 | Comprobación | Estado |
 | --- | --- |
-| MCP con cliente auténtico, 5 herramientas | GREEN en Linux y Windows CI |
+| MCP con cliente auténtico, 6 herramientas | GREEN en Linux y Windows CI |
 | 456 pruebas Python y dos muebles de ejemplo en Windows | GREEN CI |
 | SVG, PNG, PDF, BOM y CADExchange coherentes | GREEN nominal |
 | FreeCAD/Blender Linux, archivos editables y PNG | GREEN CI, no QA visual humano |
@@ -99,6 +99,10 @@ Evidencias de referencia: [Windows y nativos](https://github.com/sierraglobalcom
 
 La nueva herramienta MCP `carpinova_exportar_3d(proyecto, confirmacion)` aprovecha los adaptadores existentes. Solo el **operador del host** puede definir `CARPINOVA_FREECADCMD` (ruta absoluta a FreeCADCmd.exe/freecadcmd), `CARPINOVA_BLENDER` (ruta absoluta a blender.exe/blender) y `CARPINOVA_NATIVE_EXECUTION_ENABLED=1`. Después de ver el proyecto revisado y dar autorización específica en el IDE, invocar con `confirmacion="AUTORIZO_EXPORTAR_BORRADOR_3D"`.
 
-Produce en `muebles/<proyecto>/native/` el paquete `native.FCStd`, `native.blend`, `presentation.blend`, `presentation.png`, `native-manifest.json` a partir del **mismo** `cad-exchange.json`; no reescribe el motor ni sobrescribe otro proyecto. Sin habilitación, confirmación, binarios válidos o geometría coherente, no ejecuta ni publica archivos. Nunca permite liberar compras, corte, perforaciones o fabricación; la cadena debe verificarse en CI nativo y después en Windows del propietario.
+Produce en `muebles/<proyecto>/native/` el paquete `native.FCStd`, `native.blend`, `presentation.blend`, `presentation.png`, `native-manifest.json` a partir del **mismo** `cad-exchange.json`; no reescribe el motor ni sobrescribe otro proyecto. Sin habilitación, confirmación, binarios válidos o geometría coherente, no ejecuta ni publica archivos. Nunca permite liberar compras, corte, perforaciones o fabricación. **Ya pasó** la prueba [MCP→FreeCAD/Blender nativo Linux con 4/13 piezas](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720); **aún requiere** aceptación del propietario en Windows.
 
 **Continuidad al cambiar de chat:** consultar [PROJECT_CONTINUITY_CURRENT.md](PROJECT_CONTINUITY_CURRENT.md) y los PR de GitHub, no un snapshot de conversación.
+
+### Evidencia exacta posterior a la exportación MCP→CAD
+
+Commit certificado del circuito completo: `ec139352c83d3d32def9d1421bcf83cf1ca8e2bc`, [Actions #39536762720](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) 3/3 jobs SUCCESS, 468 pruebas Windows, dos muebles nominales completos 2D y 3D. El job native llama a la **sexta herramienta MCP real**, no a scripts de geometría alternativos. FreeCADCmd Ubuntu utiliza el enlace a `freecadcmd-python3`, validado por su nombre de paquete, no un shell genérico. El propietario debe abrir los modelos y validar visualmente antes de cualquier avance a taller.

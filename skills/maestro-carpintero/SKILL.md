@@ -88,3 +88,5 @@ La biblioteca carpinova_agent.web_review.ReviewGate solo retiene temporalmente u
 
 ## MCP local del Agente y entregables (PR #16)
 El servidor `carpinova_agent.mcp_bridge` tiene **seis herramientas**: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d`, `carpinova_leer_entregable`. Los primeros métodos recuperan SVG, CSV, CADExchange y láminas 2D nominales; `carpinova_exportar_3d` únicamente ejecuta adaptadores FreeCAD/Blender existentes con binarios configurados en el host, `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` y confirmación `AUTORIZO_EXPORTAR_BORRADOR_3D`. Nunca aceptar comandos ni ejecutables del modelo. No implica fabricación. No hay instalación local certificada ni control remoto de FreeCAD/Blender. [Guía](../../docs/conectar-agente-codex-antigravity.md).
+
+**Checkpoint de ejecución real:** [CI del sexto tool](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) comprobó cliente MCP→FreeCADCmd→Blender→render con 4/13 piezas y hash compartido; no se ejecutó en PC del propietario ni se liberó fabricación.

@@ -1,3 +1,5 @@
+> **Documento histórico de F7B, no instrucción vigente de instalación.** Para el procedimiento único MCP con seis herramientas, exportación 2D/3D y gate de Windows, usar [la guía actual](conectar-agente-codex-antigravity.md) y el [checkpoint maestro](PROJECT_CONTINUITY_CURRENT.md). No instalar por este documento MCP externos sin auditoría.
+
 # Piloto local FreeCAD + Blender — sin fingir una sesión MCP
 
 **Estado 2026-10-19:** adaptadores escritos, contratos probados en CI de Python. **No hay FreeCAD/Blender ejecutados ni MCP conectados en este entorno.** Este manual prepara una validación humana/PC.
