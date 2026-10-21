@@ -2,6 +2,21 @@
 
 El cálculo de cada caja se realiza **una única vez** en `carpinova_agent.core.design({"type":"drawer", ...})` (F1). `carpinova_agent.drawer_modules.module_drawers` ubica físicamente los cinco paneles derivados, sin repetir ni modificar sus dimensiones. El modelo único continúa hacia `modular_bom_csv`, `modular_front_svg` y `cad_exchange`; FreeCAD y Blender solo consumen ese contrato.
 
+
+## Primer contacto: boceto identificado y editable (sin planos de corte)
+
+La consulta ya existente `carpinova_consultar(action=modular)` acepta opcionalmente `module_spec.type=drawer_layout_guide`: ancho, alto, fondo y `small_drawers=1..3`, sin pedir al principiante las alturas individuales ni las medidas de herrajes. La respuesta conserva `status=NEEDS_USER_CONFIRMATION`, cero piezas y las cuatro autorizaciones de fabricación en false. No hace falta conectar FreeCAD, Blender ni Knowledge para esta propuesta visual.
+
+A partir de la misma carcasa F1 devuelve `sketch_svg` (boceto frontal con cotas) y `sketch_text` (representación accesible), `element_refs` y `review_state`. Las letras **A/B/C/D** identifican cajones de arriba hacia abajo y se relacionan con los IDs F1 originales D4/D3/D2/D1; **T** identifica la tapa y **LI/LD** los laterales. Las etiquetas ayudan a pedir cambios, pero no son nuevos IDs de fabricación.
+
+Se admite `drawer_adjustments_mm={"A":100}` para «A 10 cm más alto». El alto exterior se conserva: `revisions` muestra el antes/después de **todos** los cajones afectados y diferencia cambios solicitados de redistribuciones automáticas. Una revisión posterior reutiliza `review_state`, no acumula errores de redondeo. `opening_heights_mm` permite que el mismo planificador F1 valide las alturas explícitas resultantes con cierre exacto; el F7C actual puede comparar esa propuesta mediante `drawer_layout_reference` cuando todas las decisiones físicas estén aprobadas.
+
+`top_overhang_left_mm`/`top_overhang_right_mm` representan un eventual saliente de la tapa **solo a nivel gráfico**: F1 aún no calcula una tapa estructural sobresaliente. Su representación punteada, `unvalidated_top_extension=true` y el bloqueo evitan que se convierta silenciosamente en despiece. `opening_systems` admite `handle`, `finger_pull`, `push_to_open`, `profile` o `pending` con pictogramas genéricos. El dibujo no aporta SKU, ranuras, mecanismos ni taladros.
+
+**Apoyos e instalación contra muro en el boceto:** `support_style=floor_direct|legs|plinth|wall_mounted`, `support_height_mm` para patas/zócalo. El alto exterior total solicitado se conserva: `carcass_height_mm=height_mm-support_height_mm`; F1 recalcula las aberturas del cuerpo. `wall_contact` y `wall_fixing=pending|french_cleat|direct_fasteners|rail_hangers|none` distinguen apoyado contra pared de suspendido. `wall_bottom_above_floor_mm` sitúa un suspendido respecto al suelo sin incrementar la altura física del mueble. `back_style=pending|none|thin_sheet|full_panel|two_strips` y `back_thickness_mm` ofrecen fondo posterior (FP) distinto de la tapa T; 2 mm en lámina fina es **un ejemplo exclusivamente ilustrativo**, no verificación estructural. Referencias AP=apoyo, MF=interfaz de muro, FP=fondo posterior. La representación no habilita patas, fijaciones, anclajes ni paneles posteriores reales en F7C; las banderas siguen false y faltan cargas, tipo de pared, ficha de fijación y acceso a instalaciones.
+
+**Instrucción de uso:** enseñar primero el dibujo (o la versión textual accesible), preguntar «¿qué cambiarías?» con las letras visibles y luego tratar materiales, soportes y herrajes. Ningún boceto guiado genera SVG de despiece, CSV, CAD nativo ni geometría liberada hasta superar las validaciones F7C que correspondan.
+
 ## Entrada por módulo
 
 `module.drawers` es opcional y puede valer `"none"`, `"pending"` o una lista de 1 a 4 cajones. Cada entrada exige, sin defaults:

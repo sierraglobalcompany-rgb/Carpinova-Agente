@@ -15,7 +15,7 @@ from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 
 from .intake import guide_project
 from .modular import design_modular_run
-from .drawer_modules import propose_drawer_layout
+from .drawer_modules import propose_drawer_layout, guide_drawer_layout
 from .construction_advice import construction_advice
 
 
@@ -126,12 +126,28 @@ def consult_maestro(
             )
     if action == "modular":
         spec = inp["module_spec"]
-        modular = (propose_drawer_layout(spec)
-                   if spec.get("type") == "drawer_layout_proposal"
-                   else design_modular_run(spec))
+        modular = (
+            guide_drawer_layout(spec)
+            if spec.get("type") == "drawer_layout_guide"
+            else propose_drawer_layout(spec)
+            if spec.get("type") == "drawer_layout_proposal"
+            else design_modular_run(spec)
+        )
         result["modular"] = modular
         result["blockers"].extend(modular["blockers"])
-        if modular["status"] == "NEEDS_USER_CONFIRMATION":
+        if modular["status"] == "NEEDS_USER_CONFIRMATION" and modular.get("guided"):
+            result["questions"].append({
+                "field": "module_spec.proposed_layout_spec",
+                "question": (
+                    "¿Te gusta este boceto como primera idea? "
+                    "Puedes decir 'A más alto', 'pon patas de 10 cm', "
+                    "'T más ancha' o 'quiero colgarlo en muro'. "
+                    "Después revisamos fondo FP, herrajes y materiales."
+
+                ),
+                "unit": "simple_confirmation",
+            })
+        elif modular["status"] == "NEEDS_USER_CONFIRMATION":
             result["questions"].extend([
                 {
                     "field": "module_spec.drawer_weights",
@@ -145,8 +161,8 @@ def consult_maestro(
                 {
                     "field": "module_spec.vertical_gap_mm",
                     "question": (
-                        "¿Confirmas esta separación nominal entre "
-                        "frentes o quieres revisarla?"
+                        "¿Confirmas la franja nominal entre aberturas "
+                        "(no entre frentes ni un divisor) o quieres cambiarla?"
                     ),
                     "unit": "mm",
                 },

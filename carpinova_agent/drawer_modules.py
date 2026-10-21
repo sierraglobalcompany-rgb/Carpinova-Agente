@@ -301,7 +301,7 @@ def module_drawers(drawers: Any, *, module_id: str,
 DRAWER_LAYOUT_FIELDS = frozenset({
     "type", "width_mm", "height_mm", "depth_mm",
     "panel_thickness_mm", "construction", "vertical_gap_mm",
-    "drawer_weights",
+    "drawer_weights", "opening_heights_mm",
 })
 
 
@@ -312,7 +312,9 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
     chat client can *suggest* [1, 1, 1, 2] for three small/one larger, but
     MUST show/confirm that interpretation before producing geometry.
     """
-    if type(spec) is not dict or set(spec) != DRAWER_LAYOUT_FIELDS:
+    required = DRAWER_LAYOUT_FIELDS - {"opening_heights_mm"}
+    if (type(spec) is not dict or not required.issubset(spec)
+            or set(spec) - DRAWER_LAYOUT_FIELDS):
         raise DesignError("drawer_layout_proposal: campos requeridos/desconocidos; "
                           "ancho, alto, fondo, tablero, construcción, separación y pesos.")
     if spec["type"] != "drawer_layout_proposal":
@@ -339,13 +341,17 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
     # Largest remainders apportion indivisible millimetres fairly instead
     # of loading ALL rounding residue into the last (often largest) drawer.
     # Stable index order breaks equal fractional remainders; integer-only.
-    total = sum(weights)
-    heights = [space * w // total for w in weights]
-    extra = space - sum(heights)
-    ranked = sorted(range(len(weights)),
-                    key=lambda i: (-(space * weights[i] % total), i))
-    for index in ranked[:extra]:
-        heights[index] += 1
+    heights = _apportion_nominal(space, weights)
+    if "opening_heights_mm" in spec:
+        explicit = spec["opening_heights_mm"]
+        if (type(explicit) is not list or len(explicit) != len(weights)
+                or any(type(v) is not int or v <= 0 for v in explicit)
+                or sum(explicit) != space):
+            raise DesignError(
+                "Alturas ajustadas inválidas: deben ser enteros positivos "
+                "y cerrar exactamente el hueco F1 con las franjas."
+            )
+        heights = list(explicit)
     if min(heights) <= 0:
         raise DesignError("La distribución deja una abertura sin altura positiva.")
     openings: list[dict[str, int | str]] = []
@@ -359,7 +365,7 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
         cursor += height + (gap if index < len(heights) else 0)
     if cursor != clear_height:
         raise DesignError("Error de integridad: alturas y separaciones no cierran.")
-    return {
+    result = {
         "schema_version": "0.1.0",
         "type": "drawer_layout_proposal",
         "status": "NEEDS_USER_CONFIRMATION",
@@ -374,6 +380,8 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
         "clear_height_mm": clear_height,
         "vertical_gap_mm": gap,
         "drawer_weights": list(weights),
+        "layout_source": ("EXPLICIT_HEIGHTS" if "opening_heights_mm" in spec
+                          else "PROPORTIONAL_WEIGHTS"),
         "opening_plan": openings,
         "depth_scope": "CARCASS_ONLY_UNTIL_FACADE_SELECTED",
         "assembled_external_depth_mm": None,
@@ -393,3 +401,572 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
             "de carcasa, sin espesor de fachada.",
         ],
     }
+    result["sketch_svg"] = drawer_layout_sketch_svg(result)
+    result["sketch_text"] = drawer_layout_sketch_text(result)
+    return result
+
+
+
+# Persistent human labels are top-to-bottom A, B, C, D.
+# F1's D1..D4 remain bottom-to-top internal IDs and are never renamed.
+OPENING_CHOICES = frozenset({
+    "pending", "handle", "push_to_open", "finger_pull", "profile",
+})
+CHOICE_LABELS = {
+    "pending": "por elegir",
+    "handle": "manija (indicativa)",
+    "push_to_open": "presión (indicativa)",
+    "finger_pull": "uñero (indicativo)",
+    "profile": "perfil (indicativo)",
+}
+SUPPORT_LABELS = {
+    "floor_direct": "sin patas (al piso)", "legs": "patas",
+    "plinth": "zócalo/banqueo", "wall_mounted": "suspendido",
+}
+WALL_LABELS = {
+    "pending": "fijación por decidir", "none": "sin fijación",
+    "french_cleat": "listón francés", "direct_fasteners": "fijación directa",
+    "rail_hangers": "riel con colgadores",
+}
+BACK_LABELS = {
+    "pending": "por decidir", "none": "sin fondo",
+    "thin_sheet": "lámina delgada", "full_panel": "fondo completo",
+    "two_strips": "dos franjas",
+}
+
+
+
+def _sketch_mm(value: int | None) -> str:
+    return "por definir" if value is None else f"{value} mm"
+
+
+def _annotated_openings(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [(chr(65 + i), item)
+            for i, item in enumerate(reversed(plan["opening_plan"]))]
+
+
+def _guide_ref_map(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    styles = plan.get("opening_systems", {})
+    return [
+        {
+            "ref": label,
+            "engine_id": opening["drawer_id"],
+            "kind": "drawer",
+            "nominal_opening_height_mm": opening["opening_height_mm"],
+            "opening_bottom_offset_mm": opening["opening_bottom_offset_mm"],
+            "opening_system_intent": styles.get(label, "pending"),
+        }
+        for label, opening in _annotated_openings(plan)
+    ] + [
+        {"ref": "T", "kind": "top_panel",
+         "concept_overhang_left_mm": plan.get("top_overhang_left_mm", 0),
+         "concept_overhang_right_mm": plan.get("top_overhang_right_mm", 0)},
+        {"ref": "LI", "kind": "left_side"},
+        {"ref": "LD", "kind": "right_side"},
+        {"ref": "AP", "kind": "floor_support",
+         "style": plan.get("support_style", "floor_direct"),
+         "concept_height_mm": plan.get("support_height_mm", 0)},
+        {"ref": "FP", "kind": "rear_back",
+         "style": plan.get("back_style", "pending"),
+         "concept_thickness_mm": plan.get("back_thickness_mm")},
+        {"ref": "MF", "kind": "wall_interface",
+         "against_wall": plan.get("wall_contact", False),
+         "fixing": plan.get("wall_fixing", "pending")},
+    ]
+
+
+def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
+    dims = plan["external_dimensions_mm"]
+    refs = _guide_ref_map(plan)
+    rows = [
+        "BOCETO IDENTIFICADO · PROPUESTA, NO CORTAR",
+        f"Ancho de carcasa {dims['width']} mm × alto {dims['height']} mm; "
+        f"fondo de carcasa {dims['depth']} mm",
+        "T = tapa superior (solo esquema; LI = lateral izquierdo, LD = derecho)",
+        "ARRIBA",
+    ]
+    for item in refs:
+        if item["kind"] == "drawer":
+            large = item["nominal_opening_height_mm"] == max(
+                opening["opening_height_mm"] for opening in plan["opening_plan"]
+            ) and len({opening["opening_height_mm"]
+                       for opening in plan["opening_plan"]}) > 1
+            rows.append(
+                f"[ {item['ref']} = {item['engine_id']} · "
+                f"{'gaveta' if large else 'cajón'} · "
+                f"{item['nominal_opening_height_mm']} mm · "
+                f"{CHOICE_LABELS[item['opening_system_intent']]} ]"
+            )
+    rows.append("ABAJO")
+    rows.append(
+        f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}, "
+        f"{plan.get('support_height_mm', 0)} mm "
+        f"{'(sugeridos)' if plan.get('support_height_is_suggestion') else ''}; "
+        f"carcasa {dims['height']} mm; "
+        f"alto total {plan.get('overall_height_mm', dims['height'])} mm."
+    )
+    rows.append(
+        f"MF: muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
+        f"{WALL_LABELS[plan.get('wall_fixing', 'pending')]}; altura sobre piso "
+        f"{_sketch_mm(plan.get('wall_bottom_above_floor_mm', 0))}."
+    )
+    rows.append(
+        f"FP: fondo posterior {BACK_LABELS[plan.get('back_style', 'pending')]}; "
+        f"espesor ilustrativo {_sketch_mm(plan.get('back_thickness_mm'))}."
+    )
+    rows.append(
+        f"T sobresale a izquierda/derecha: "
+        f"{plan.get('top_overhang_left_mm', 0)} / "
+        f"{plan.get('top_overhang_right_mm', 0)} mm; "
+        "no está resuelto en la carcasa F1."
+    )
+    rows.append(
+        f"Franjas internas de {plan['vertical_gap_mm']} mm: "
+        "NO son divisores ni holguras visibles."
+    )
+    rows.append("Sin herrajes ni frentes fabricables. El dibujo es modificable.")
+    return "\n".join(rows)
+
+
+def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
+    """Annotated review SVG; all opening coordinates originate in F1."""
+    dims = plan["external_dimensions_mm"]
+    width, height = dims["width"], dims["height"]
+    t = plan["panel_thickness_mm"]
+    ext_l = plan.get("top_overhang_left_mm", 0)
+    ext_r = plan.get("top_overhang_right_mm", 0)
+    overall_height = plan.get("overall_height_mm", height)
+    support_h = plan.get("support_height_mm", 0)
+    scale = min(255 / (width + ext_l + ext_r), 380 / overall_height)
+    left, top = 128.0 + ext_l * scale, 104.0
+    w, h = width * scale, height * scale
+    inner_l, inner_t = left + t * scale, top + t * scale
+    inner_w = (width - 2 * t) * scale
+    marks: list[str] = []
+    for label, opening in _annotated_openings(plan):
+        y = inner_t + (
+            plan["clear_height_mm"]
+            - opening["opening_bottom_offset_mm"]
+            - opening["opening_height_mm"]
+        ) * scale
+        ph = opening["opening_height_mm"] * scale
+        large = (opening["opening_height_mm"] ==
+                 max(item["opening_height_mm"]
+                     for item in plan["opening_plan"])
+                 and len({item["opening_height_mm"]
+                          for item in plan["opening_plan"]}) > 1)
+        kind = "GAVETA" if large else "CAJÓN"
+        choice = plan.get("opening_systems", {}).get(label, "pending")
+        marks.append(
+            f'<rect x="{inner_l:.2f}" y="{y:.2f}" '
+            f'width="{inner_w:.2f}" height="{ph:.2f}" '
+            f'fill="{"#d4e7e5" if large else "#e8edf4"}" '
+            'stroke="#62768b" stroke-width="1.5"/>'
+            f'<text x="{inner_l+9:.2f}" y="{y+ph/2+5:.2f}" '
+            'class="ref">'
+            f'{label}</text>'
+            f'<path d="M {inner_l+inner_w:.2f} {y+ph/2:.2f} '
+            f'L 449 {y+ph/2:.2f}" stroke="#738496" '
+            'stroke-dasharray="4 3"/>'
+            f'<text x="457" y="{y+ph/2-3:.2f}" class="dimension">'
+            f'{label} ({opening["drawer_id"]}) · {kind} '
+            f'{opening["opening_height_mm"]} mm</text>'
+            f'<text x="457" y="{y+ph/2+17:.2f}" class="small">'
+            f'{CHOICE_LABELS[choice]}</text>'
+        )
+        if choice == "handle":
+            # Tiny handle symbol, not a real SKU or drill location.
+            mx = inner_l + inner_w / 2
+            marks.append(
+                f'<path d="M {mx-11:.2f} {y+ph/2+5:.2f} '
+                f'L {mx+11:.2f} {y+ph/2+5:.2f}" '
+                'stroke="#43556c" stroke-width="3"/>'
+            )
+        elif choice == "finger_pull":
+            marks.append(
+                f'<path d="M {inner_l+inner_w/2-9:.2f} {y+4:.2f} '
+                f'Q {inner_l+inner_w/2:.2f} {y+15:.2f} '
+                f'{inner_l+inner_w/2+9:.2f} {y+4:.2f}" '
+                'fill="none" stroke="#43556c" stroke-width="2"/>'
+            )
+        elif choice == "profile":
+            marks.append(
+                f'<line x1="{inner_l+2:.2f}" y1="{y+6:.2f}" '
+                f'x2="{inner_l+inner_w-2:.2f}" y2="{y+6:.2f}" '
+                'stroke="#43556c" stroke-width="3"/>'
+            )
+        elif choice == "push_to_open":
+            marks.append(
+                f'<text x="{inner_l+inner_w/2:.2f}" y="{y+ph/2+5:.2f}" '
+                'class="small" text-anchor="middle">PUSH</text>'
+            )
+    style = plan.get("support_style", "floor_direct")
+    support_marks = ""
+    if style == "legs":
+        leg_h, leg_w = support_h * scale, min(w * 0.15, 20)
+        support_marks = (
+            f'<rect x="{left+12:.2f}" y="{top+h:.2f}" '
+            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<rect x="{left+w-12-leg_w:.2f}" y="{top+h:.2f}" '
+            f'width="{leg_w:.2f}" height="{leg_h:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<text x="{left+w+18:.2f}" y="{top+h+leg_h/2:.2f}" '
+            'class="small">AP patas (idea)</text>'
+        )
+    elif style == "plinth":
+        support_marks = (
+            f'<rect x="{left+8:.2f}" y="{top+h:.2f}" '
+            f'width="{w-16:.2f}" height="{support_h*scale:.2f}" '
+            'fill="#ead3ba" stroke="#836a56"/>'
+            f'<text x="{left+w+18:.2f}" '
+            f'y="{top+h+support_h*scale/2:.2f}" '
+            'class="small">AP zócalo (idea)</text>'
+        )
+    elif style == "wall_mounted":
+        support_marks = (
+            f'<path d="M {left-12:.2f} {top:.2f} '
+            f'L {left-12:.2f} {top+h:.2f}" '
+            'stroke="#ba8868" stroke-dasharray="5 4" stroke-width="4"/>'
+            f'<text x="{left+w+18:.2f}" y="{top+h-12:.2f}" '
+            'class="small">MF muro (idea)</text>'
+        )
+    top_extension = ""
+    if ext_l or ext_r:
+        top_extension = (
+            f'<rect x="{left-ext_l*scale:.2f}" y="{top:.2f}" '
+            f'width="{w+(ext_l+ext_r)*scale:.2f}" height="{t*scale:.2f}" '
+            'fill="#fbdfb2" stroke="#9c672c" stroke-width="2" '
+            'stroke-dasharray="5 3"/>'
+        )
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'width="820" height="750" viewBox="0 0 820 750" '
+        'role="img" aria-label="Boceto frontal etiquetado de cajones '
+        'y componentes, sujeto a revisión">'
+        '<style>text{font-family:Arial,sans-serif;fill:#253446}'
+        '.title{font-size:20px;font-weight:bold}'
+        '.dimension{font-size:15px}.small{font-size:12px}'
+        '.ref{font-size:19px;font-weight:bold}'
+        '.note{font-size:13px;fill:#556577}</style>'
+        '<rect width="820" height="750" rx="12" fill="#fafbfc"/>'
+        '<text x="28" y="32" class="title">Tu mueble, por piezas identificadas</text>'
+        '<text x="28" y="55" class="note">Di: “sube el cajón A 10 cm” '
+        'o “haz que T sobresalga a ambos lados”.</text>'
+        f'<rect x="{left:.2f}" y="{top:.2f}" width="{w:.2f}" '
+        f'height="{h:.2f}" fill="#f5f7f9" '
+        'stroke="#354657" stroke-width="3"/>'
+        + top_extension
+        + support_marks
+        + "".join(marks)
+        + f'<text x="{left+w/2:.2f}" y="{top-16:.2f}" '
+          'class="dimension" text-anchor="middle">'
+          f'T · TAPA · {width+ext_l+ext_r} mm</text>'
+        + f'<text x="36" y="{top+h/2:.2f}" class="dimension" '
+          f'transform="rotate(-90 36 {top+h/2:.2f})" '
+          'text-anchor="middle">'
+          f'ALTO {overall_height} mm</text>'
+        + f'<text x="{left-25:.2f}" y="{top+h/2:.2f}" '
+          'class="ref">LI</text>'
+        + f'<text x="{left+w+8:.2f}" y="{top+h-14:.2f}" '
+          'class="ref">LD</text>'
+        + f'<text x="30" y="503" class="note">'
+          f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
+          f'AP: {SUPPORT_LABELS[style]} {support_h} mm '
+          f'{"(sugeridos)" if plan.get("support_height_is_suggestion") else ""}.</text>'
+        + f'<text x="30" y="524" class="note">'
+          f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}, '
+          f'elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm", 0))}; '
+          f'FP: {BACK_LABELS[plan.get("back_style", "pending")]} '
+          f'({_sketch_mm(plan.get("back_thickness_mm"))}).</text>'
+        + f'<text x="30" y="547" class="note">'
+          f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
+          '(solo idea, NO calculado como panel).</text>'
+        + f'<text x="30" y="570" class="note">'
+          f'Franjas internas: {plan["vertical_gap_mm"]} mm; '
+          'no son espacios entre frentes ni divisores.</text>'
+        + '<text x="30" y="596" class="note">'
+          'Opciones de apertura: símbolos conceptuales, no herrajes reales.</text>'
+        + '<g stroke="#68778a" fill="none" stroke-width="1.5">'
+          '<rect x="32" y="611" width="182" height="80" rx="9"/>'
+          '<rect x="221" y="611" width="182" height="80" rx="9"/>'
+          '<rect x="410" y="611" width="182" height="80" rx="9"/>'
+          '<rect x="599" y="611" width="182" height="80" rx="9"/>'
+          '<path d="M 95 641 L 150 641" stroke-width="4"/>'
+          '<path d="M 275 628 Q 311 656 347 628" />'
+          '<path d="M 466 641 L 537 641 M 528 633 L 537 641 L 528 649"/>'
+          '<path d="M 652 627 L 725 627" stroke-width="5"/>'
+          '</g>'
+        + '<text x="123" y="677" text-anchor="middle" class="small">Manija</text>'
+        + '<text x="312" y="677" text-anchor="middle" class="small">Uñero</text>'
+        + '<text x="501" y="677" text-anchor="middle" class="small">Presión</text>'
+        + '<text x="690" y="677" text-anchor="middle" class="small">Perfil</text>'
+        + '<text x="30" y="726" class="note">'
+          'BOCETO · NO CORTAR, TALADRAR NI COMPRAR.</text></svg>'
+    )
+
+
+DRAWER_GUIDE_FIELDS = frozenset({
+    "type", "width_mm", "height_mm", "depth_mm", "small_drawers",
+    "large_drawer_position", "drawer_adjustments_mm",
+    "top_overhang_left_mm", "top_overhang_right_mm", "opening_systems",
+    "support_style", "support_height_mm", "wall_contact", "wall_fixing",
+    "wall_bottom_above_floor_mm", "back_style", "back_thickness_mm",
+})
+
+
+def _apportion_nominal(remaining: int, weights: list[int]) -> list[int]:
+    """Exact integer distribution; same largest-remainder rule as F1 plan."""
+    if not weights:
+        if remaining != 0:
+            raise DesignError("Las modificaciones alteran la altura total; falta compensación.")
+        return []
+    if remaining < len(weights):
+        raise DesignError("Las modificaciones dejan algún cajón sin altura suficiente.")
+    total = sum(weights)
+    result = [remaining * w // total for w in weights]
+    residue = remaining - sum(result)
+    ranked = sorted(range(len(weights)),
+                    key=lambda i: (-(remaining * weights[i] % total), i))
+    for i in ranked[:residue]:
+        result[i] += 1
+    if min(result) <= 0:
+        raise DesignError("La nueva proporción deja una abertura sin altura.")
+    return result
+
+
+def guide_drawer_layout(spec: Any) -> dict[str, Any]:
+    """Revisable concept only; never silently turn decisions into CAD.
+
+    A-D label openings top-to-bottom, whereas F1 D1-D4 remain bottom-to-top.
+    All parameters except dimensions, count and explicitly requested edits are
+    EXAMPLE assumptions. Revisions must show affected other drawers.
+    """
+    if (type(spec) is not dict or spec.get("type") != "drawer_layout_guide"
+            or set(spec) - DRAWER_GUIDE_FIELDS
+            or not {"type", "width_mm", "height_mm", "depth_mm",
+                    "small_drawers"}.issubset(spec)):
+        raise DesignError(
+            "Boceto guiado: ancho, alto, fondo y cantidad de cajones pequeños."
+        )
+    n = spec["small_drawers"]
+    if type(n) is not int or not 1 <= n <= 3:
+        raise DesignError("small_drawers debe ser entero entre 1 y 3.")
+    position = spec.get("large_drawer_position", "bottom")
+    if position not in ("bottom", "top"):
+        raise DesignError("La gaveta grande va arriba o abajo.")
+    refs = [chr(65 + i) for i in range(n + 1)]
+    adjustments = spec.get("drawer_adjustments_mm", {})
+    if (type(adjustments) is not dict
+            or any(ref not in refs or type(delta) is not int
+                   or not -2000 <= delta <= 2000
+                   for ref, delta in adjustments.items())):
+        raise DesignError(
+            "Modificaciones: usar letras de los cajones y milímetros enteros "
+            "con signo. Ejemplo A +100, B -100."
+        )
+    choices = spec.get("opening_systems", {})
+    if (type(choices) is not dict
+            or any(ref not in refs or type(option) is not str
+                   or option not in OPENING_CHOICES
+                   for ref, option in choices.items())):
+        raise DesignError(
+            "Sistemas de apertura: usar A-D y pending/handle/"
+            "push_to_open/finger_pull/profile. Aún no especifican herrajes."
+        )
+    left = spec.get("top_overhang_left_mm", 0)
+    right = spec.get("top_overhang_right_mm", 0)
+    if any(type(value) is not int or not 0 <= value <= 200
+           for value in (left, right)):
+        raise DesignError(
+            "Saliente de tapa T: indicar en mm entre 0 y 200 para "
+            "izquierda/derecha (solo concepto)."
+        )
+    support_style = spec.get("support_style", "floor_direct")
+    if support_style not in ("floor_direct", "legs", "plinth", "wall_mounted"):
+        raise DesignError(
+            "Apoyo: piso, patas, zócalo/banqueo o suspendido contra pared."
+        )
+    support_height_suggested = (
+        "support_height_mm" not in spec
+        and support_style in ("legs", "plinth")
+    )
+    sh = spec.get("support_height_mm", 100 if support_height_suggested else 0)
+    if (type(sh) is not int or sh < 0
+            or (support_style in ("legs", "plinth") and sh == 0)
+            or (support_style in ("floor_direct", "wall_mounted") and sh != 0)):
+        raise DesignError("Patas/zócalo: altura positiva; "
+                          "sin soporte o suspendido usa 0 mm.")
+    overall_h = spec["height_mm"]
+    if type(overall_h) is not int or overall_h - sh <= 36:
+        raise DesignError("El apoyo deja una carcasa sin altura suficiente.")
+    wall_contact = spec.get("wall_contact", support_style == "wall_mounted")
+    if type(wall_contact) is not bool or (support_style == "wall_mounted"
+                                          and not wall_contact):
+        raise DesignError("Un suspendido necesita muro declarado.")
+    wall_fixing = spec.get("wall_fixing", "pending")
+    if wall_fixing not in ("pending", "french_cleat", "direct_fasteners",
+                           "rail_hangers", "none"):
+        raise DesignError("Muro: listón francés, fijación directa, "
+                          "riel, pendiente o ninguna.")
+    if ((not wall_contact and wall_fixing not in ("pending", "none"))
+            or (support_style == "wall_mounted" and wall_fixing == "none")):
+        raise DesignError("No se especifica fijación sin muro "
+                          "ni se deja un suspendido sin fijación.")
+    wall_h = spec.get(
+        "wall_bottom_above_floor_mm",
+        None if support_style == "wall_mounted" else 0
+    )
+    if ((wall_h is not None and (type(wall_h) is not int or wall_h < 0))
+            or (support_style != "wall_mounted" and wall_h != 0)):
+        raise DesignError("Altura sobre piso es exclusiva del suspendido.")
+    back_style = spec.get("back_style", "pending")
+    if back_style not in ("pending", "none", "thin_sheet", "full_panel",
+                          "two_strips"):
+        raise DesignError("Fondo posterior: pendiente, ninguno, lámina fina, "
+                          "panel completo o dos franjas.")
+    back_t = spec.get("back_thickness_mm")
+    if back_t is not None and (type(back_t) is not int
+                              or not 1 <= back_t <= 50):
+        raise DesignError("Espesor del fondo posterior inválido.")
+    if back_style in ("none", "pending") and back_t is not None:
+        raise DesignError("Un fondo inexistente/pendiente no tiene espesor.")
+    if back_style == "thin_sheet" and back_t is None:
+        back_t = 2  # illustrative only, not a structural assumption.
+    weights = ([2] + [1] * n if position == "bottom"
+               else [1] * n + [2])
+    proposed = {
+        "type": "drawer_layout_proposal",
+        "width_mm": spec["width_mm"],
+        "height_mm": overall_h - sh,
+        "depth_mm": spec["depth_mm"],
+        "panel_thickness_mm": 18,
+        "construction": "sides_full",
+        "vertical_gap_mm": 28,
+        "drawer_weights": weights,
+    }
+    base = propose_drawer_layout(proposed)
+    base_top = [x["opening_height_mm"]
+                for x in reversed(base["opening_plan"])]
+    if adjustments and any(adjustments.values()):
+        fixed = {refs.index(ref): base_top[refs.index(ref)] + delta
+                 for ref, delta in adjustments.items()
+                 if delta != 0}
+        if any(height <= 0 for height in fixed.values()):
+            raise DesignError("El cambio solicitado deja un cajón sin altura.")
+        free = [i for i in range(len(refs)) if i not in fixed]
+        remaining = sum(base_top) - sum(fixed.values())
+        assigned = _apportion_nominal(remaining, [base_top[i] for i in free])
+        heights = [0] * len(refs)
+        for i, height in fixed.items():
+            heights[i] = height
+        for i, height in zip(free, assigned):
+            heights[i] = height
+        # Pass exact heights back through the existing F1 proposal validation.
+        proposed["opening_heights_mm"] = list(reversed(heights))
+        result = propose_drawer_layout(proposed)
+    else:
+        result = base
+    new_top = [x["opening_height_mm"]
+               for x in reversed(result["opening_plan"])]
+    revisions = [
+        {
+            "ref": ref,
+            "before_mm": old, "after_mm": new,
+            "delta_mm": new - old,
+            "cause": ("USER_REQUESTED" if adjustments.get(ref, 0) != 0
+                      else "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL_HEIGHT"),
+        }
+        for ref, old, new in zip(refs, base_top, new_top) if old != new
+    ]
+    result.update({
+        "type": "drawer_layout_guide",
+        "guided": True,
+        "opening_systems": dict(choices),
+        "top_overhang_left_mm": left,
+        "top_overhang_right_mm": right,
+        "unvalidated_top_extension": bool(left or right),
+        "revisions": revisions,
+        "proposed_layout_spec": proposed,
+        "review_state": dict(spec),
+        "suggestions_not_confirmed": {
+            "panel_thickness_mm": 18, "construction": "sides_full",
+            "vertical_gap_mm": 28, "drawer_weights": list(weights),
+            "large_drawer_position": position,
+            "support_style": support_style,
+            "support_height_mm": sh if support_height_suggested else None,
+            "wall_fixing": wall_fixing if "wall_fixing" not in spec else None,
+            "back_thickness_mm": back_t if back_style == "thin_sheet"
+                and "back_thickness_mm" not in spec else None,
+        },
+        "can_generate_f7c": False,
+        "overall_height_mm": overall_h,
+        "carcass_height_mm": overall_h - sh,
+        "support_style": support_style,
+        "support_height_mm": sh,
+        "support_height_is_suggestion": support_height_suggested,
+        "wall_contact": wall_contact,
+        "wall_fixing": wall_fixing,
+        "wall_bottom_above_floor_mm": wall_h,
+        "back_style": back_style,
+        "back_thickness_mm": back_t,
+        "unvalidated_support": support_style in ("legs", "plinth", "wall_mounted"),
+        "unvalidated_mounting": wall_contact,
+        "unvalidated_back_panel": back_style not in ("none", "pending"),
+    })
+    result["element_refs"] = _guide_ref_map(result)
+    result["sketch_text"] = drawer_layout_sketch_text(result)
+    result["sketch_svg"] = drawer_layout_sketch_svg(result)
+    result["human_summary"] = (
+        f"Te propongo {n} cajones pequeños y una gaveta grande "
+        + ("abajo" if position == "bottom" else "arriba")
+        + ". Identifiqué A-D (arriba hacia abajo), T (tapa), LI/LD "
+          "(laterales). Puedes pedirme «A 10 cm más alto» o «T sobresale "
+          "5 cm»; te mostraré cómo afecta a las demás piezas. "
+          "Puedes escoger piso, patas, zócalo o muro con fondo opcional; "
+          "AP/MF/FP son partes identificadas solo para conversar. "
+          "Los 18 mm de tablero y 28 mm de franjas internas son "
+          "supuestos, no especificaciones."
+    )
+    result["blockers"].insert(
+        0, "Boceto editable, NO plano de despiece: confirmar cada opción "
+           "técnica antes de crear piezas, incluidos apoyos/muro/fondos."
+    )
+    if support_height_suggested:
+        result["blockers"].insert(
+            1, "Altura AP 100 mm es un ejemplo no solicitado; la persona "
+               "debe decidir si quiere esa altura."
+        )
+    if support_style == "wall_mounted" and wall_h is None:
+        result["blockers"].insert(
+            1, "La altura inferior sobre el suelo NO se ha definido; "
+               "no usar cero como altura de instalación."
+        )
+    if support_style in ("legs", "plinth", "wall_mounted"):
+        result["blockers"].insert(
+            1, "Apoyo AP solo visual: patas, banqueo y suspensión NO tienen "
+               "piezas resistentes ni fijaciones modeladas en F1/F7C."
+        )
+    if wall_contact:
+        result["blockers"].insert(
+            1, "MF contra muro: no hay verificación de tipo de pared, cargas, "
+               "listón francés, fijación directa ni rieles."
+        )
+    if back_style not in ("none", "pending"):
+        result["blockers"].insert(
+            1, "FP fondo posterior solo orientativo: confirmar material, "
+               "espesor, acceso a instalaciones y fijación. Una lámina "
+               "de 2 mm NO acredita arriostramiento estructural."
+        )
+    if revisions:
+        result["blockers"].insert(
+            1, "Las medidas modificadas redistribuyeron la altura de los "
+               "cajones no fijados; revisar TODOS los cambios de revisions."
+        )
+    if left or right:
+        result["blockers"].insert(
+            1, "Voladizo de T SOLO ilustrado: el motor F1 actual no "
+               "modela tapa saliente ni ha validado su soporte/rigidez. "
+               "No convertir este boceto directamente en F7C."
+        )
+    return result
