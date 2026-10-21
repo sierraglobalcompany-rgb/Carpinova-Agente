@@ -5,7 +5,7 @@
 ## 1. Identidad y evidencia exacta
 
 - **Repositorio y fuente de reconstrucción:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama **main**, no PRs históricos.
-- **Integración funcional:** [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) **MERGED**. Commit de merge en main: `7420940843649bf2c0939bcb36167b98be27dd79`; HEAD funcional probado antes del merge: `db5336783d9426b6e3b73a44f4234266bfc2ba56`.
+- **Integración funcional:** [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) **MERGED**, con documentación normalizada después en [PR #18](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/18) **MERGED**. Commit de merge en main: `7420940843649bf2c0939bcb36167b98be27dd79`; HEAD funcional probado antes del merge: `db5336783d9426b6e3b73a44f4234266bfc2ba56`.
 - **Igualdad de árboles comprobada:** Git tree de ambos commits = `841d2da3846e3b4d7c639064651ee2ad9d52acdc`. Main incluye los 130 archivos frente al antiguo main, sin perder el contenido auditado de la pila F1–F7D/MCP y F7C de cuatro cajones.
 - **QA funcional SHA db533678:** **505 pruebas en Windows Python 3.12 PASS**, MCP stdio seis herramientas, SVG/PNG/PDF, configuraciones de cliente; geometría, Maestro, Knowledge y herrajes GREEN; FreeCAD y Blender reales con muebles de 4, 13 y **28 piezas embutidas y 28 sobrepuestas** GREEN. [MCP/Windows/CAD](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39561886879). El CI de main posterior al merge debe comprobarse **por el SHA exacto** antes de certificar estado del repositorio.
 - **Source Knowledge de solo lectura:** [CarpiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge) SHA `4df02ef54562fac5a820cbad92b0edee547c310b`. CarpiNova-PC fuera de alcance.
@@ -77,7 +77,7 @@ La sexta herramienta MCP necesita **tres puertas**: `CARPINOVA_NATIVE_EXECUTION_
 
 - La pila F1 → F3 → F2 → F4 → F5 → F6 → F7A → F7C → F7D → MCP, más overlay/inset de cuatro cajones y bootstrap Codex, quedó incorporada a main mediante **un solo merge PR #17** (aprobación explícita del dueño; QA exact-head antes del merge).
 - La reconciliación histórica F4/F5 de README se preservó en el árbol del PR #17. El ensayo original había verificado `STACK_TREE_EQUAL_TO_FEATURE_HEAD=YES`; la comparación de árboles entre el merge main y el PR #17 es **idéntica**.
-- El PR #1 se marcó merged automáticamente al integrarse su ancestro. Los demás PR históricos conservan trazabilidad y deben cerrarse solo como **superseded/integrados por PR #17** tras verificar postmerge CI; no intentar fusionarlos de nuevo ni reintroducir cambios superpuestos.
+- El PR #1 se marcó merged automáticamente al integrarse su ancestro. Los otros **11 PR históricos ya fueron cerrados administrativamente**, cada uno con comentario que enlaza a la integración PR #17; sus ramas y commits siguen disponibles. Verificación posterior: **0 PR abiertos**. No reintroducir cambios superpuestos.
 - No borrar ramas ni Knowledge. Reabrir incidencias solamente con evidencia y arreglarlas donde corresponde, nunca recrear una pila paralela.
 
 
@@ -94,6 +94,6 @@ La sexta herramienta MCP necesita **tres puertas**: `CARPINOVA_NATIVE_EXECUTION_
 | Diseño real revisado por el dueño con medidas y herrajes reales | **PENDIENTE** |
 | Corte final, taladros, cargas, anclajes y fabricación certificada | **BLOQUEADO** |
 
-**NEXT_SAFE_ACTION:** primero comprobar el CI del HEAD real de main; documentar la consolidación y cerrar PR históricos ya absorbidos, sin alterar árboles de fuente. Usar Codex **solo al final**, en una sesión limitada de PC para instalar las cuatro skills/MCP y probar el diseño verbal 50 × 50 × 80 cm, tres cajones y una gaveta: confirmar 500×500×800 mm, 4 cajas, solapes o embutido, manijas/perfil T, material y espesores antes de producir el paquete. No pedir al usuario JSON manual. El piloto de 28 piezas sigue siendo **nominal**: ningún cálculo de corte, corredera SKU o perforación está autorizado hasta corroboración real.
+**NEXT_SAFE_ACTION:** comprobar siempre el CI del HEAD real de main; la consolidación de código y el cierre de los PR históricos ya están completados (0 abiertos). No repetir esas integraciones ni añadir nuevos handoffs. Usar Codex **solo al final**, en una sesión limitada de PC para instalar las cuatro skills/MCP y probar el diseño verbal 50 × 50 × 80 cm, tres cajones y una gaveta: confirmar 500×500×800 mm, 4 cajas, solapes o embutido, manijas/perfil T, material y espesores antes de producir el paquete. No pedir al usuario JSON manual. El piloto de 28 piezas sigue siendo **nominal**: ningún cálculo de corte, corredera SKU o perforación está autorizado hasta corroboración real.
 
 **Para cualquier chat nuevo:** iniciar por `main/docs/PROJECT_CONTINUITY_CURRENT.md`, `AGENTS.md`, la skill Maestro y el manual Windows; corroborar HEAD y CI vivos. Mantener las cuatro leyes KISS, anti-ruido con evidencia, anti-parches y diseño UX sin duplicar motores. No modificar CarpiNova-Knowledge ni CarpiNova-PC. No inferir que la PC del usuario está certificada a partir de GitHub Actions.
