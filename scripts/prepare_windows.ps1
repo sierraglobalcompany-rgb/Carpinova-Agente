@@ -127,6 +127,58 @@ $antigravityFile = Join-Path $config "antigravity-mcp.json.example"
 $verify = "import json,pathlib,sys,tomllib; c=tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')); a=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8')); x=c['mcp_servers']['carpinova']; y=a['mcpServers']['carpinova']; assert x['command']==y['command']==sys.argv[3]; assert x['env']['PYTHONPATH']==y['env']['PYTHONPATH']==sys.argv[4]; assert x['env']['CARPINOVA_OUTPUT_ROOT']==y['env']['CARPINOVA_OUTPUT_ROOT']==sys.argv[5]; assert x['env']['CARPINOVA_NATIVE_APPROVAL_DIR']==y['env']['CARPINOVA_NATIVE_APPROVAL_DIR']==sys.argv[6]; assert x['args']==y['args']==['-m','carpinova_agent.mcp_bridge']; assert 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in x['env'] and 'CARPINOVA_NATIVE_EXECUTION_ENABLED' not in y['env']"
 & $python -c $verify $codexFile $antigravityFile $python $repo $projects $approvals
 if ($LASTEXITCODE -ne 0) { throw "Una configuración MCP generada es inválida." }
+
+# Integration smoke: use the REAL Windows-generated TOML to exercise the same
+# Codex installer, but only under this disposable CI/preflight output folder.
+# Never write to ~/.codex or ~/.agents here.
+$installer = Join-Path $repo "scripts\install_codex_skills.py"
+$codexSmoke = @'
+import importlib.util
+from pathlib import Path
+import sys
+import tomllib
+
+installer = Path(sys.argv[1]).resolve(strict=True)
+repo = Path(sys.argv[2]).resolve(strict=True)
+out = Path(sys.argv[3]).resolve(strict=True)
+spec = importlib.util.spec_from_file_location("carpinova_codex_installer", installer)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+isolated = out / "codex-install-smoke"
+isolated.mkdir()
+skills_dir = isolated / "skills"
+installed = module.install(repo, skills_dir)
+assert len(installed) == 4
+assert set(installed.values()) == {"INSTALLED"}
+again = module.install(repo, skills_dir)
+assert set(again.values()) == {"ALREADY_IDENTICAL"}
+
+config = isolated / "codex-config.toml"
+config.write_text(
+    'model = "example-no-user-change"\n'
+    '[mcp_servers.other]\n'
+    'url = "https://example.invalid/mcp"\n',
+    encoding="utf-8",
+)
+baseline = config.read_bytes()
+assert module.configure_mcp(repo, config, write=False) == "READY_TO_CONFIGURE"
+assert config.read_bytes() == baseline
+assert module.configure_mcp(repo, config) == "CONFIGURED"
+result = tomllib.loads(config.read_text(encoding="utf-8"))
+source = repo / "work" / "configuracion-local" / "codex-config.toml.example"
+expected = tomllib.loads(source.read_text(encoding="utf-8"))
+assert result["model"] == "example-no-user-change"
+assert result["mcp_servers"]["other"]["url"] == "https://example.invalid/mcp"
+assert result["mcp_servers"]["carpinova"] == expected["mcp_servers"]["carpinova"]
+assert "CARPINOVA_NATIVE_EXECUTION_ENABLED" not in result["mcp_servers"]["carpinova"]["env"]
+snapshot = config.read_bytes()
+assert module.configure_mcp(repo, config) == "ALREADY_CONFIGURED"
+assert config.read_bytes() == snapshot
+print("CODEX_REAL_WINDOWS_CONFIG_SMOKE=PASS; FOUR_SKILLS=PASS; MCP=PASS; USER_HOME_UNTOUCHED=YES")
+'@
+& $python -c $codexSmoke $installer $repo $OutputRoot
+if ($LASTEXITCODE -ne 0) { throw "Instalador Codex con TOML Windows real falló." }
 # Preserve the actual resolved dependency graph as local rebuild evidence.
 $packages = @(& $python -m pip freeze)
 if ($LASTEXITCODE -ne 0) { throw "No se pudieron registrar versiones instaladas." }
