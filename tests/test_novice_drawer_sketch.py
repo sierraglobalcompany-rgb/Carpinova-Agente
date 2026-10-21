@@ -286,7 +286,7 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertIsNone(model["wall_bottom_above_floor_mm"])
         self.assertIsNone(model["suggestions_not_confirmed"]["support_height_mm"])
         self.assertTrue(any("NO se ha definido" in v for v in model["blockers"]))
-        self.assertIn("None mm", model["sketch_text"])
+        self.assertIn("por definir", model["sketch_text"])
         ET.fromstring(model["sketch_svg"])
 
     def test_floor_supported_against_wall_with_direct_fixings(self):
