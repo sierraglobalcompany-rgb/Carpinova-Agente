@@ -11,7 +11,7 @@ Este incremento añade un MCP local por **stdio**, con **cinco herramientas** y 
 | carpinova_estado | Acciones soportadas, skills y bloqueos |
 | carpinova_consultar(solicitud_json) | Preguntas, Knowledge con bundle local, herrajes referenciales o proyecto de Maestro |
 | carpinova_generar_borrador(solicitud_json, proyecto) | Carpeta nueva con 5 archivos de revisión nominal |
-| carpinova_renderizar_lamina(proyecto) | Plano de tres vistas SVG, PNG y PDF, desde el mismo CADExchange (requiere CairoSVG) |
+| carpinova_renderizar_lamina(proyecto) | Plano de tres vistas SVG, PNG y PDF, desde el mismo CADExchange (requiere resvg_py y Pillow) |
 | carpinova_leer_entregable(proyecto, archivo) | Leer JSON/SVG/CSV/CAD/manifest del proyecto guardado |
 
 Los archivos son: maestro-review.json, front-review.svg, parts-review.csv, cad-exchange.json y manifest.json. El usuario debe confirmar medidas, unidades, materiales, fondo, puertas, soporte, cantos y herrajes antes de considerar el diseño completo. Un CSV nominal no autoriza corte.
@@ -20,7 +20,7 @@ Los archivos son: maestro-review.json, front-review.svg, parts-review.csv, cad-e
 
 1. Clonar en Windows la rama/commit certificada del PR MCP; abrirla en Codex o AntiGravity.
 2. Abrir PowerShell en la raíz del repo: python -m venv .venv
-3. Instalar el SDK opcional en ese venv: .\.venv\Scripts\python.exe -m pip install "mcp==1.30.0" "CairoSVG==2.9.1"
+3. Instalar el SDK opcional en ese venv: .\.venv\Scripts\python.exe -m pip install "mcp==1.30.0" "resvg_py==0.5.0" "Pillow==13.0.0"
 4. Correr: .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 5. Crear carpeta de entregables privada, por ejemplo C:\CarpiNova\entregables, y no reutilizar nombres de proyecto ya creados.
 6. Solo si hay un bundle Knowledge compilado y validado, configurar CARPINOVA_KNOWLEDGE_BUNDLE_DIR apuntando a su carpeta en el PC. No es necesario para el primer módulo sin citas del libro.
@@ -101,8 +101,7 @@ El **quinto** método `carpinova_renderizar_lamina(proyecto)` utiliza el
 `cad-exchange.json` verificado del proyecto ya generado y produce en
 `entregables/<proyecto>/lamina/` cuatro archivos: `three-views.svg`,
 `three-views.png`, `three-views.pdf` y `render-manifest.json`.
-Requiere instalar en el mismo Python `CairoSVG>=2.7,<3` y las bibliotecas
-Cairo compatibles con el sistema operativo. Es opcional: si no está instalado,
+Requiere instalar en el mismo Python `resvg_py==0.5.0 y Pillow==13.0.0` y las bibliotecas incluidas en sus wheels para Linux y Windows. Es opcional: si no está instalado,
 el diseño SVG frontal, el CSV y el CADExchange anteriores siguen funcionando.
 
 Se muestran FRENTE (X/Y), LATERAL (Z/Y) y PLANTA (X/Z), siempre sobre
@@ -161,15 +160,17 @@ $env:PYTHONPATH = (Get-Location).Path
 
 ## Certificación pendiente antes de PC — gates obligatorios
 
-La última CI Linux verificó específicamente **MCP 1.30.0 y CairoSVG 2.9.1** (Python 3.12), fijados como dependencias directas para reproducir el ensayo. **No es un lockfile de todas las dependencias indirectas ni una validación de Windows.** Antes de declarar `PC_READY=YES`, verificar la instalación limpia de Windows, arranque y descubrimiento de las cinco herramientas en Codex/AntiGravity, configuración del bundle Knowledge si se van a responder preguntas del libro, lectura de SVG/PNG/PDF reales, apertura de `.FCStd` y `.blend` en los programas locales, una inspección humana de las imágenes y al menos un mueble con dimensiones aportadas y confirmadas. También se debe integrar la cadena de 12 PR con aprobación del propietario y correr QA en el SHA final de `main`. Sin ello no afirmar 100%.
+La última CI Linux verificó específicamente **MCP 1.30.0 y resvg_py y Pillow 2.9.1** (Python 3.12), fijados como dependencias directas para reproducir el ensayo. **No es un lockfile de todas las dependencias indirectas ni una validación de Windows.** Antes de declarar `PC_READY=YES`, verificar la instalación limpia de Windows, arranque y descubrimiento de las cinco herramientas en Codex/AntiGravity, configuración del bundle Knowledge si se van a responder preguntas del libro, lectura de SVG/PNG/PDF reales, apertura de `.FCStd` y `.blend` en los programas locales, una inspección humana de las imágenes y al menos un mueble con dimensiones aportadas y confirmadas. También se debe integrar la cadena de 12 PR con aprobación del propietario y correr QA en el SHA final de `main`. Sin ello no afirmar 100%.
 
 
 ### Una sola prueba de conexión repetible en Linux y Windows
 
-La misma prueba del protocolo (sin duplicar JSON, dibujo ni fórmulas) está en `scripts/verify_local_mcp.py`. Tras instalar Python 3.12, `mcp==1.30.0` y `CairoSVG==2.9.1`, ejecutarla desde la raíz del repositorio:
+La misma prueba del protocolo (sin duplicar JSON, dibujo ni fórmulas) está en `scripts/verify_local_mcp.py`. Tras instalar Python 3.12, `mcp==1.30.0` y `resvg_py==0.5.0 y Pillow==13.0.0`, ejecutarla desde la raíz del repositorio:
 
 ```powershell
 python scripts/verify_local_mcp.py --output-root 'C:\CarpiNova\preflight_nuevo'
 ```
 
 El destino debe ser una carpeta **nueva y vacía**. La prueba inicia un MCP stdio real, descubre cinco herramientas, genera dos muebles de muestra (4 y 13 piezas), devuelve sus resultados, coteja CAD/SVG/CSV/PNG/PDF, y produce `mcp-preflight-report.json`. **No ejecuta FreeCAD ni Blender**, no consulta el libro si no se configuró su bundle, no envía datos a una API y no significa autorización de producción. Esta misma prueba corre sobre `windows-latest` y Linux en GitHub CI: el resultado real de Windows debe ser GREEN antes de considerarla reproducible allí. El PC del propietario requerirá una prueba adicional en el IDE que use.
+
+**Cambio motivado por QA real de Windows:** CairoSVG requería `cairo-2`, ausente en un Windows limpio. Ahora el Agente usa una sola conversión de la misma fuente SVG mediante resvg_py y Pillow (wheels para Windows/Linux): PNG nítido y PDF **rasterizado**, apto solamente para revisión, mientras el SVG sigue siendo la lámina vectorial editable. No existe segunda fórmula geométrica. Fuente: https://resvg-py.readthedocs.io/en/latest/usage.html.

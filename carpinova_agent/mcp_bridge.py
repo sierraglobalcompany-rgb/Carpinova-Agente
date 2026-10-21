@@ -121,7 +121,7 @@ def carpinova_generar_borrador(solicitud_json: str, proyecto: str) -> dict[str, 
 def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
     """Export 3-view SVG, PNG and PDF from canonical CAD, never cut plans.
 
-    Requires optional CairoSVG locally. Does not invoke native CAD, MCP from
+    Requires optional resvg_py and Pillow locally. Does not invoke native CAD, MCP from
     other apps, shell commands or remote APIs. Repeated calls never overwrite.
     """
     name = _project_id(proyecto)

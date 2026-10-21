@@ -59,7 +59,7 @@ class FirstFurniturePilotTests(unittest.TestCase):
             manifest = write_pilot_bundle(self.project, target)
             self.assertEqual({p.name for p in target.iterdir()},
                              set(manifest["files"]))
-            self.assertEqual(json.loads((target / "manifest.json").read_text()),
+            self.assertEqual(json.loads((target / "manifest.json").read_text(encoding="utf-8")),
                              manifest)
             with self.assertRaisesRegex(PilotError, "existente"):
                 write_pilot_bundle(self.project, target)

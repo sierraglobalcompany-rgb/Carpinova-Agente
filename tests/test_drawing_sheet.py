@@ -46,9 +46,10 @@ class SheetTests(unittest.TestCase):
 
     def test_create_png_and_pdf_after_existing_pilot(self):
         try:
-            import cairosvg
+            import resvg_py
+            from PIL import Image
         except ImportError:
-            self.skipTest("CairoSVG optional extra not installed here")
+            self.skipTest("resvg_py/Pillow optional extras not installed here")
         with TemporaryDirectory() as td:
             destination = Path(td) / "cabinet"
             original = write_pilot_bundle(REQUEST, destination)
@@ -76,12 +77,12 @@ class SheetTests(unittest.TestCase):
                 create_render_bundle(destination)
             self.assertFalse((destination / "lamina").exists())
 
-    def test_missing_cairosvg_never_publishes_partial_render(self):
+    def test_missing_resvg_never_publishes_partial_render(self):
         with TemporaryDirectory() as td:
             destination = Path(td) / "cabinet"
             write_pilot_bundle(REQUEST, destination)
-            with patch.dict("sys.modules", {"cairosvg": None}):
-                with self.assertRaisesRegex(DesignError, "CairoSVG"):
+            with patch.dict("sys.modules", {"resvg_py": None}):
+                with self.assertRaisesRegex(DesignError, "resvg_py"):
                     create_render_bundle(destination)
             self.assertFalse((destination / "lamina").exists())
 

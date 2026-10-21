@@ -114,9 +114,10 @@ class McpBridgeContractTests(unittest.TestCase):
 
     def test_mcp_generates_3view_png_pdf_and_returns_paths(self):
         try:
-            import cairosvg
+            import resvg_py
+            from PIL import Image
         except ImportError:
-            self.skipTest("Optional rendering dependency absent")
+            self.skipTest("Optional resvg_py/Pillow rendering absent")
         with TemporaryDirectory() as root:
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
                 carpinova_generar_borrador(REQUEST, "lamina_001")

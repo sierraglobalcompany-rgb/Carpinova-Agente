@@ -2,11 +2,12 @@
 
 Orthographic silhouettes of the original CAD boxes, never new geometry.
 These are translucent SUPERIMPOSED projections, not hidden-line CAD drawings
-or manufacturing instructions. Conversion needs the optional CairoSVG wheel.
+or manufacturing instructions. PNG uses resvg_py and raster PDF uses Pillow, with no system Cairo dependency.
 """
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 from html import escape
 import json
 import os
@@ -129,18 +130,27 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
         raise DesignError("Manifiesto inconsistente con geometría certificada.")
     svg = three_views_svg(cad)
     try:
-        import cairosvg
+        import resvg_py
+        from PIL import Image
     except ImportError as exc:
         raise DesignError(
-            "Para exportar PNG/PDF instalar el extra opcional CairoSVG >=2.7,<3."
+            "Para PNG/PDF instalar resvg_py==0.5.0 y Pillow==13.0.0."
         ) from exc
     # All products are staged before a same-filesystem directory rename.
     with TemporaryDirectory(prefix=".carpinova-sheet-", dir=folder) as tmp:
         stage = Path(tmp) / "lamina"
         stage.mkdir()
         (stage / "three-views.svg").write_text(svg, encoding="utf-8")
-        png = cairosvg.svg2png(bytestring=svg.encode("utf-8"), output_width=2320)
-        pdf = cairosvg.svg2pdf(bytestring=svg.encode("utf-8"))
+        try:
+            png = resvg_py.svg_to_bytes(svg_string=svg, width=2320)
+            with Image.open(BytesIO(png)) as image:
+                # PDF de revisión rasterizado a 200 DPI; la fuente vectorial
+                # fiel sigue siendo three-views.svg, sin segunda geometría.
+                with BytesIO() as stream:
+                    image.convert("RGB").save(stream, format="PDF", resolution=200.0)
+                    pdf = stream.getvalue()
+        except (OSError, ValueError) as exc:
+            raise DesignError("No se pudo renderizar la lámina: " + str(exc)) from exc
         if not png.startswith(b"\x89PNG\r\n\x1a\n") or not pdf.startswith(b"%PDF-"):
             raise DesignError("Conversión de imagen inválida.")
         (stage / "three-views.png").write_bytes(png)
