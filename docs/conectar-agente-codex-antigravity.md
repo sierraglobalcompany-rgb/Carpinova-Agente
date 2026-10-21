@@ -2,19 +2,25 @@
 
 ## Fuente y alcance
 
-Este manual corresponde exclusivamente al repositorio sierraglobalcompanyv2/Carpinova-Agente, PR #16 DRAFT. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
+Este manual corresponde exclusivamente al repositorio `sierraglobalcompanyv2/Carpinova-Agente`, rama canónica **`main`**, con integración funcional [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) ya fusionada. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
 
 **Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y seis herramientas MCP **local stdio**. No hay MCP remoto de ChatGPT; la sexta herramienta de exportación nativa está deshabilitada por defecto y exige permisos explícitos del host. Nunca presentar el despiece nominal como documento de producción.
 
 ## 1. Preparar un Windows limpio
 
-Se requiere Python **3.12**, PowerShell y un clon de la rama/comisión del Agente validada en CI. No usar el contenido de main mientras los PR no hayan sido integrados por el propietario.
+Se requiere Git, Python **3.12**, PowerShell y un clon del Agente desde **`main`**. Antes de instalar, verificar que ese HEAD esté probado en GitHub Actions; los PR #1–#19 del desarrollo original ya quedaron integrados o cerrados, sin PR históricos pendientes.
 
-Desde la raíz del repositorio:
+Desde PowerShell, al preparar la prueba final en tu PC:
 
 ~~~powershell
+git clone https://github.com/sierraglobalcompanyv2/Carpinova-Agente.git
+cd Carpinova-Agente
+git switch main
+git rev-parse HEAD
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare_windows.ps1
 ~~~
+
+Si ya existe el clon, no volver a clonarlo: entrar al directorio, revisar cambios locales y actualizar `main` sin sobrescribir trabajos.
 
 El script:
 1. Comprueba que Python sea 3.12, crea el entorno aislado .venv y ejecuta la instalación desde **requirements-mcp.txt**, archivo único de versiones directas comprobadas en CI.
@@ -28,12 +34,15 @@ La carpeta .venv y work están ignoradas en Git. El script no usa llaves API, no
 
 ## 2. Conectar el servidor en el agente del IDE
 
-Inspeccionar el resultado de la primera prueba:
+**Solo después de que termine el preflight y cuando el propietario decida instalar en Codex**, ejecutar desde la raíz del clon:
 
-- Configuración Codex: work/configuracion-local/codex-config.toml.example
-- Configuración AntiGravity: work/configuracion-local/antigravity-mcp.json.example
+~~~powershell
+python scripts/install_codex_skills.py --scope user --with-mcp
+~~~
 
-Copiar manualmente el bloque relevante a la configuración MCP que indique el cliente, sin sobreescribir otros servidores. Los ejemplos generados contienen la ruta real de tu .venv, el repositorio y la carpeta privada de entregables; no contienen credenciales ni permisos elevados.
+El instalador copia las **cuatro skills canónicas** a `~/.agents/skills/` y añade exclusivamente `mcp_servers.carpinova` a `~/.codex/config.toml`, preservando otros servidores y ajustes. Verifica las rutas generadas por el preflight, no sobrescribe skills divergentes ni cambia una configuración MCP existente diferente, y puede repetirse sin modificar una instalación idéntica. Después, **reiniciar Codex** y comprobar las cuatro skills y `carpinova_estado`.
+
+Como referencias auditables permanecen `work/configuracion-local/codex-config.toml.example` y `antigravity-mcp.json.example`. Para AntiGravity, integrar manualmente solo su bloque JSON después de inspeccionarlo. Los ejemplos contienen rutas locales reales, sin credenciales ni privilegios elevados.
 
 Mantener las herramientas en **modo Ask/confirmación**. Reiniciar el cliente y ejecutar la consulta de estado para comprobar conexión. Las seis herramientas esperadas son:
 
@@ -52,9 +61,9 @@ El preflight en Windows dentro de GitHub **no** certifica que el IDE de tu PC ya
 
 Prompt práctico para Codex o AntiGravity:
 
-> Usa Maestro y sus cuatro skills. Necesito diseñar un mueble para cocina o baño. Pregunta por espacio real, ancho/alto/profundidad, instalaciones y obstáculos, tablero/espesor, frentes, cajones, fondo, cantos y veta, apoyo y fijaciones. No inventes medidas ni herrajes. Muéstrame una solicitud JSON y las decisiones pendientes para aprobar. Solo después consulta Maestro, genera un borrador de nombre nuevo, produce tres vistas y entrégame despiece, CAD y bloqueos.
+> Usa CarpiNova y sus cuatro skills. Diseña conmigo un mueble de 50 cm de ancho, 50 cm de profundidad y 80 cm de alto. Quiero tres cajones y una gaveta grande. Pregúntame si prefiero manijas, apertura sin manija o un perfil tipo T, y si quiero frentes sobrepuestos o embutidos. Confirma materiales, espesores, holguras, correderas y distribución antes de calcular. Después de que apruebe la propuesta, genera el despiece nominal, las vistas 2D y, si está habilitado y lo autorizo independientemente, el modelo 3D. No inventes herrajes ni medidas de fabricación.
 
-**Flujo correcto:** entrevista → JSON explícito → confirmación humana → consultar → generar borrador → renderizar láminas → revisar. El Agente puede preguntar pero el motor **no** transforma automáticamente cualquier mensaje libre en un diseño final sin datos confirmados.
+**Flujo correcto:** entrevista → propuesta íntegra y revisable → confirmación humana → JSON interno preparado por Codex → Maestro → borrador → láminas → revisión. **El usuario no tiene que escribir JSON.** El Maestro valida una solicitud estructurada; Codex la construye a partir de datos confirmados, sin inventar los faltantes. «Tres cajones y una gaveta» debe aclararse como cuatro cajas, y «perfil T» requiere sección/fabricante exactos. Con la carcasa ilustrativa sin fondo, el modelo de cuatro cajas produce **28 piezas nominales**, no un plan autorizado de corte.
 
 Cada borrador incluye maestro-review.json, front-review.svg, parts-review.csv, cad-exchange.json y manifest.json. El subdirectorio lamina contiene three-views.svg, three-views.png, three-views.pdf y render-manifest.json.
 
@@ -68,7 +77,7 @@ FreeCAD y Blender consumen **el mismo** cad-exchange.json, usando sus adaptadore
 2. En Blender instalado en tu PC, usar integrations/blender_from_contract.py; si quieres un render de presentación, usar integrations/blender_presentation.py para guardar presentation.blend y presentation.png. Ver el [manual nativo](PILOTO_FREECAD_BLENDER.md).
 3. Abrir los documentos en las aplicaciones reales; revisar identificación y dimensiones de piezas, orientaciones, acabados, vista y calidad visual. Coincidencia de hash **no** equivale a aprobación de ensamblaje/cargas/corte.
 
-GitHub ya creó .FCStd, .blend y renders nativos con 4 y 13 piezas usando FreeCAD/Blender **Linux**; eso no garantiza compatibilidad de las instalaciones del usuario en Windows. La validación de CAD nativo Windows y de un mueble real continúa pendiente.
+GitHub generó y verificó `.FCStd`, `.blend` y renders nativos con **4, 13 y 28 piezas** (para estas últimas, tanto `inset` como `overlay`) en FreeCAD/Blender **Linux**. El pipeline también ejecutó **505 pruebas Windows Python** y el MCP real. Eso no verifica que FreeCAD/Blender estén correctamente instalados en **el Windows del propietario**, ni sustituye la revisión física o visual de un mueble real.
 
 ## 5. Knowledge y fuentes de carpintería
 
@@ -80,20 +89,19 @@ El Agente conserva las skills diseño, maestro, selección de herrajes y técnic
 
 | Comprobación | Estado |
 | --- | --- |
-| MCP con cliente auténtico, 6 herramientas | GREEN en Linux y Windows CI |
-| 456 pruebas Python y dos muebles de ejemplo en Windows | GREEN CI |
-| SVG, PNG, PDF, BOM y CADExchange coherentes | GREEN nominal |
-| FreeCAD/Blender Linux, archivos editables y PNG | GREEN CI, no QA visual humano |
-| Ensayo de integración de 12 PR, árbol idéntico | GREEN sin merge |
-| Codex/AntiGravity conectados en tu PC | PENDIENTE |
-| FreeCAD/Blender ejecutados en tu Windows | PENDIENTE |
-| Uso y citas de Knowledge en PC | PENDIENTE |
-| main final tras merges autorizados | PENDIENTE |
-| Corte, perforación, herrajes, cargas, anclajes | BLOQUEADO para fabricar |
+| Pila CarpiNova integrada en `main`, histórico cerrado | **GREEN, PR #17–#19 fusionados; 0 PR abiertos** |
+| Python Windows 3.12, 505 pruebas y seis MCP | **GREEN CI** |
+| Despiece y láminas nominales SVG/PNG/PDF/CADExchange | **GREEN CI** |
+| FreeCAD/Blender Linux, archivos editables y render: 4/13/28 piezas | **GREEN CI**, sin QA físico de taller |
+| Cuatro skills y registro MCP para Codex | **Instalador implementado y probado**, pendiente en PC del propietario |
+| Codex interactuando con las seis herramientas en PC del propietario | **PENDIENTE de aceptación final** |
+| FreeCAD/Blender ejecutándose en ese Windows | **PENDIENTE de aceptación final** |
+| Knowledge completo con citas verificadas en ese PC | **PENDIENTE** |
+| Corte, perforación, herrajes, cargas, anclajes de fabricación | **BLOQUEADO para producir** |
 
-Evidencias de referencia: [Windows y nativos](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39532122868) y [ensayo de los 12 PR](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39532122902). La evidencia de Actions caduca: preservar archivos clave si se necesitan.
+Evidencia del [CI MCP, Windows y CAD de 28 piezas](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39561886879), del [merge funcional](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) y del `main` vigente. Los artifacts de Actions caducan: el repositorio y sus pruebas son la fuente reconstruible.
 
-**Leyes CarpiNova:** KISS (una arquitectura, una fuente de medidas), anti-ruido (un instalador/una prueba/una lista de dependencias), anti-parches (reparar origen y añadir regresiones) y no fusionar PR sin autorización. Ninguna prueba de software habilita fabricación.
+**Leyes CarpiNova:** KISS (un Maestro, un contrato), anti-ruido (sin duplicados), anti-parches (corregir origen más regresión) y UX/UI solo cuando aporte. Ningún check autoriza fabricación.
 
 ### Exportación 3D nativa mediante el Agente (desactivada por defecto)
 
@@ -103,7 +111,7 @@ Produce en `muebles/<proyecto>/native/` el paquete `native.FCStd`, `native.blend
 
 **Continuidad al cambiar de chat:** consultar [PROJECT_CONTINUITY_CURRENT.md](PROJECT_CONTINUITY_CURRENT.md) y los PR de GitHub, no un snapshot de conversación.
 
-### Evidencia exacta posterior a la exportación MCP→CAD
+### Evidencia histórica de la primera exportación MCP→CAD
 
 Commit certificado del circuito completo: `ec139352c83d3d32def9d1421bcf83cf1ca8e2bc`, [Actions #39536762720](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) 3/3 jobs SUCCESS, 468 pruebas Windows, dos muebles nominales completos 2D y 3D. El job native llama a la **sexta herramienta MCP real**, no a scripts de geometría alternativos. FreeCADCmd Ubuntu utiliza el enlace a `freecadcmd-python3`, validado por su nombre de paquete, no un shell genérico. El propietario debe abrir los modelos y validar visualmente antes de cualquier avance a taller.
 

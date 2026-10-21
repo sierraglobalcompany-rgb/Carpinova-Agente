@@ -57,6 +57,36 @@ class InstallerTests(unittest.TestCase):
                 module.install(repo, target)
             self.assertFalse((target / module.SKILLS[0]).exists())
 
+    def test_shipped_skill_docs_work_after_global_relocation(self):
+        """Installed SKILL.md files must not rely on ../../docs outside the clone."""
+        import re
+        from urllib.parse import unquote
+        canonical = SCRIPT.parents[1]
+        prefix = (
+            "https://github.com/sierraglobalcompanyv2/"
+            "Carpinova-Agente/blob/main/docs/"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "different-home" / ".agents" / "skills"
+            statuses = module.install(canonical, target)
+            self.assertEqual(len(statuses), 4)
+            self.assertEqual(set(statuses.values()), {"INSTALLED"})
+            document_count = 0
+            for name in module.SKILLS:
+                skill_path = target / name / "SKILL.md"
+                text = skill_path.read_text(encoding="utf-8")
+                self.assertNotIn("](../../docs/", text)
+                for reference in re.findall(r"\]\(([^)]+)\)", text):
+                    if reference.startswith(prefix):
+                        relative = unquote(reference[len(prefix):])
+                        self.assertNotIn("..", Path(relative).parts)
+                        self.assertTrue(
+                            (canonical / "docs" / relative).is_file(),
+                            f"Missing referenced CarpiNova document: {relative}"
+                        )
+                        document_count += 1
+            self.assertGreaterEqual(document_count, 8)
+
     def test_rejects_mismatched_skill_name(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
