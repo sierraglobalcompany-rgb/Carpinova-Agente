@@ -279,7 +279,7 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(result["back_thickness_mm"], 6)
         self.assertTrue(result["unvalidated_mounting"])
         self.assertEqual(result["piece_count"], 0)
-        self.assertIn("direct_fasteners", result["sketch_text"])
+        self.assertIn("fijación directa", result["sketch_text"])
         ET.fromstring(result["sketch_svg"])
 
     def test_unsupported_wall_and_support_combinations_fail_closed(self):
