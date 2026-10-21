@@ -7,9 +7,12 @@ No manufacturing/cutting authority is conferred by native file production.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
+import sys
+import time
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -70,6 +73,102 @@ def _checked_report(
     return report
 
 
+
+def _approval_location(project_folder: Path, approval_dir: Path | None) -> Path:
+    """Host-owned sidecar OUTSIDE the review output root; never an MCP argument."""
+    root = Path(approval_dir) if approval_dir is not None else Path(
+        os.environ.get("CARPINOVA_NATIVE_APPROVAL_DIR", "")
+    )
+    if not root.is_absolute() or not root.is_dir() or root.is_symlink():
+        raise NativeExportError("Configurar directorio local de autorizaciones fuera de los proyectos.")
+    root = root.resolve(strict=True)
+    folder = project_folder.resolve(strict=True)
+    if root == folder.parent or root.is_relative_to(folder.parent):
+        raise NativeExportError("Las autorizaciones no deben guardarse en la salida del Agente.")
+    name = hashlib.sha256(str(folder).encode("utf-8")).hexdigest()[:24]
+    return root / ("native-" + name + ".json")
+
+
+def issue_native_approval(
+    project_folder: Path, approval_dir: Path, *, ttl_seconds: int = 900,
+) -> Path:
+    """Trusted local operator/CI harness ONLY; never exposed as an MCP tool.
+
+    The host must separately acquire informed consent before calling this
+    method. The sidecar is tied to project absolute path AND geometry digest,
+    cannot be overwritten, and expires in no more than 15 minutes.
+    """
+    if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 900:
+        raise NativeExportError("Ventana de autorización inválida.")
+    folder = Path(project_folder)
+    try:
+        cad = verify_pilot_bundle(folder)
+    except (PilotError, DesignError) as exc:
+        raise NativeExportError("No se puede autorizar un proyecto inconsistente.") from exc
+    location = _approval_location(folder, approval_dir)
+    payload = {
+        "schema": 1,
+        "project": str(folder.resolve(strict=True)),
+        "geometry_sha256": cad["geometry_sha256"],
+        "piece_count": len(cad["boxes"]),
+        "expires_at": int(time.time()) + ttl_seconds,
+    }
+    try:
+        with location.open("x", encoding="utf-8", newline="\n") as output:
+            json.dump(payload, output, sort_keys=True)
+            output.write("\n")
+        os.chmod(location, 0o600)
+    except FileExistsError as exc:
+        raise NativeExportError("Ya hay una autorización pendiente; no sobrescribir.") from exc
+    return location
+
+
+def _consume_native_approval(
+    folder: Path, cad: dict[str, Any], approval_dir: Path | None,
+) -> None:
+    path = _approval_location(folder, approval_dir)
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2048:
+        raise NativeExportError("Falta aprobación local de un solo uso para exportar CAD.")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise NativeExportError("Aprobación local inválida.") from exc
+    if (type(data) is not dict or set(data) != {
+        "schema", "project", "geometry_sha256", "piece_count", "expires_at"
+    } or data["schema"] != 1
+            or data["project"] != str(folder.resolve(strict=True))
+            or data["geometry_sha256"] != cad["geometry_sha256"]
+            or data["piece_count"] != len(cad["boxes"])
+            or type(data["expires_at"]) is not int
+            or data["expires_at"] < int(time.time())
+            or data["expires_at"] > int(time.time()) + 900):
+        raise NativeExportError("Aprobación vencida o incompatible con el mueble.")
+    # One-shot gate. Failure/timeout also consumes approval; reapproval is
+    # explicit and cannot be obtained through the MCP model tools.
+    path.unlink()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Real owner must approve from a separate human PowerShell/terminal."""
+    parser = argparse.ArgumentParser(description="Autorizar UNA previsualización 3D; no fabricar.")
+    parser.add_argument("--approve-project", required=True, type=Path)
+    parser.add_argument("--approval-dir", required=True, type=Path)
+    args = parser.parse_args(argv)
+    if not sys.stdin.isatty():
+        parser.error("La aprobación requiere terminal interactiva del propietario.")
+    cad = verify_pilot_bundle(args.approve_project)
+    print("Mueble:", args.approve_project.resolve(strict=True))
+    print("Piezas:", len(cad["boxes"]))
+    print("CAD SHA-256:", cad["geometry_sha256"])
+    print("Solo borrador. NO cortar, perforar ni comprar.")
+    phrase = input("Escribir AUTORIZO y los últimos 8 caracteres del SHA separados por espacio: ")
+    if phrase.strip() != "AUTORIZO " + cad["geometry_sha256"][-8:]:
+        raise NativeExportError("Aprobación humana no recibida.")
+    location = issue_native_approval(args.approve_project, args.approval_dir)
+    print("Aprobación local emitida; vence en 15 minutos y admite UN uso.")
+    return 0
+
+
 def export_native_project(
     project_folder: Path,
     *,
@@ -77,13 +176,14 @@ def export_native_project(
     freecad_executable: str | None,
     blender_executable: str | None,
     enabled: bool,
+    approval_dir: Path | None = None,
     runner: Any = subprocess.run,
 ) -> dict[str, Any]:
     """Create NEW native/ artifacts from one checked project using fixed scripts.
 
-    All inputs are determined by the server and its trusted environment; the
-    language model may supply only its existing project ID and the explicit
-    review-confirmation phrase. Runs in a temporary folder on same filesystem.
+    All programs and paths come from the trusted host. The MCP model can
+    supply a project ID and phrase but cannot issue the separate, expiring
+    human approval. Runs in a temporary folder on the same filesystem.
     """
     if enabled is not True or confirmation != REVIEW_CONFIRMATION:
         raise NativeExportError("Requiere habilitación del host y confirmación explícita.")
@@ -103,6 +203,9 @@ def export_native_project(
     presentation = repo / "integrations" / "blender_presentation.py"
     if not all(p.is_file() for p in (fcscript, blenderscript, presentation)):
         raise NativeExportError("Adaptador nativo faltante en repositorio; clone incompleto.")
+    # A model-generated phrase never constitutes human approval by itself.
+    # Check the sidecar AFTER all source checks but BEFORE any subprocess.
+    _consume_native_approval(folder, cad, approval_dir)
 
     with TemporaryDirectory(prefix=".carpinova-native-", dir=folder) as tmp:
         stage = Path(tmp) / "native"
@@ -182,3 +285,7 @@ def export_native_project(
             raise NativeExportError("Otra ejecución creó native; no sobrescribir.")
         os.rename(stage, dest)
     return manifest
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
