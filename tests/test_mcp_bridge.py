@@ -174,6 +174,12 @@ class McpBridgeContractTests(unittest.TestCase):
                         "image_guard", "lamina/three-views.png")
                 manifest.write_text(original, encoding="utf-8")
                 image = sheet / "three-views.png"
+                original_image = image.read_bytes()
+                image.write_bytes(original_image + b"AFTER_RENDER_TAMPERING")
+                with self.assertRaisesRegex(PilotError, "SHA-256 distinto"):
+                    carpinova_leer_entregable(
+                        "image_guard", "lamina/three-views.png")
+                image.write_bytes(original_image)
                 target = Path(outside) / "external.png"
                 target.write_bytes(image.read_bytes())
                 image.unlink()

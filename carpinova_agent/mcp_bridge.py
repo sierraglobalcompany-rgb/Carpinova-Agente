@@ -6,6 +6,7 @@ arbitrary Python execution, fabrication authority, or CAD application launch.
 from __future__ import annotations
 
 from io import BytesIO
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -217,6 +218,14 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
         raw = path.read_bytes()
         if not raw.startswith(b"\x89PNG\r\n\x1a\n") or len(raw) > _MAX_PREVIEW_BYTES:
             raise PilotError("La imagen no es un PNG de revisión válido.")
+        # Both existing generators already store the image byte digest. Check
+        # it here, rather than trusting an editable valid-looking PNG.
+        image_digest_field = (
+            "png_sha256" if archivo.startswith("lamina/")
+            else "presentation_png_sha256"
+        )
+        if hashlib.sha256(raw).hexdigest() != manifest.get(image_digest_field):
+            raise PilotError("Imagen modificada después del render: SHA-256 distinto.")
         # Preserve optional dependency boundary: ordinary text tools run
         # without Pillow or MCP Python SDK installed.
         try:
