@@ -24,7 +24,17 @@ FACADE_REQUIRED = frozenset({
     "right_clearance_mm", "top_clearance_mm", "bottom_clearance_mm"
 })
 FACADE_OPTIONAL = frozenset({
-    "grain_axis", "edgebanding_edges", "edgeband_thickness_mm"
+    "grain_axis", "edgebanding_edges", "edgeband_thickness_mm",
+    "opening_system",
+})
+# F7C_DRAWR_OVERLAY_INTEGRATED_20261021
+# Do not alter the original inset contract; overlay requires explicit overlaps.
+OVERLAY_REQUIRED = frozenset({
+    "style", "material_id", "thickness_mm", "left_overlap_mm",
+    "right_overlap_mm", "top_overlap_mm", "bottom_overlap_mm",
+})
+OPENING_SYSTEMS = frozenset({
+    "pending", "handle", "push_to_open", "finger_pull", "profile",
 })
 
 
@@ -64,7 +74,8 @@ def _part(module_id: str, drawer_id: str, role: str, material: str,
           fx: int, fy: int, thickness: int, plane: str, origin: list[int],
           formula: str, *, grain: str = "UNCONFIRMED",
           edges: str | list[str] = "UNCONFIRMED",
-          edge_thickness: int | None = None) -> dict[str, Any]:
+          edge_thickness: int | None = None,
+          facade_style: str = "inset") -> dict[str, Any]:
     band = None if edges == "UNCONFIRMED" else sum(
         fy if e.startswith("x_") else fx for e in edges
     )
@@ -78,7 +89,8 @@ def _part(module_id: str, drawer_id: str, role: str, material: str,
         "edgebanding_thickness_mm": edge_thickness,
         "edgebanding_nominal_total_mm": band,
         "finished_cut_dimensions_mm": None,
-        "source_engine": "F1_CORE_DRAWER" if role != "drawer_facade" else "F7C_EXPLICIT_INSET_FACADE",
+        "source_engine": ("F1_CORE_DRAWER" if role != "drawer_facade"
+                          else "F7C_EXPLICIT_" + facade_style.upper() + "_FACADE"),
         "source_formula": formula,
     }
 
@@ -86,24 +98,61 @@ def _part(module_id: str, drawer_id: str, role: str, material: str,
 def _facade(data: Any, *, module_id: str, drawer_id: str,
             aperture_width: int, aperture_height: int,
             opening_y: int, opening_x: int,
-            front_setback: int) -> tuple[list[dict[str, Any]], list[str]]:
+            front_setback: int, carcase_thickness: int,
+            module_height: int) -> tuple[list[dict[str, Any]], list[str]]:
+    """Create a *nominal* inset or overlay decorative drawer face.
+
+    Both styles use the same F1 opening; unlike an inset front, an overlay
+    face extends onto the surrounding carcass and sits at negative Z.
+    All four overlaps must be given explicitly and cannot exceed the
+    local frame thickness. They are NOT assumed hardware defaults.
+    """
     if data == "pending":
         return [], [f"{module_id}/{drawer_id}: falta frente decorativo de cajón."]
     if type(data) is not dict:
         raise DesignError(f"{drawer_id}.facade: usar pending o un objeto.")
-    if set(data) - (FACADE_REQUIRED | FACADE_OPTIONAL) or FACADE_REQUIRED - set(data):
-        raise DesignError(f"{drawer_id}.facade: campos ausentes o desconocidos.")
-    if data["style"] != "inset":
-        raise DesignError(f"{drawer_id}: solo frente embutido inset en este incremento.")
+    style = data.get("style")
+    if style not in {"inset", "overlay"}:
+        raise DesignError(f"{drawer_id}: facade.style debe ser inset u overlay.")
+    required = FACADE_REQUIRED if style == "inset" else OVERLAY_REQUIRED
+    if set(data) - (required | FACADE_OPTIONAL) or required - set(data):
+        raise DesignError(f"{drawer_id}.facade: campos ausentes o incompatibles con {style}.")
+    opening_system = data.get("opening_system", "pending")
+    if type(opening_system) is not str or opening_system not in OPENING_SYSTEMS:
+        raise DesignError(f"{drawer_id}: opening_system no reconocido; confirmar alternativa.")
     material = _id(data["material_id"], "facade.material_id")
     thick = _mm(data["thickness_mm"], "facade.thickness_mm")
-    gaps = {key: _mm(data[key], "facade."+key) for key in
-            ("left_clearance_mm", "right_clearance_mm",
-             "top_clearance_mm", "bottom_clearance_mm")}
-    fx = aperture_width - gaps["left_clearance_mm"] - gaps["right_clearance_mm"]
-    fy = aperture_height - gaps["top_clearance_mm"] - gaps["bottom_clearance_mm"]
+    if style == "inset":
+        gaps = {key: _mm(data[key], "facade." + key) for key in (
+            "left_clearance_mm", "right_clearance_mm",
+            "top_clearance_mm", "bottom_clearance_mm")}
+        fx = aperture_width - gaps["left_clearance_mm"] - gaps["right_clearance_mm"]
+        fy = aperture_height - gaps["top_clearance_mm"] - gaps["bottom_clearance_mm"]
+        x = opening_x + gaps["left_clearance_mm"]
+        y = opening_y + gaps["bottom_clearance_mm"]
+        z = 0
+        formula = "F1.clear_width_mm - two explicit horizontal clearances; drawer.opening_height_mm - two explicit vertical clearances"
+    else:
+        overlaps = {key: _mm(data[key], "facade." + key, allow_zero=True) for key in (
+            "left_overlap_mm", "right_overlap_mm",
+            "top_overlap_mm", "bottom_overlap_mm")}
+        if not any(overlaps.values()):
+            raise DesignError(f"{drawer_id}: frente overlay sin solape real; usar inset o declarar solapes.")
+        if any(v > carcase_thickness for v in overlaps.values()):
+            raise DesignError(f"{drawer_id}: solape mayor que el marco estructural.")
+        fx = aperture_width + overlaps["left_overlap_mm"] + overlaps["right_overlap_mm"]
+        fy = aperture_height + overlaps["top_overlap_mm"] + overlaps["bottom_overlap_mm"]
+        x = opening_x - overlaps["left_overlap_mm"]
+        y = opening_y - overlaps["bottom_overlap_mm"]
+        z = -thick
+        formula = "F7C.overlay: F1 clear opening plus four explicit bounded frame overlaps"
     if min(fx, fy) <= 0:
-        raise DesignError(f"{drawer_id}: frente embutido no cabe en la abertura.")
+        raise DesignError(f"{drawer_id}: frente no cabe en la abertura.")
+    # Keep every facade inside the parent module's external front rectangle.
+    if (x < opening_x - carcase_thickness
+            or x + fx > opening_x + aperture_width + carcase_thickness
+            or y < 0 or y + fy > module_height):
+        raise DesignError(f"{drawer_id}: frente invade espacio exterior del módulo.")
     if front_setback <= thick:
         raise DesignError(
             f"{drawer_id}: retranqueo de caja debe superar espesor del frente "
@@ -112,16 +161,22 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
     grain, edges, band_t = _finish(data, drawer_id)
     face = _part(
         module_id, drawer_id, "drawer_facade", material, fx, fy, thick,
-        "XY", [opening_x+gaps["left_clearance_mm"],
-               opening_y+gaps["bottom_clearance_mm"], 0],
-        "F1.clear_width_mm - two explicit horizontal clearances; "
-        "drawer.opening_height_mm - two explicit vertical clearances",
+        "XY", [x, y, z], formula,
         grain=grain, edges=edges, edge_thickness=band_t,
+        facade_style=style,
     )
+    # Opening mechanism is an *intent*, not a drilled or modeled mechanism.
+    face["opening_system"] = opening_system
     blockers = [
         f"{module_id}/{drawer_id}: frente decorativo sin uniones, tiradores, "
         "cantos finales ni validación de montaje."
     ]
+    if opening_system == "pending":
+        blockers.append(f"{module_id}/{drawer_id}: decidir tirador, push-to-open, uñero o perfil.")
+    elif opening_system == "profile":
+        blockers.append(f"{module_id}/{drawer_id}: perfil elegido sin sección SKU ni mecanizado validado.")
+    elif opening_system in {"handle", "push_to_open", "finger_pull"}:
+        blockers.append(f"{module_id}/{drawer_id}: sistema {opening_system} requiere ficha/compatibilidad; no hay taladros ni fresados aprobados.")
     if grain == "UNCONFIRMED":
         blockers.append(f"{module_id}/{drawer_id}: falta orientación de veta decorativa.")
     if edges == "UNCONFIRMED":
@@ -212,6 +267,8 @@ def module_drawers(drawers: Any, *, module_id: str,
             aperture_width=clear_width_mm, aperture_height=aperture_h,
             opening_y=y, opening_x=start_x_mm + carcase_thickness_mm,
             front_setback=z,
+            carcase_thickness=carcase_thickness_mm,
+            module_height=clear_height_mm + 2 * carcase_thickness_mm,
         )
         all_parts.extend(fronts)
         blockers.extend(front_blockers)
@@ -223,4 +280,18 @@ def module_drawers(drawers: Any, *, module_id: str,
     sorted_openings = sorted(openings)
     if any(a[1] >= b[0] for a, b in zip(sorted_openings, sorted_openings[1:])):
         raise DesignError(f"{module_id}: aperturas verticales se solapan o tocan.")
+    # Catch adjacent overlay/inset decorative face collisions independently
+    # of the drawer opening check. Touching faces are rejected as well.
+    facades = [p for p in all_parts if p["role"] == "drawer_facade"]
+    for ix, a in enumerate(facades):
+        ax, ay, _ = a["nominal_origin_xyz_mm"]
+        aw, ah = a["nominal_face_x_mm"], a["nominal_face_y_mm"]
+        for b in facades[ix + 1:]:
+            bx, by, _ = b["nominal_origin_xyz_mm"]
+            bw, bh = b["nominal_face_x_mm"], b["nominal_face_y_mm"]
+            if (ax <= bx + bw and bx <= ax + aw
+                    and ay <= by + bh and by <= ay + ah):
+                raise DesignError(
+                    f"{module_id}: fachadas {a['piece_id']} y {b['piece_id']} se tocan o solapan."
+                )
     return all_parts, blockers, ids
