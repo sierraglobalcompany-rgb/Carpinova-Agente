@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from .maestro import MaestroError, consult_maestro
+from .drawing_sheet import create_render_bundle
 from .pilot_cli import PilotError, write_pilot_bundle
 
 
@@ -21,6 +22,7 @@ _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
 _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
     "cad-exchange.json", "manifest.json",
+    "lamina/three-views.svg", "lamina/render-manifest.json",
 ))
 _FABRICATION = {
     "fabrication_ready": False, "cutting_ready": False,
@@ -116,16 +118,39 @@ def carpinova_generar_borrador(solicitud_json: str, proyecto: str) -> dict[str, 
     }
 
 
+def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
+    """Export 3-view SVG, PNG and PDF from canonical CAD, never cut plans.
+
+    Requires optional CairoSVG locally. Does not invoke native CAD, MCP from
+    other apps, shell commands or remote APIs. Repeated calls never overwrite.
+    """
+    name = _project_id(proyecto)
+    root = _output_root()
+    folder = root / name
+    manifest = create_render_bundle(folder)
+    return {
+        "proyecto": name, "status": "DRAFT_NOT_FOR_CUTTING",
+        "geometry_sha256": manifest["geometry_sha256"],
+        "piece_count": manifest["piece_count"],
+        "files": [str(folder / "lamina" / item) for item in manifest["files"]],
+        "image_preview_svg": str(folder / "lamina" / "three-views.svg"),
+        "image_preview_png": str(folder / "lamina" / "three-views.png"),
+        "printable_pdf": str(folder / "lamina" / "three-views.pdf"),
+        **_FABRICATION,
+    }
+
+
 def carpinova_leer_entregable(proyecto: str, archivo: str) -> dict[str, Any]:
     """Read only the allowlisted artefacts from a previously generated bundle."""
     name = _project_id(proyecto)
     if type(archivo) is not str or archivo not in _ALLOWED_FILES:
-        raise PilotError("Solo se pueden leer los cinco entregables del borrador.")
+        raise PilotError("Solo se pueden leer entregables textuales permitidos del borrador.")
     root = _output_root()
     folder = root / name
     path = folder / archivo
-    if (folder.is_symlink() or path.is_symlink() or
-            not path.resolve().is_relative_to(root) or not path.is_file()):
+    if (folder.is_symlink() or path.is_symlink()
+            or (path.parent != folder and path.parent.is_symlink())
+            or not path.resolve().is_relative_to(root) or not path.is_file()):
         raise PilotError("Archivo inexistente o fuera del directorio de revisión.")
     if path.stat().st_size > _MAX_ARTIFACT_BYTES:
         raise PilotError("El entregable excede el límite de lectura del Agente.")
@@ -155,6 +180,7 @@ def create_server():
     server.tool()(carpinova_estado)
     server.tool()(carpinova_consultar)
     server.tool()(carpinova_generar_borrador)
+    server.tool()(carpinova_renderizar_lamina)
     server.tool()(carpinova_leer_entregable)
     return server
 

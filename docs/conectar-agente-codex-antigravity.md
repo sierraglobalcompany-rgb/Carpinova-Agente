@@ -92,3 +92,32 @@ https://developers.openai.com/codex/mcp
 https://antigravity.google/docs/mcp
 https://github.com/modelcontextprotocol/python-sdk
 https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta
+
+
+## Plano de tres vistas en SVG, PNG y PDF — segundo paso opcional
+
+El **quinto** método \`carpinova_renderizar_lamina(proyecto)\` utiliza el
+\`cad-exchange.json\` verificado del proyecto ya generado y produce en
+\`entregables/<proyecto>/lamina/\` cuatro archivos: \`three-views.svg\`,
+\`three-views.png\`, \`three-views.pdf\` y \`render-manifest.json\`.
+Requiere instalar en el mismo Python \`CairoSVG>=2.7,<3\` y las bibliotecas
+Cairo compatibles con el sistema operativo. Es opcional: si no está instalado,
+el diseño SVG frontal, el CSV y el CADExchange anteriores siguen funcionando.
+
+Se muestran FRENTE (X/Y), LATERAL (Z/Y) y PLANTA (X/Z), siempre sobre
+las **mismas piezas del CADExchange**, con anotaciones de dimensiones
+exteriores y su SHA-256. Las caras se muestran **superpuestas y translúcidas**:
+no es un render 3D ni resuelve líneas ocultas, no representa uniones,
+calados, tornillos o materiales fotográficos. **No imprimir estas láminas
+como instrucciones de corte.**
+
+El cliente MCP lee el archivo vectorial vía \`carpinova_leer_entregable\`
+con \`archivo="lamina/three-views.svg"\`; para PNG y PDF, la herramienta
+devuelve la ubicación local en la carpeta de entregables. En Codex o
+AntiGravity se abren desde esa ruta y se pueden adjuntar al chat.
+No se puede leer un PDF binario mediante la herramienta de texto ni usar
+rutas de terceros. La lámina nunca sobrescribe trabajos anteriores.
+
+Ejemplo de diálogo: “Usa carpinova_generar_borrador para mi proyecto
+verificado de mueble, luego carpinova_renderizar_lamina y enséñame
+three-views.png y three-views.pdf, conservando el hash del CAD”.

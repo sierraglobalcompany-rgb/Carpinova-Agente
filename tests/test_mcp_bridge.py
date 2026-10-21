@@ -9,9 +9,10 @@ import unittest
 from unittest.mock import patch
 
 from carpinova_agent.maestro import MaestroError
+from carpinova_agent.core import DesignError
 from carpinova_agent.mcp_bridge import (
     carpinova_consultar, carpinova_estado, carpinova_generar_borrador,
-    carpinova_leer_entregable,
+    carpinova_leer_entregable, carpinova_renderizar_lamina,
 )
 from carpinova_agent.pilot_cli import PilotError
 
@@ -109,6 +110,45 @@ class McpBridgeContractTests(unittest.TestCase):
                     self.skipTest("symlink privileges unavailable")
                 with self.assertRaises(PilotError):
                     carpinova_leer_entregable("external", "manifest.json")
+
+
+    def test_mcp_generates_3view_png_pdf_and_returns_paths(self):
+        try:
+            import cairosvg
+        except ImportError:
+            self.skipTest("Optional rendering dependency absent")
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                carpinova_generar_borrador(REQUEST, "lamina_001")
+                result = carpinova_renderizar_lamina("lamina_001")
+                self.assertEqual(result["status"], "DRAFT_NOT_FOR_CUTTING")
+                self.assertEqual(result["piece_count"], 4)
+                self.assertTrue(Path(result["image_preview_png"]).read_bytes().startswith(
+                    b"\x89PNG\r\n\x1a\n"))
+                self.assertTrue(Path(result["printable_pdf"]).read_bytes().startswith(b"%PDF-"))
+                view = carpinova_leer_entregable("lamina_001", "lamina/three-views.svg")
+                self.assertIn(result["geometry_sha256"], view["contenido"])
+                with self.assertRaisesRegex(DesignError, "existente"):
+                    carpinova_renderizar_lamina("lamina_001")
+
+    def test_mcp_render_rejects_unknown_project(self):
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                with self.assertRaises((FileNotFoundError, DesignError)):
+                    carpinova_renderizar_lamina("not_existing")
+
+    def test_mcp_blocks_cross_project_symlink_sheet_read(self):
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                carpinova_generar_borrador(REQUEST, "viewer")
+                carpinova_generar_borrador(REQUEST, "foreign")
+                path = Path(root) / "viewer" / "lamina"
+                try:
+                    path.symlink_to(Path(root) / "foreign", target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    self.skipTest("Symlink unsupported")
+                with self.assertRaises(PilotError):
+                    carpinova_leer_entregable("viewer", "lamina/render-manifest.json")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install optional official MCP SDK
-        run: python -m pip install "mcp>=1.27,<2"
+        run: python -m pip install "mcp>=1.27,<2" "CairoSVG>=2.7,<3"
       - name: Unit-test safe local bridge
         run: python -m unittest discover -s tests -p "test_mcp_bridge.py" -v
       - name: Real stdio MCP client-server roundtrip (no FreeCAD Blender)
@@ -51,7 +51,8 @@ jobs:
                       actual = {x.name for x in tools.tools}
                       expected = {
                           "carpinova_estado", "carpinova_consultar",
-                          "carpinova_generar_borrador", "carpinova_leer_entregable",
+                          "carpinova_generar_borrador", "carpinova_renderizar_lamina",
+                          "carpinova_leer_entregable",
                       }
                       assert actual == expected, (actual, expected)
                       for name, args in (
@@ -59,8 +60,10 @@ jobs:
                           ("carpinova_consultar", {"solicitud_json": fixture}),
                           ("carpinova_generar_borrador", {
                               "solicitud_json": fixture, "proyecto": "primer_mueble"}),
+                          ("carpinova_renderizar_lamina", {
+                              "proyecto": "primer_mueble"}),
                           ("carpinova_leer_entregable", {
-                              "proyecto": "primer_mueble", "archivo": "manifest.json"}),
+                              "proyecto": "primer_mueble", "archivo": "lamina/three-views.svg"}),
                       ):
                           result = await session.call_tool(name, args)
                           assert not result.isError, (name, result)
@@ -78,7 +81,15 @@ jobs:
           with (folder / "parts-review.csv").open(encoding="utf-8", newline="") as f:
               assert len(list(csv.DictReader(f))) == 4
           ElementTree.parse(folder / "front-review.svg")
-          print("REAL_MCP_STDIO=PASS; FOUR_TOOLS=PASS; FOUR_PARTS=PASS")
+          ElementTree.parse(folder / "lamina" / "three-views.svg")
+          render = json.loads((folder / "lamina" / "render-manifest.json").read_text(encoding="utf-8"))
+          assert render["geometry_sha256"] == manifest["geometry_sha256"]
+          assert (folder / "lamina" / "three-views.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+          assert (folder / "lamina" / "three-views.pdf").read_bytes().startswith(b"%PDF-")
+          assert all(render[key] is False for key in (
+              "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
+          print("REAL_MCP_STDIO=PASS; FIVE_TOOLS=PASS; FOUR_PARTS=PASS")
+          print("THREE_VIEWS_SVG_PNG_PDF=PASS")
           print("GEOMETRY_SHA256=" + manifest["geometry_sha256"])
           print("FABRICATION_AUTHORITY=NO")
           PY
