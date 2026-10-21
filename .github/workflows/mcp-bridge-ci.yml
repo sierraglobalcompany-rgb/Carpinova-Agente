@@ -55,6 +55,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install the same pinned MCP protocol dependencies in this isolated native runner
+        run: python -m pip install -r requirements-mcp.txt
       - name: Fetch the EXACT two furniture projects generated through MCP in this run
         uses: actions/download-artifact@v4
         with:
