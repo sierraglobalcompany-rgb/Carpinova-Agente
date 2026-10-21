@@ -727,6 +727,11 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         (410, "BS · BASE INFERIOR", bottom_panel),
     ):
         outer_str = f'{info["concept_outer_width_mm"]} × {info["concept_outer_depth_mm"]} mm'
+        outer_label = (
+            f"Idea exterior: {outer_str}"
+            if info["extension_not_modeled_in_F1"]
+            else f"Sin salientes: carcasa {width} × {depth} mm"
+        )
         shapes.extend([
             f'<rect x="{x}" y="624" width="362" height="103" rx="10" '
             'fill="#f7f9fb" stroke="#cad4df"/>',
@@ -734,7 +739,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
             f'<text x="{x+15}" y="671" class="small">'
             f'Nominal: {info["nominal_width_mm"]} × {depth} × {t} mm</text>',
             f'<text x="{x+15}" y="691" class="small">'
-            f'Idea exterior: {outer_str}</text>',
+            f'{outer_label}</text>',
             f'<text x="{x+15}" y="711" class="note">'
             f'Izq. {info["concept_overhang_left_mm"]} / '
             f'der. {info["concept_overhang_right_mm"]} · '
