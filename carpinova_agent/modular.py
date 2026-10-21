@@ -13,6 +13,7 @@ from .core import DesignError, design
 from .back_panels import back_panels
 from .front_panels import front_panels, check_adjacent_fronts
 from .drawer_modules import module_drawers
+from .cad_exchange import nominal_front_extension_mm
 
 ROLES = ("left_side", "right_side", "top", "bottom")
 EDGES = frozenset(("x_min", "x_max", "y_min", "y_max"))
@@ -20,7 +21,8 @@ GRAIN_AXES = frozenset(("face_x", "face_y", "none"))
 APPLICATIONS = frozenset(("closet", "kitchen", "cabinet_run"))
 INSTALLATIONS = frozenset(("built_in", "freestanding", "wall_mounted"))
 ROOT_FIELDS = frozenset(("type", "application", "width_mm", "height_mm",
-                         "depth_mm", "installation", "site_width_mm", "modules"))
+                         "depth_mm", "installation", "site_width_mm", "modules",
+                         "max_assembled_depth_mm"))
 MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "material_id", "construction", "fronts", "back",
                            "support", "finish", "drawers"))
@@ -112,6 +114,10 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     width = _positive(d.get("width_mm"), "width_mm")
     height = _positive(d.get("height_mm"), "height_mm")
     depth = _positive(d.get("depth_mm"), "depth_mm")
+    max_assembled_depth = (
+        _positive(d["max_assembled_depth_mm"], "max_assembled_depth_mm")
+        if "max_assembled_depth_mm" in d else None
+    )
     site = _site_check(d, width)
     modules = d.get("modules")
     if not isinstance(modules, list) or not 1 <= len(modules) <= 12:
@@ -267,6 +273,34 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     if len(all_parts) > 72:
         raise DesignError("Se excedió el límite seguro de 72 piezas CAD; dividir el proyecto.")
     check_adjacent_fronts(out_modules, all_parts)
+    # Derived from the SAME front-offset formula used by CADExchange; no
+    # second 3D model and no presumption that 500 mm carcass means 500 mm
+    # assembled depth when an overlay decorative face extends forward.
+    front_extension = nominal_front_extension_mm(all_parts)
+    assembled_depth = depth + front_extension
+    depth_conflict = (max_assembled_depth is not None
+                      and assembled_depth > max_assembled_depth)
+    depth_review = {
+        "carcass_depth_mm": depth,
+        "front_extension_mm": front_extension,
+        "assembled_external_depth_mm": assembled_depth,
+        "max_assembled_depth_mm": max_assembled_depth,
+        "conflict": depth_conflict,
+    }
+    if depth_conflict:
+        blockers.insert(
+            0, f"Profundidad exterior montada {assembled_depth} mm supera "
+               f"límite explícito de {max_assembled_depth} mm: cambiar "
+               "profundidad de carcasa o revisar el límite antes de CAD."
+        )
+        if status == "DRAFT_NOT_FOR_CUTTING":
+            status = "NEEDS_DEPTH_REVISION"
+    elif front_extension and max_assembled_depth is None:
+        blockers.append(
+            f"Carcasa {depth} mm más frente sobrepuesto {front_extension} mm "
+            f"= {assembled_depth} mm exteriores; confirmar si cabe "
+            "en la profundidad solicitada."
+        )
     if installation == "wall_mounted":
         blockers.insert(0, "Mueble suspendido: carga, muro y anclajes requieren cálculo competente.")
     blockers.append("La unión entre módulos y los apoyos entre cuerpos aún no están diseñados.")
@@ -276,6 +310,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         "fabrication_ready": False, "cutting_ready": False, "drilling_ready": False,
         "purchase_ready": False,
         "dimensions_mm": {"width": width, "height": height, "depth": depth},
+        "depth_review": depth_review,
         "installation": installation, "site": site, "modules": out_modules,
         "parts": all_parts, "piece_count": len(all_parts),
         "total_module_width_mm": x_offset, "blockers": blockers,
