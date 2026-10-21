@@ -324,18 +324,28 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
             "panel_thickness_mm", "construction"
         )},
     })
-    gap = _mm(spec["vertical_gap_mm"], "vertical_gap_mm")
     weights = spec["drawer_weights"]
     if (type(weights) is not list or not 1 <= len(weights) <= 4
             or any(type(w) is not int or not 1 <= w <= 100 for w in weights)):
         raise DesignError("drawer_weights: lista de 1 a 4 enteros entre 1 y 100.")
+    # One drawer has no inter-drawer separator. Multiple openings require
+    # a positive separation so F7C will never receive touching apertures.
+    gap = _mm(spec["vertical_gap_mm"], "vertical_gap_mm",
+              allow_zero=len(weights) == 1)
     clear_height = cabinet["dimensions"]["clear_height_mm"]
     space = clear_height - (len(weights) - 1) * gap
     if space < len(weights):
         raise DesignError("No caben aperturas positivas tras las separaciones indicadas.")
+    # Largest remainders apportion indivisible millimetres fairly instead
+    # of loading ALL rounding residue into the last (often largest) drawer.
+    # Stable index order breaks equal fractional remainders; integer-only.
     total = sum(weights)
-    heights = [space * w // total for w in weights[:-1]]
-    heights.append(space - sum(heights))
+    heights = [space * w // total for w in weights]
+    extra = space - sum(heights)
+    ranked = sorted(range(len(weights)),
+                    key=lambda i: (-(space * weights[i] % total), i))
+    for index in ranked[:extra]:
+        heights[index] += 1
     if min(heights) <= 0:
         raise DesignError("La distribución deja una abertura sin altura positiva.")
     openings: list[dict[str, int | str]] = []
@@ -365,6 +375,8 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
         "vertical_gap_mm": gap,
         "drawer_weights": list(weights),
         "opening_plan": openings,
+        "depth_scope": "CARCASS_ONLY_UNTIL_FACADE_SELECTED",
+        "assembled_external_depth_mm": None,
         "parts": [],
         "piece_count": 0,
         "fabrication_ready": False, "cutting_ready": False,
@@ -376,5 +388,8 @@ def propose_drawer_layout(spec: Any) -> dict[str, Any]:
             "ni prueban montaje de correderas o carga.",
             "Faltan cotas de caja, frente, holguras de herrajes, fondo, "
             "materiales y autorización de fabricación.",
+            "Confirmar si la profundidad total solicitada incluye el "
+            "frente sobrepuesto: el plano propuesto usa profundidad "
+            "de carcasa, sin espesor de fachada.",
         ],
     }
