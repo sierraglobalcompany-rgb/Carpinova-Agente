@@ -46,3 +46,5 @@ El MCP **local stdio del Agente** ya tiene seis herramientas CI GREEN, incluida 
 **Continuidad obligatoria:** revisar y actualizar `docs/PROJECT_CONTINUITY_CURRENT.md` en GitHub. Nunca confiar únicamente en este chat como backup. MCP nativo no recibe ejecutables, scripts ni comandos del modelo y no habilita fabricación.
 
 La autorización 3D **no es** la frase MCP: exigir además ticket local de host de un solo uso, SHA-bound, emitido de forma interactiva fuera del directorio de muebles. Instrucciones: `docs/conectar-agente-codex-antigravity.md`. No considerar el harness CI equivalente a autorización humana en PC.
+
+\n**Uso del Agente desde Codex:** antes de generar un mueble desde texto libre, cargar `skills/maestro-carpintero/SKILL.md` (sección «Uso directo en Codex — contrato de conversación V1»). Interpretar, preguntar (máximo tres decisiones por turno), presentar especificación íntegra y obtener confirmación humana antes de invocar las herramientas MCP con JSON. El modelo conversa; la geometría la calcula solo el Maestro. Los cuatro flags de fabricación permanecen falsos.\n
