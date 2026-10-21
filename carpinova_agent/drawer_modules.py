@@ -719,9 +719,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         'class="dimension" text-anchor="middle">'
         'LD · costado derecho (LI opuesto)</text>',
         f'<text x="{sx-12:.2f}" y="{sy+15:.2f}" '
-        'class="small" text-anchor="end">T</text>',
+        'class="small" text-anchor="end">T · tapa superior</text>',
         f'<text x="{sx-12:.2f}" y="{sy+sh-7:.2f}" '
-        'class="small" text-anchor="end">BS</text>',
+        'class="small" text-anchor="end">BS · base inferior</text>',
         f'<text x="{sx+sw/2:.2f}" y="{sy+sh/2:.2f}" '
         'class="small" text-anchor="middle">LD · lateral</text>',
         f'<text x="{sx+sw/2:.2f}" y="{sy+sh+19:.2f}" '
