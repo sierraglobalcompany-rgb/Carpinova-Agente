@@ -46,6 +46,11 @@ class DrawerLayoutProposalTests(unittest.TestCase):
         self.assertTrue(model["bottom_to_top"])
         self.assertEqual(model["piece_count"], 0)
         self.assertEqual(model["parts"], [])
+        self.assertIsNone(model["assembled_external_depth_mm"])
+        self.assertEqual(model["depth_scope"], "CARCASS_ONLY_UNTIL_FACADE_SELECTED")
+        self.assertTrue(any("profundidad total" in b for b in model["blockers"]))
+        self.assertTrue(any("profundidad" in q["question"]
+                            for q in answer["questions"]))
         self.assertEqual(len(answer["questions"]), 3)
         for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
             self.assertIs(answer[flag], False)
@@ -87,6 +92,51 @@ class DrawerLayoutProposalTests(unittest.TestCase):
                          [0, 198, 396, 594])
         self.assertEqual(model["opening_plan"][-1]["opening_bottom_offset_mm"]
                          + model["opening_plan"][-1]["opening_height_mm"], 764)
+
+    def test_uneven_millimetres_are_apportioned_without_last_drawer_bias(self):
+        request = proposal()
+        # Clear height 767, gaps 3x28, weighted space = 683.
+        # Fair largest-remainder distribution [136.6,136.6,136.6,273.2].
+        request["module_spec"]["height_mm"] = 803
+        model = propose_drawer_layout(request["module_spec"])
+        self.assertEqual([x["opening_height_mm"] for x in model["opening_plan"]],
+                         [137, 137, 136, 273])
+        self.assertEqual([x["opening_bottom_offset_mm"] for x in model["opening_plan"]],
+                         [0, 165, 330, 494])
+        self.assertEqual(sum(x["opening_height_mm"] for x in model["opening_plan"])
+                         + 3 * model["vertical_gap_mm"], model["clear_height_mm"])
+        self.assertIsNone(model["assembled_external_depth_mm"])
+
+    def test_single_drawer_has_no_separator(self):
+        request = proposal([1], gap=0)
+        result = consult_maestro(request)
+        self.assertEqual(result["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertEqual(result["modular"]["opening_plan"], [
+            {"drawer_id": "D1", "opening_bottom_offset_mm": 0,
+             "opening_height_mm": 764},
+        ])
+        self.assertEqual(result["modular"]["piece_count"], 0)
+
+    def test_integer_remainder_invariants(self):
+        for height in (95, 131, 803, 1200):
+            for weights in ([1, 1, 1, 1], [1, 2, 3], [2, 1, 1, 1]):
+                with self.subTest(height=height, weights=weights):
+                    request = proposal(weights, gap=1)
+                    request["module_spec"]["height_mm"] = height
+                    proposed = propose_drawer_layout(request["module_spec"])
+                    plan = proposed["opening_plan"]
+                    self.assertEqual(len(plan), len(weights))
+                    self.assertTrue(all(x["opening_height_mm"] > 0 for x in plan))
+                    self.assertEqual(
+                        sum(x["opening_height_mm"] for x in plan)
+                        + (len(weights) - 1) * proposed["vertical_gap_mm"],
+                        proposed["clear_height_mm"]
+                    )
+                    self.assertEqual(
+                        plan[-1]["opening_bottom_offset_mm"]
+                        + plan[-1]["opening_height_mm"],
+                        proposed["clear_height_mm"]
+                    )
 
     def test_proposal_is_available_through_existing_mcp_not_new_tool(self):
         answer = carpinova_consultar(json.dumps(proposal()))
