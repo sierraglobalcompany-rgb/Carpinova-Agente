@@ -419,6 +419,21 @@ CHOICE_LABELS = {
     "finger_pull": "uñero (indicativo)",
     "profile": "perfil (indicativo)",
 }
+SUPPORT_LABELS = {
+    "floor_direct": "sin patas (al piso)", "legs": "patas",
+    "plinth": "zócalo/banqueo", "wall_mounted": "suspendido",
+}
+WALL_LABELS = {
+    "pending": "fijación por decidir", "none": "sin fijación",
+    "french_cleat": "listón francés", "direct_fasteners": "fijación directa",
+    "rail_hangers": "riel con colgadores",
+}
+BACK_LABELS = {
+    "pending": "por decidir", "none": "sin fondo",
+    "thin_sheet": "lámina delgada", "full_panel": "fondo completo",
+    "two_strips": "dos franjas",
+}
+
 
 
 def _annotated_openings(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -480,18 +495,18 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
             )
     rows.append("ABAJO")
     rows.append(
-        f"AP: {plan.get('support_style', 'floor_direct')}, "
+        f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}, "
         f"{plan.get('support_height_mm', 0)} mm; "
         f"carcasa {dims['height']} mm; "
         f"alto total {plan.get('overall_height_mm', dims['height'])} mm."
     )
     rows.append(
-        f"MF: muro {plan.get('wall_contact', False)}; fijación "
-        f"{plan.get('wall_fixing', 'pending')}; altura sobre piso "
+        f"MF: muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
+        f"{WALL_LABELS[plan.get('wall_fixing', 'pending')]}; altura sobre piso "
         f"{plan.get('wall_bottom_above_floor_mm', 0)} mm."
     )
     rows.append(
-        f"FP: fondo posterior {plan.get('back_style', 'pending')}; "
+        f"FP: fondo posterior {BACK_LABELS[plan.get('back_style', 'pending')]}; "
         f"espesor ilustrativo {plan.get('back_thickness_mm')} mm."
     )
     rows.append(
@@ -652,11 +667,11 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
           'class="ref">LD</text>'
         + f'<text x="30" y="503" class="note">'
           f'Carcasa: ancho {width}, alto {height}, fondo {dims["depth"]} mm. '
-          f'AP: {style} {support_h} mm.</text>'
+          f'AP: {SUPPORT_LABELS[style]} {support_h} mm.</text>'
         + f'<text x="30" y="524" class="note">'
-          f'MF: muro={plan.get("wall_contact", False)}, '
-          f'fix={plan.get("wall_fixing", "pending")}; '
-          f'FP: {plan.get("back_style", "pending")} '
+          f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}, '
+          f'elevación {plan.get("wall_bottom_above_floor_mm", 0)} mm; '
+          f'FP: {BACK_LABELS[plan.get("back_style", "pending")]} '
           f'({plan.get("back_thickness_mm")} mm).</text>'
         + f'<text x="30" y="547" class="note">'
           f'T: saliente izquierda {ext_l} / derecha {ext_r} mm '
