@@ -9,6 +9,8 @@ from carpinova_agent.maestro import consult_maestro
 from carpinova_agent.modular import design_modular_run
 from carpinova_agent.mcp_bridge import carpinova_consultar
 from carpinova_agent.pilot_cli import PilotError, pilot_review
+from pathlib import Path
+from carpinova_agent.cad_exchange import validate_exchange
 
 
 def proposal(weights=None, gap=28):
@@ -48,6 +50,34 @@ class DrawerLayoutProposalTests(unittest.TestCase):
         for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
             self.assertIs(answer[flag], False)
             self.assertIs(model[flag], False)
+
+    def test_confirmed_opening_plan_reaches_legacy_f7c_without_new_geometry(self):
+        """Review proposal only becomes CAD after full, separately confirmed drawer inputs."""
+        plan = consult_maestro(proposal())["modular"]["opening_plan"]
+        examples = Path(__file__).resolve().parents[1] / "examples"
+        for style in ("INSET", "OVERLAY"):
+            with self.subTest(style=style):
+                fixture = examples / (
+                    f"four-drawer-500x500x800-{style}-UNCONFIRMED.json"
+                )
+                request = json.loads(fixture.read_text(encoding="utf-8"))
+                drawers = request["module_spec"]["modules"][0]["drawers"]
+                for drawer, opening in zip(drawers, plan):
+                    self.assertEqual(drawer["drawer_id"], opening["drawer_id"])
+                    drawer["opening_bottom_offset_mm"] = opening["opening_bottom_offset_mm"]
+                    drawer["opening_height_mm"] = opening["opening_height_mm"]
+                # These additional fixture values are illustrative, not
+                # certified by the proposal or approved by a real user.
+                reviewed = consult_maestro(request)
+                self.assertEqual(reviewed["status"], "DRAFT_NOT_FOR_CUTTING")
+                self.assertEqual(reviewed["modular"]["piece_count"], 28)
+                bundle = pilot_review(request)
+                cad = validate_exchange(json.loads(bundle["cad-exchange.json"]))
+                self.assertEqual(len(cad["boxes"]), 28)
+                self.assertIn("M1-D4-DRAWER_FACADE", bundle["parts-review.csv"])
+                for flag in ("fabrication_ready", "cutting_ready",
+                             "drilling_ready", "purchase_ready"):
+                    self.assertIs(reviewed[flag], False)
 
     def test_equal_openings_and_full_clear_height(self):
         model = propose_drawer_layout(proposal([1, 1, 1, 1])["module_spec"])
