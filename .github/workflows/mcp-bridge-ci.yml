@@ -8,6 +8,7 @@ on:
       - "tests/test_mcp_bridge.py"
       - ".github/workflows/mcp-bridge-ci.yml"
       - "docs/conectar-agente-codex-antigravity.md"
+      - "integrations/blender_presentation.py"
 permissions:
   contents: read
 jobs:
@@ -135,3 +136,151 @@ jobs:
           name: carpinova-first-mcp-furniture
           retention-days: 14
           path: ${{ runner.temp }}/carpinova-mcp-output/
+
+  native-cad-deliverables:
+    name: FreeCAD + Blender native files from exact MCP-generated furniture
+    needs: mcp-protocol
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch the EXACT two furniture projects generated through MCP in this run
+        uses: actions/download-artifact@v4
+        with:
+          name: carpinova-first-mcp-furniture
+          path: ${{ runner.temp }}/source
+      - name: Validate source projects and compile audited Blender presenter
+        run: |
+          python -m compileall -q integrations/blender_presentation.py
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from carpinova_agent.cad_exchange import validate_exchange
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          for project, count in (("primer_mueble", 4), ("cocina_dos_modulos", 13)):
+              folder = root / project
+              manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+              cad = validate_exchange(json.loads((folder / "cad-exchange.json").read_text(encoding="utf-8")))
+              assert manifest["piece_count"] == count == len(cad["boxes"])
+              assert manifest["geometry_sha256"] == cad["geometry_sha256"]
+              assert all(manifest[k] is False for k in (
+                  "fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+              print("MCP_INPUT_REUSED=" + project + "; SHA256=" + cad["geometry_sha256"])
+          PY
+      - name: Install audited Ubuntu FreeCAD and Blender runtimes
+        shell: bash
+        run: |
+          while IFS= read -r -d '' aptfile; do
+            if grep -q 'packages.microsoft.com' "$aptfile"; then
+              sudo mv "$aptfile" "$aptfile.disabled"
+            fi
+          done < <(find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -print0)
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3 blender
+          command -v freecadcmd || command -v FreeCADCmd
+          blender --version | head -n 2
+      - name: Build FreeCAD FCStd and compare REAL solid bounds against MCP CAD
+        shell: bash
+        run: |
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          for project in primer_mueble cocina_dos_modulos; do
+            folder="$RUNNER_TEMP/source/$project"
+            export CARPINOVA_CAD_INPUT="$folder/cad-exchange.json"
+            export CARPINOVA_FCSTD_OUTPUT="$folder/native.FCStd"
+            timeout 120s "$FC_BIN" integrations/freecad_headless_proof.FCScript \
+              2>&1 | tee "$folder/freecad-native.log"
+            test -s "$folder/native.FCStd"
+            grep -q 'FREECAD_NATIVE_RESULT=' "$folder/freecad-native.log"
+            grep -q 'NATIVE_GEOMETRY_MATCH' "$folder/freecad-native.log"
+          done
+      - name: Build Blender BLEND and measure meshes against SAME MCP CAD
+        shell: bash
+        run: |
+          for project in primer_mueble cocina_dos_modulos; do
+            folder="$RUNNER_TEMP/source/$project"
+            timeout 120s blender --background --factory-startup --disable-autoexec \
+              --python-use-system-env --python-exit-code 12 \
+              --python integrations/blender_from_contract.py -- \
+              --input "$folder/cad-exchange.json" --output "$folder/native.blend" \
+              2>&1 | tee "$folder/blender-native.log"
+            test -s "$folder/native.blend"
+            grep -q 'NATIVE_GEOMETRY_MATCH' "$folder/blender-native.log"
+          done
+      - name: Add reviewed presentation scene, camera and PNG without changing panels
+        shell: bash
+        run: |
+          for project in primer_mueble cocina_dos_modulos; do
+            folder="$RUNNER_TEMP/source/$project"
+            timeout 180s blender --background --factory-startup --disable-autoexec \
+              --python-use-system-env --python-exit-code 12 \
+              --python integrations/blender_presentation.py -- \
+              --input-cad "$folder/cad-exchange.json" \
+              --input-blend "$folder/native.blend" \
+              --output-blend "$folder/presentation.blend" \
+              --output-png "$folder/presentation.png" \
+              2>&1 | tee "$folder/blender-presentation.log"
+            test -s "$folder/presentation.blend"
+            test -s "$folder/presentation.png"
+            grep -q 'BLENDER_PRESENTATION_RESULT=' "$folder/blender-presentation.log"
+          done
+      - name: Verify all native proofs, editable archives, rendered image and 4 safety flags
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from zipfile import ZipFile
+          from xml.etree import ElementTree
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          summary = []
+          for project, count in (("primer_mueble", 4), ("cocina_dos_modulos", 13)):
+              folder = root / project
+              contract = json.loads((folder / "cad-exchange.json").read_text(encoding="utf-8"))
+              manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+              hash_ = contract["geometry_sha256"]
+              reports = {}
+              for filename, prefix in (
+                  ("freecad-native.log", "FREECAD_NATIVE_RESULT="),
+                  ("blender-native.log", "{"),
+                  ("blender-presentation.log", "BLENDER_PRESENTATION_RESULT="),
+              ):
+                  lines = (folder / filename).read_text(encoding="utf-8").splitlines()
+                  candidates = [line.split(prefix, 1)[1] if prefix != "{" else line
+                                for line in lines if line.startswith(prefix)]
+                  assert candidates, f"{project}: report not found in {filename}"
+                  report = json.loads(candidates[-1])
+                  assert report["geometry_sha256"] == hash_
+                  verify = report["native_measurements"]
+                  assert verify["geometry_sha256"] == hash_
+                  assert verify["status"] == "NATIVE_GEOMETRY_MATCH"
+                  assert verify["verified_piece_count"] == count
+                  assert verify["max_abs_error_mm"] <= 0.05
+                  assert all(verify[k] is False for k in
+                             ("fabrication_ready", "cutting_ready", "drilling_ready"))
+                  reports[filename] = verify["max_abs_error_mm"]
+              with ZipFile(folder / "native.FCStd") as z:
+                  assert z.testzip() is None
+                  names = set(z.namelist())
+                  assert "Document.xml" in names
+                  objects = ElementTree.fromstring(z.read("Document.xml")).findall(".//Object")
+                  assert len(objects) >= count
+              for filename in ("native.blend", "presentation.blend"):
+                  assert (folder / filename).read_bytes()[:7] == b"BLENDER"
+              assert (folder / "presentation.png").read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+              assert manifest["geometry_sha256"] == hash_
+              item = {"project": project, "count": count, "geometry_sha256": hash_,
+                      "native_error_mm": reports, "fabrication_ready": False,
+                      "cutting_ready": False, "drilling_ready": False, "purchase_ready": False}
+              summary.append(item)
+              print("FREECAD_BLENDER_SAME_MCP_CAD=PASS", project, count, hash_)
+          (root / "native-deliverable-summary.json").write_text(
+              json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+          PY
+      - name: Preserve both real 3D editable furniture projects and render PNGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-mcp-freecad-blender-real
+          retention-days: 14
+          path: ${{ runner.temp }}/source/
