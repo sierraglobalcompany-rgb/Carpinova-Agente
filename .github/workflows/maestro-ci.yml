@@ -1,0 +1,486 @@
+name: CarpiNova Maestro F5 integration
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile all components
+        run: python -m compileall -q carpinova_agent knowledge_client hardware tests
+      - name: Full local suite F1-F5
+        run: python -m unittest discover -s tests -v
+      - name: Maestro CLI preliminary project
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-questions.json > /tmp/questions.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("/tmp/questions.json").read_text())
+          assert data["status"] == "NEEDS_INPUT"
+          assert data["project"]["design"] is None
+          assert data["fabrication_ready"] is False
+          PY
+      - name: F6 module composition smoke (no cutting authority)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/modular.svg --csv /tmp/modular.csv > /tmp/modular-closet.json
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen.json > /tmp/modular-kitchen.json
+          python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sketch /tmp/maestro-modular.svg --csv /tmp/maestro-modular.csv > /tmp/maestro-modular.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          closet = json.loads(Path("/tmp/modular-closet.json").read_text())
+          kitchen = json.loads(Path("/tmp/modular-kitchen.json").read_text())
+          maestro = json.loads(Path("/tmp/maestro-modular.json").read_text())
+          assert closet["piece_count"] == 8
+          assert closet["total_module_width_mm"] == 2000
+          assert closet["modules"][0]["clear_width_mm"] == 914
+          assert kitchen["piece_count"] == 8
+          assert all(p["finished_cut_dimensions_mm"] is None for p in closet["parts"])
+          assert maestro["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert maestro["modular"]["total_module_width_mm"] == 1200
+          assert maestro["fabrication_ready"] is False
+          assert maestro["cutting_ready"] is False
+          assert maestro["drilling_ready"] is False
+          import csv
+          from xml.etree import ElementTree
+          ElementTree.parse("/tmp/modular.svg")
+          ElementTree.parse("/tmp/maestro-modular.svg")
+          with Path("/tmp/modular.csv").open(newline="", encoding="utf-8") as source:
+              rows = list(csv.DictReader(source))
+          assert len(rows) == 8
+          assert all(row["production_status"] == "BORRADOR_NO_CORTAR" for row in rows)
+          with Path("/tmp/maestro-modular.csv").open(newline="", encoding="utf-8") as source:
+              assert len(list(csv.DictReader(source))) == 8
+          PY
+      - name: First furniture pilot E2E — 4 nominal panels (never release cutting)
+        run: |
+          mkdir -p "$RUNNER_TEMP/first-furniture-evidence"
+          python -m carpinova_agent.pilot_cli \
+            --input examples/pilot-open-kitchen-800.json \
+            --output-dir "$RUNNER_TEMP/first-furniture-evidence/review" \
+            > "$RUNNER_TEMP/first-furniture-evidence/cli-status.json"
+          python - <<'PY'
+          import csv, json, os
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          root = Path(os.environ["RUNNER_TEMP"]) / "first-furniture-evidence"
+          folder = root / "review"
+          manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+          maestro = json.loads((folder / "maestro-review.json").read_text(encoding="utf-8"))
+          cad = validate_exchange(json.loads((folder / "cad-exchange.json").read_text(encoding="utf-8")))
+          cli = json.loads((root / "cli-status.json").read_text(encoding="utf-8"))
+          assert cli == manifest
+          assert manifest["piece_count"] == maestro["modular"]["piece_count"] == len(cad["boxes"]) == 4
+          assert cad["geometry_sha256"] == manifest["geometry_sha256"]
+          assert maestro["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert all(maestro[k] is False for k in
+                     ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
+          assert all(manifest[k] is False for k in
+                     ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"))
+          with (folder / "parts-review.csv").open(encoding="utf-8", newline="") as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 4
+          assert all(row["production_status"] == "BORRADOR_NO_CORTAR" for row in rows)
+          ElementTree.parse(folder / "front-review.svg")
+          print("FIRST_FURNITURE_PILOT=PASS; PIECES=4; CAD_HASH=" + cad["geometry_sha256"])
+          print("FABRICATION_AUTHORITY=NO; CHAT_MCP_CONNECTION=NOT_TESTED")
+          PY
+      - name: Archive first furniture pilot review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7d-first-furniture-pilot-review
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/first-furniture-evidence/cli-status.json
+            ${{ runner.temp }}/first-furniture-evidence/review/
+      - name: Attach F6 geometry review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f6-modular-review-evidence
+          retention-days: 14
+          path: |
+            /tmp/modular-closet.json
+            /tmp/modular-kitchen.json
+            /tmp/modular.svg
+            /tmp/modular.csv
+            /tmp/maestro-modular.json
+            /tmp/maestro-modular.svg
+            /tmp/maestro-modular.csv
+      - name: F7 construction and sealed CAD exchange smoke (no real CAD runtime)
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/construction-bathroom.json --output /tmp/assembly-advice.json
+          python -m carpinova_agent.maestro_cli --input examples/construction-kitchen.json --output /tmp/kitchen-advice.json
+          python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output /tmp/cad-contract.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from carpinova_agent.cad_exchange import validate_exchange
+          from integrations.cad_native import native_boxes
+          contract = json.loads(Path("/tmp/cad-contract.json").read_text())
+          assert validate_exchange(contract)["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert len(native_boxes(contract)) == 8
+          assert contract["manufacturing_holes"] == []
+          bathroom = json.loads(Path("/tmp/assembly-advice.json").read_text())
+          kitchen = json.loads(Path("/tmp/kitchen-advice.json").read_text())
+          for data in (bathroom,kitchen):
+              assert data["status"] == "ADVISORY_ONLY"
+              assert data["fabrication_ready"] is False
+              assert data["drilling_ready"] is False
+              assert data["construction"]["status"] == "ADVISORY_ONLY"
+          print("F7_CONSTRUCTION_ADVISOR=PASS; CAD_CONTRACT=PASS; FREECAD_BLENDER_RUNTIME=NOT_TESTED")
+          PY
+      - name: Archive F7 evidence (advice + same CAD exchange)
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-construction-cad-contract-evidence
+          retention-days: 14
+          path: |
+            /tmp/assembly-advice.json
+            /tmp/kitchen-advice.json
+            /tmp/cad-contract.json
+      - name: F7C rear panel geometries are source-backed and never cut-ready
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen-services.json --svg /tmp/f7c-services.svg --csv /tmp/f7c-services.csv > /tmp/f7c-services.json
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-services.json --output /tmp/f7c-services-cad.json
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-services.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-services-cad.json").read_text()))
+          assert model["piece_count"] == 10
+          assert cad["source_engine"] == "F7C_INSET_BACKS_FROM_F6"
+          assert len(cad["boxes"]) == 10
+          assert cad["fabrication_ready"] is False
+          assert cad["cutting_ready"] is False
+          assert cad["manufacturing_holes"] == []
+          assert model["parts"][4]["nominal_origin_xyz_mm"] == [18,18,554]
+          assert model["parts"][5]["nominal_origin_xyz_mm"] == [18,612,554]
+          with Path("/tmp/f7c-services.csv").open(encoding="utf-8",newline="") as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows) == 10
+          assert all(r["production_status"] == "BORRADOR_NO_CORTAR" for r in rows)
+          root=ElementTree.parse("/tmp/f7c-services.svg").getroot()
+          assert len(root.findall("{http://www.w3.org/2000/svg}rect")) == 10
+          print("F7C_INSET_BACKS=PASS; REAL_PIPE_HOLES=NOT_MODELED; CUT_RELEASE=NO")
+          PY
+      - name: Archive F7C nominal backs evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-service-back-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-services.svg
+            /tmp/f7c-services.csv
+            /tmp/f7c-services.json
+            /tmp/f7c-services-cad.json
+      - name: F7C explicit overlay and inset front review (no drill authority)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-kitchen-door-fronts.json --svg /tmp/f7c-fronts.svg --csv /tmp/f7c-fronts.csv > /tmp/f7c-fronts.json
+          python -m carpinova_agent.cad_cli --input examples/modular-kitchen-door-fronts.json --output /tmp/f7c-fronts-cad.json
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-fronts.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-fronts-cad.json").read_text()))
+          assert model["piece_count"] == 13
+          assert cad["source_engine"] == "F7C_EXPLICIT_FRONTS_FROM_F6"
+          assert cad["front_shift_mm"] == 18
+          assert cad["bounds_xyz_mm"] == [1200,720,578]
+          assert len(cad["boxes"]) == 13
+          assert cad["manufacturing_holes"] == []
+          assert cad["drilling_ready"] is False
+          assert cad["fabrication_ready"] is False
+          assert cad["cutting_ready"] is False
+          with Path("/tmp/f7c-fronts.csv").open(encoding="utf-8",newline="") as handle:
+              rows=list(csv.DictReader(handle))
+          assert len(rows)==13
+          assert sum(1 for r in rows if r["role"].startswith("front_"))==3
+          assert all(r["production_status"]=="BORRADOR_NO_CORTAR" for r in rows)
+          svg=ElementTree.parse("/tmp/f7c-fronts.svg").getroot()
+          rects=svg.findall("{http://www.w3.org/2000/svg}rect")
+          assert len(rects)==13
+          assert sum(1 for r in rects if r.get("class")=="front")==3
+          print("F7C_FRONTS_REVIEW=PASS; HINGE_HOLES=NOT_MODELED; CUT=NO")
+          PY
+      - name: Archive F7C doors review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-door-fronts-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-fronts.svg
+            /tmp/f7c-fronts.csv
+            /tmp/f7c-fronts.json
+            /tmp/f7c-fronts-cad.json
+      - name: F7C integrated F1 drawer-box evidence (no slide holes)
+        run: |
+          python -m carpinova_agent.modular_cli --input examples/modular-two-drawers-inset.json --svg /tmp/f7c-drawers.svg --csv /tmp/f7c-drawers.csv > /tmp/f7c-drawers.json
+          python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output /tmp/f7c-drawers-cad.json
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.cad_exchange import validate_exchange
+          model=json.loads(Path("/tmp/f7c-drawers.json").read_text())
+          cad=validate_exchange(json.loads(Path("/tmp/f7c-drawers-cad.json").read_text()))
+          assert model["piece_count"] == 17
+          assert cad["source_engine"] == "F7C_DRAWER_BOXES_FROM_F1"
+          assert len(cad["boxes"]) == 17
+          assert cad["manufacturing_holes"] == []
+          assert cad["fabrication_ready"] is False
+          assert cad["drilling_ready"] is False
+          with Path("/tmp/f7c-drawers.csv").open(encoding="utf-8",newline="") as source:
+              rows=list(csv.DictReader(source))
+          assert len(rows)==17
+          assert sum(r["role"]=="drawer_facade" for r in rows)==2
+          assert all(r["production_status"]=="BORRADOR_NO_CORTAR" for r in rows)
+          root=ElementTree.parse("/tmp/f7c-drawers.svg").getroot()
+          rects=root.findall("{http://www.w3.org/2000/svg}rect")
+          assert len(rects)==17
+          print("F7C_DRAWER_MODULES=PASS; SLIDE_SKU=UNVERIFIED; CUTTING_READY=NO")
+          PY
+      - name: Archive F7C drawer evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-drawer-review
+          retention-days: 14
+          path: |
+            /tmp/f7c-drawers.svg
+            /tmp/f7c-drawers.csv
+            /tmp/f7c-drawers.json
+            /tmp/f7c-drawers-cad.json
+      - name: Hardware remains blocked
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json > /tmp/should_not_succeed 2>/tmp/expected_error && exit 1 || test $? -eq 2
+          grep -q "bundle Knowledge" /tmp/expected_error
+
+  source-backed-full-book:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout agent exact PR branch
+        uses: actions/checkout@v4
+      - name: Checkout pinned canonical Knowledge source
+        uses: actions/checkout@v4
+        with:
+          repository: sierraglobalcompany-rgb/CarpiNova-Knowledge
+          ref: 4df02ef54562fac5a820cbad92b0edee547c310b
+          path: knowledge-src
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Validate canonical Knowledge repo
+        run: uv run --project knowledge-src python -m carpinova_knowledge validate --root knowledge-src > /tmp/knowledge-qa.json
+      - name: Generate deterministic full-book 1.2.0 bundle
+        run: |
+          uv run --project knowledge-src python -m carpinova_knowledge build-book-dist --root knowledge-src --book-id cpnc-2025 --out "$RUNNER_TEMP/knowledge-1.2.0" > /tmp/book-build-manifest.json
+      - name: Verify full-book retrieval and integrated furniture request
+        run: |
+          python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/maestro-full.json --sketch /tmp/cabinet-draft.svg
+          python -m carpinova_agent.maestro_cli --question "bisagras" --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/maestro-reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from knowledge_client import load_bundle
+          root = Path(__import__("os").environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          knowledge = load_bundle(root)
+          assert knowledge["coverage"] == "FULL_BOOK"
+          assert knowledge["manifest"]["counts"]["pages"] == 252
+          assert knowledge["manifest"]["source_page_count"] == 295
+          combined = json.loads(Path("/tmp/maestro-full.json").read_text())
+          reference = json.loads(Path("/tmp/maestro-reference.json").read_text())
+          assert combined["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert combined["project"]["design"]["dimensions"]["clear_width_mm"] == 564
+          assert combined["hardware"]["candidate_hinge_sku"] == "71B3550"
+          assert combined["hardware"]["drilling_coordinates"] == []
+          assert combined["knowledge"]["coverage"] == "FULL_BOOK"
+          assert combined["knowledge"]["total_matches"] > 0
+          assert len(combined["source_provenance"]) > 0
+          assert all(x["fabrication_authority"] is False for x in combined["source_provenance"])
+          assert reference["status"] == "REFERENCE_ONLY"
+          assert reference["knowledge"]["total_matches"] > 0
+          assert combined["fabrication_ready"] is False
+          assert combined["purchase_ready"] is False
+          ElementTree.parse("/tmp/cabinet-draft.svg")
+          print("FULL_BOOK_1_2_0=PASS; MAESTRO_COMBINED=PASS; FABRICATION_RELEASED=NO")
+          PY
+      - name: Explicit modular + verified full-book question (source page retained)
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from carpinova_agent.maestro import consult_maestro
+          source = Path("examples/modular-kitchen-door-fronts.json")
+          request = {
+              "action": "modular",
+              "module_spec": json.loads(source.read_text(encoding="utf-8")),
+              "query": "bisagras",
+          }
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          answer = consult_maestro(request, bundle_dir=bundle)
+          assert answer["modular"]["piece_count"] == 13
+          assert answer["status"] == "DRAFT_NOT_FOR_CUTTING"
+          assert answer["knowledge"]["coverage"] == "FULL_BOOK"
+          assert answer["knowledge"]["total_matches"] > 0
+          assert answer["knowledge"]["source_pdf_bytes_verified"] is False
+          assert len(answer["source_provenance"]) > 0
+          assert all(
+              type(p["pdf_page"]) is int
+              and p["book"] == "cpnc-2025"
+              and p["fabrication_authority"] is False
+              for p in answer["source_provenance"]
+          )
+          assert all(answer[k] is False for k in (
+              "fabrication_ready", "cutting_ready",
+              "drilling_ready", "purchase_ready"))
+          assert answer["hardware"] is None  # No guessed bisagra/SKU
+          assert any("referencia educativa" in b for b in answer["blockers"])
+          Path("/tmp/maestro-modular-cited-knowledge.json").write_text(
+              json.dumps(answer, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8")
+          print("MODULAR_REAL_BOOK=PASS; SOURCE_PAGES=VERIFIED_BUNDLE; "
+                "FABRICATION_AUTHORITY=NO")
+          PY
+      - name: Audit five construction topics on real FULL_BOOK without semantic claims
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from carpinova_agent.maestro import consult_maestro
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "knowledge-1.2.0"
+          spec = json.loads(Path("examples/modular-kitchen-door-fronts.json").read_text())
+          cases = {
+              "edge_banding": "canto",
+              "backs_and_services": "fondo tuberías",
+              "screws_and_connectors": "tornillos",
+              "wall_support": "listón francés pared",
+              "floor_support": "patas",
+              "site_survey": "plantilla levantamiento",
+          }
+          report = {}
+          for topic, query in cases.items():
+              answer = consult_maestro({
+                  "action": "modular", "module_spec": spec,
+                  "query": query, "evidence_topic": topic,
+              }, bundle_dir=bundle)
+              review = answer["knowledge"]["relevance_review"]
+              assert answer["knowledge"]["coverage"] == "FULL_BOOK"
+              assert answer["modular"]["piece_count"] == 13
+              assert review["topic"] == topic
+              assert review["sampled_result_count"] <= 20
+              assert review["candidate_count_in_sample"] >= len(
+                  answer["knowledge"]["results"])
+              assert review["returned_candidate_count"] == len(
+                  answer["knowledge"]["results"])
+              assert len(answer["knowledge"]["results"]) <= 5
+              assert len(answer["source_provenance"]) == len(
+                  answer["knowledge"]["results"])
+              assert all(type(p["pdf_page"]) is int for p in
+                         answer["source_provenance"])
+              assert review["reviewed_against_original_pdf"] is False
+              assert review["technical_suitability_verified"] is False
+              assert review["manufacturer_spec_verified"] is False
+              assert all(answer[x] is False for x in (
+                  "fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+              assert answer["hardware"] is None
+              if topic == "site_survey":
+                  # The book form is a site-measurement aid, not a
+                  # recipe for a back cutout or a plumbing drawing.
+                  assert 192 in [p["pdf_page"] for p in answer["source_provenance"]]
+              report[topic] = {
+                  "query": query,
+                  "search_window_count": review["sampled_result_count"],
+                  "context_candidates": review["candidate_count_in_sample"],
+                  "status": review["status"],
+                  "source_pages": [p["pdf_page"] for p in answer["source_provenance"]],
+                  "technical_suitability_verified": False,
+              }
+          Path("/tmp/maestro-topic-context-audit.json").write_text(
+              json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+          print("F7C_REAL_TOPIC_SCREEN=PASS", json.dumps(report,ensure_ascii=False))
+          PY
+      - name: Audit book topic retrieval without claiming semantic completeness
+        run: |
+          python -m knowledge_client.coverage_audit --bundle-dir "$RUNNER_TEMP/knowledge-1.2.0" --output /tmp/knowledge-topic-coverage.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          v=json.loads(Path("/tmp/knowledge-topic-coverage.json").read_text())
+          assert v["scope"]=="FULL_BOOK"
+          assert v["not_semantic_coverage_proof"] is True
+          assert len(v["query_groups"])>=5
+          zero=[f"{g}:{x['term']}" for g,rows in v["query_groups"].items()
+                for x in rows if x["matched_content_records"]==0]
+          print("LEXICAL_ZERO_MATCH_TERMS_NEED_HUMAN_REVIEW=",zero)
+          PY
+      - name: Archive F7 real full-book retrieval matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7-book-domain-retrieval-evidence
+          retention-days: 14
+          path: |
+            /tmp/knowledge-topic-coverage.json
+            /tmp/knowledge-qa.json
+            /tmp/book-build-manifest.json
+            /tmp/maestro-modular-cited-knowledge.json
+            /tmp/maestro-topic-context-audit.json
+
+  native-blender-proof:
+    name: Native Blender headless proof (F7B, no MCP)
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/f7')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Ubuntu packaged Blender only
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends blender
+          blender --version | head -n 2
+      - name: Create source-sealed cabinet modules CAD exchange
+        run: |
+          python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output "$RUNNER_TEMP/drawers-contract.json"
+      - name: Build .blend with Blender real Python runtime and measure actual meshes
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          blender --background --factory-startup --python-use-system-env --python-exit-code 12 \
+            --python integrations/blender_from_contract.py -- \
+            --input "$RUNNER_TEMP/drawers-contract.json" \
+            --output "$RUNNER_TEMP/drawers-native.blend" | tee "$RUNNER_TEMP/blender-proof.log"
+          test -s "$RUNNER_TEMP/drawers-native.blend"
+          grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/blender-proof.log"
+          grep -q 'VISUAL_PREVIEW_NOT_FOR_FABRICATION' "$RUNNER_TEMP/blender-proof.log"
+      - name: Archive independently inspectable real Blender proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-native-blender-drawer-validation
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/drawers-contract.json
+            ${{ runner.temp }}/drawers-native.blend
+            ${{ runner.temp }}/blender-proof.log

@@ -1,0 +1,133 @@
+---
+name: maestro-carpintero
+description: Orquesta consultas y proyectos de carpintería con una entrevista mínima, geometría preliminar, referencias del libro CarpiNova y herrajes documentados; no inventa medidas ni autoriza corte/perforación.
+---
+
+# CarpiNova Maestro Carpintero — Orquestación
+
+## ¿Cuándo se usa?
+Cada vez que una persona quiera aprender a fabricar un mueble, consultar el libro, planear una cocina, clóset, nicho o escritorio, dimensionar un gabinete/cajón, elaborar un despiece preliminar o identificar bisagras y correderas.
+
+## Herramientas reales en esta fase
+- `carpinova_agent.maestro.consult_maestro(request, bundle_dir=...)`: entrada unificada con `action=project|knowledge|hardware|combined|modular|construction`. `modular` necesita `module_spec`; `construction` recibe el objeto `construction`. Todas las acciones conservan los bloqueos de fabricación.
+- `carpinova_agent.intake.guide_project(project)`: pregunta datos faltantes y utiliza cálculos F1 solo para gabinetes abiertos o cajas sencillas de cajón.
+- `carpinova_agent.sketch.render_svg(design)`: croquis ortográfico frontal de esos dos casos. No dibuja 3D, detalles de ensamble ni patrones de perforación.
+- `knowledge_client.load_bundle(dir)` / `search_content(...)`: busca páginas y textos con procedencia del libro. Requiere bundles verificables. Si no están disponibles, no simules citas.
+- `hardware.suggest_hinge(request)`: solo bisagras Blum CLIP top BLUMOTION 110° (tres aplicaciones), con SKU candidato y estado `BLOCKED_HARDWARE_SPEC`. La selección no valida compra/perforación.
+- CLI: `python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir /ruta/a/knowledge-1.2.0`; para pregunta textual `--question "bisagras"`.
+- `python -m carpinova_agent.dialogue`: entrevista interactiva básica de terminal; no es un chat de IA libre.
+
+## Reglas de decisión
+1. Consulta conceptual del libro → buscar evidencia con `action=knowledge`, citar página PDF/impresa, estado de verificación y versión. Distinguir documento histórico de norma o ficha técnica actual.
+2. Quiere diseñar mueble → `action=project` para gabinete/caja F1, o `action=modular` con `module_spec` para módulos F6/F7C. Preguntar máximo tres faltantes relevantes por ronda. Si aporta un dato explícito, nunca sobrescribirlo.
+3. Quiere una bisagra → `action=hardware`, preguntar `front_style` y datos del frente; escoger solo candidato documental sin patrones de taladro.
+4. Quiere todo → `action=combined`: `project`, opcional `query` y `hardware`. Requiere `bundle_dir` cuando hay consulta del libro. No ignorar una fuente faltante.
+5. Si se contradicen tipos de frente entre proyecto y herraje: detener y resolver. No seleccionar componentes incompatibles.
+6. Clósets, cocinas, baños, nichos y escritorios → usar `action=modular` **solo** si la composición encaja en los contratos F6/F7C (carcasas, fondos, frentes y cajones explícitos); para cualquier sistema o detalle fuera de esos contratos, `CONCEPT_ONLY`. En ambos casos el despiece es nominal y **no** está liberado a fabricación.
+7. Si el usuario dice «pata externa», «tapa interna», «frente externo», aclarar si se refiere a una estructura de laterales/tapas, a la configuración de puerta o al zócalo. No convertir jerga ambigua en fórmula.
+8. Toda orientación de veta debe ser explícita por pieza; ahora no existe motor de compensación de cantos ni optimización de tableros. Indicarlo.
+9. Para correderas/cazoletas/tornillería: falta un catálogo autorizado de combinación exacta; solicitar ficha vigente y no dar coordenadas finales.
+
+## Formato de interacción
+Explicar lo que se entendió, enseñar brevemente la alternativa constructiva, preguntar hasta 3 datos si hace falta, mostrar resultados con unidades, fórmulas y fuentes comprobables; cerrar con pendientes concretos. No abrumar a un principiante con un interrogatorio masivo.
+
+## Reglas de integridad
+- El libro original no viaja dentro de este repo; Knowledge es fuente canónica. Los hashes del bundle son obligatorios; F2 diferencia FULL_BOOK/PARTIAL_CORPUS.
+- La figura normalizada del libro es para presentación, nunca fuente de dimensiones físicas.
+- El dato calculado por F1 NO se debe presentar como afirmación del libro.
+- `fabrication_ready=false`, `drilling_ready=false`, `cutting_ready=false` y `purchase_ready=false` son límites deliberados.
+- No usar LLM para calcular matemáticas de fabricación si existe un motor determinista; no inventar tamaños de piezas, agujeros ni recomendaciones comerciales.
+- KISS, anti-ruido, anti-parches, fidelidad y trazabilidad. Un solo cálculo y una sola fuente de verdad.
+
+## F6 — módulos abiertos de clósets, cocinas y muebles compuestos
+- `carpinova_agent.modular.design_modular_run(spec)` compone una fila de uno a doce módulos **abiertos** desde F1; reutiliza el único cálculo de pieza. Use `action=modular` con `module_spec` en `consult_maestro`, no traduzca automáticamente consultas naturales a JSON inexistente.
+- Exigir ancho/alto/profundidad exterior, instalación, ancho de cada módulo, material, espesor real, estructura, `fronts`, `back` y `support`. Para empotrados medir hueco en tres alturas.
+- Los laterales de módulos adyacentes se mantienen **independientes**; nunca fusionar costados por apariencia visual.
+- Cada pieza física lleva `grain_axis` sobre el plano de cara y `edgebanding_edges`. El canto opcional exige espesor conocido; si faltan, mostrar `UNCONFIRMED`, jamás asumir. `finished_cut_dimensions_mm=null` hasta cálculo validado de acabados.
+- `carpinova_agent.modular_outputs.modular_front_svg` y `modular_bom_csv` exportan boceto y lista de revisión, no planos de corte. Invocar solo si `DRAFT_NOT_FOR_CUTTING`, nunca si hay `SITE_CONFLICT` o `NEEDS_LAYOUT_REVISION`.
+- `python -m carpinova_agent.modular_cli --input examples/modular-closet.json --svg /tmp/modular.svg --csv /tmp/modular.csv`. Maestro CLI acepta `--sketch` y `--csv` para `action=modular`.
+- **F6 básico** modela carcasas abiertas. **F7C** amplía ese mismo motor con `module.back`, `module.fronts` y `module.drawers` para los casos descritos abajo. Zócalos/patas, equipos, tuberías, anclajes y selección de herrajes permanecen consultivos; no asumir geometría, taladros ni despiece de producción.
+- Ver [contrato F6](../../docs/f6-modulos-vetas-cantos.md).
+
+## Decisiones constructivas y CAD (F7A)
+Si el usuario pregunta cómo decidir cantos, pegado en taller/casa, fondo parcial por tuberías, patas, zócalo («banquero» ambiguo), suspensión francesa/rieles o uniones ocultas: aplicar `skills/tecnicas-constructivas/SKILL.md` y `consult_maestro({"action":"construction","construction":...})`. No sustituir una ficha de adhesivo/herraje por el texto del libro.
+Para generar FreeCAD o Blender, usar **un único** `CADExchange` obtenido mediante `carpinova_agent.cad_exchange.cad_exchange` del resultado F6/F7C, verificado con `validate_exchange`. La conversión física X→X, Y alto→Z, Z profundidad→-Y es compartida. FreeCAD es CAD técnico; Blender es visualización. **Ambos adaptadores sí tienen pruebas nativas reales en CI** sobre un ejemplo F7C de 17 piezas y el mismo hash geométrico; ello verifica geometría nominal, no ingeniería de taller ni revisión visual humana. **El MCP local stdio del Agente está implementado y probado en CI, pero NO instalado ni validado en el PC; no hay MCP interactivo de FreeCAD/Blender conectado.** Ninguna ejecución nativa autoriza fabricación.
+Ver [arquitectura V2 y evidencias nativas](../../docs/ARQUITECTURA_V2_AUDITORIA.md) para revisión y pasos siguientes.
+
+## F7C — clóset y cocina con fondos posteriores explícitos
+El `action=modular` ya puede aceptar `module.back` como objeto `inset_full` o `inset_two_strips`; reutiliza `design_modular_run`, `modular_bom_csv`, `modular_front_svg` y `cad_exchange`. Para pregunta por tubos, solicitar ubicación y dimensiones reales antes de concluir que la abertura libre resuelve instalaciones. No inventar cortes circulares o ranuras, ni presentar la zona libre entre franjas como perforación detallada. `back=none|pending` mantiene compatibilidad anterior. Ver [contrato F7C de fondos](../../docs/f7c-fondos-servicios.md).
+
+## F7C Task 2 — frentes geométricos, no selección de bisagra
+Con `module.fronts=overlay|inset` se exige estilo, ancho/alto del módulo F1, espesor/material del frente, datos individuales de luces de borde (sin asumir valores), cantidad de hojas (1 o 2), `hinge_sides`, separación central obligatoria para dos hojas y acabados si se conocen. Preguntar por apertura contra paredes, aparatos y módulos antes de elegir herraje. El motor bloquea solapes/tacto nominal de frentes adyacentes y exige dos hojas iguales en mm enteros. Nunca deducir de `hinge_sides` una bisagra adecuada ni dónde perforar: hace falta SKU/placa y ficha actual del fabricante. Croquis/CAD son borradores; consultar [contrato de frentes](../../docs/f7c-frentes-holguras-vetas.md).
+
+## F7C Task 3 — cajas de cajón, sin inventar correderas
+Para cajones, preguntar número y alturas de abertura, separación vertical, ancho interior F1, fondo, espesor de paredes/fondo aplicado, luces izquierda/derecha especificadas para una corredera identificable y retranqueos anterior/posterior. `module.drawers` solo asigna piezas geométricas F1 a coordenadas XYZ y distingue `drawer_front_wall` estructural de `drawer_facade` decorativa embutida. No inferir del número 13 mm que una corredera particular funcionará. Sin SKU/ficha/carga/perforaciones, bloquear instalación, compra, taladro y corte. No combinar cajones con puerta exterior configurada sin comprobación dinámica de interferencias. [Contrato](../../docs/f7c-cajones-f1-integracion.md).
+
+## Libro y diseño modular en la misma solicitud
+
+Cuando el usuario pide diseñar y además quiere entender un material, bisagra, canto o construcción, pasar `{"action":"modular","module_spec":...,"query":"consulta exacta del usuario"}` con ruta del bundle Knowledge canónico **ya validado**. Exponer `knowledge.results` y `source_provenance` (página física de PDF e impresa), incluyendo advertencia cuando solo haya corpus parcial o cero resultados. Sin pregunta explícita no navegar el libro por suposición. Un registro recuperado solo es una **referencia pedagógica y coincidencia léxica**, nunca prueba de que esa técnica sea adecuada para el mueble o autorice agujeros, cargas o corte. No inventar números de página. Véase `docs/f7c-cajones-f1-integracion.md`.
+
+
+## Pertinencia contextual de citas del libro (sin certificar semántica)
+Si el usuario solicita razones del libro para cantos, fondos con servicios, tornillos, apoyo a pared o apoyo al piso, usar **solo si corresponde a su consulta explícita** `evidence_topic=edge_banding|backs_and_services|screws_and_connectors|wall_support|floor_support` junto a `query`, `action=modular` y el bundle canónico. Devolver máximo cinco candidatos citables con página y estado editorial. `relevance_review` informa contexto léxico del mismo registro, no lectura humana ni prueba de compatibilidad con el mueble. Etiquetas solas y coincidencias en texto son distintas; ambas exigen revisar página y dibujo original. Cero candidatos **no** significa que el libro carezca del tema. No extrapolar tornillos, cantos, anclajes ni taladros sin fabricante/condiciones comprobadas. [Contrato](../../docs/f7c-cajones-f1-integracion.md).
+
+## Inspección de instalaciones antes de elegir fondos — evidencia del libro
+Cuando un módulo de cocina/baño tenga sifón, desagüe, agua, gas o cables y se requiera fundamento del libro, consultar **por separado** `evidence_topic="site_survey"` y `query="plantilla levantamiento"` para obtener la ficha de inspección de obra de Knowledge (PDF p192 / impresa 170). Pedir ubicación real, acceso, distancias, material de pared y equipos; no deducir una perforación, fondo parcial o ausencia de fondo solo porque el formulario pide identificar servicios. Para `backs_and_services`, si la muestra no contiene un registro con ambas familias de conceptos, declarar insuficiencia. No sustituir la fuente canónica con la copia de PDF de 294 páginas cuando el manifiesto Knowledge dice 295. Véase [contrato de cajones](../../docs/f7c-cajones-f1-integracion.md) y Knowledge [issue #114](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge/issues/114).
+
+## F7D Task 1 — texto natural hacia revisión, NO ejecución
+Si el usuario escribe una solicitud libre, no inventar `module_spec`, espesores, medidas, herrajes ni una sesión IA/MCP inexistente. Usar `carpinova_agent.natural_intake.preview_natural_request(texto, propuesta_json_opcional)` para exponer `NEEDS_STRUCTURED_PROPOSAL` o `NEEDS_USER_CONFIRMATION`. La propuesta externa es **no confiable**; presentarla completa al usuario y requerir confirmación humana real antes de invocar `consult_maestro` por separado. La previsualización no genera SVG/CSV, no consulta el libro, no calcula piezas ni habilita fabricación. Ver [contrato de F7D](../../docs/f7d-contrato-dialogo-confirmacion.md).
+
+## F7D Task 2 — Confirmación humana real antes de Maestro
+La CLI admite `--utterance "..." --candidate propuesta.json --confirm-execute` **solo en una terminal interactiva**: muestra el texto original y todos los campos JSON, exige escribir `CONFIRMAR <código>` y entonces invoca `consult_maestro` usando la propuesta previamente mostrada; ante rechazo/no-TTY jamás ejecuta. El código verifica visualmente qué contenido se confirma, **no** identidad ni capacidad de fabricar. Cualquier intérprete externo solo puede producir un JSON candidato, nunca un permiso de ejecución; las fuentes, cálculos y bloqueos siguen gobernados por Maestro. Véase [contrato F7D](../../docs/f7d-contrato-dialogo-confirmacion.md).
+
+## F7D Task 3 — clasificación LLM opcional sin autoridad sobre el mueble
+`--interpret-openai --consent-send-text --interpret-model MODELO_COMPATIBLE` activa, solo por solicitud expresa, el adaptador `carpinova_agent.llm_adapter.interpret_openai_request`; el resultado es una propuesta no confiable y sin medidas: clasifica consulta del libro, proyecto o intención desconocida. Reutiliza los alias F3 para verificar que el tipo de mueble aparezca expresamente en la frase. Para consulta del libro devuelve literalmente el texto original, que Maestro procesa por Knowledge únicamente al ejecutar la solicitud confirmada. **Nunca** invoca CAD, herrajes ni cambia flags de fabricación por sí solo; el MCP local del Agente existe, pero el clasificador sigue siendo opcional y no existe servicio web autenticado. La API remota puede facturar y no se ha validado en vivo: solo CI con transporte simulado. Ver [contrato F7D](../../docs/f7d-contrato-dialogo-confirmacion.md).
+
+## F7D Task 4 — revisión segura para una futura interfaz autenticada
+La biblioteca carpinova_agent.web_review.ReviewGate solo retiene temporalmente una propuesta y devuelve una copia revisada de un solo uso, vinculada a sesión e identidad **que autentica el host**. No implementa login, CSRF, HTTP, web ni MCP. El servidor debe comprobar identidad, origen, CSRF, permisos y clic humano antes de usar consume; llamar después a consult_maestro por separado. El LLM no puede proporcionar credenciales o autorización. Ver [contrato web](../../docs/f7d-revision-web-segura.md). No autorizar fabricación.
+
+## MCP local del Agente y entregables (PR #16)
+El servidor `carpinova_agent.mcp_bridge` tiene **seis herramientas**: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina`, `carpinova_exportar_3d`, `carpinova_leer_entregable`. Los primeros métodos recuperan SVG, CSV, CADExchange y láminas 2D nominales; `carpinova_exportar_3d` únicamente ejecuta adaptadores FreeCAD/Blender existentes con binarios configurados en el host, `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` y confirmación `AUTORIZO_EXPORTAR_BORRADOR_3D`. Nunca aceptar comandos ni ejecutables del modelo. No implica fabricación. **Para mostrar la lámina o el render al usuario desde MCP** llamar `carpinova_leer_entregable` con `archivo="lamina/three-views.png"` o, tras exportación autorizada, `archivo="native/presentation.png"`; retorna contenido de imagen `image/png` validado, no solo la ruta. No usar el render para deducir cotas, cortes ni perforaciones. No hay instalación local certificada ni control remoto de FreeCAD/Blender. [Guía](../../docs/conectar-agente-codex-antigravity.md).
+
+**Checkpoint de ejecución real:** [CI del sexto tool](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39536762720) comprobó cliente MCP→FreeCADCmd→Blender→render con 4/13 piezas y hash compartido; no se ejecutó en PC del propietario ni se liberó fabricación.
+
+**Puerta humana de exportación 3D (obligatoria):** aun con `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` y la frase `AUTORIZO_EXPORTAR_BORRADOR_3D`, la exportación se niega sin aprobación local independiente de un solo uso, ligada al SHA, y generada **desde terminal del operador** según [guía vigente](../../docs/conectar-agente-codex-antigravity.md). Nunca crear el comprobante por el modelo ni simular consentimiento en el PC. No fabricar.
+
+## Uso directo en Codex — contrato de conversación V1
+
+Al recibir una instrucción natural de diseño, Codex es **solo el intérprete y la interfaz de conversación**. CarpiNova Maestro sigue siendo el motor determinista. Este flujo NO exige que el usuario escriba JSON ni que se introduzca otro LLM, motor, MCP o skill.
+
+### Paso 1 — entender sin inventar
+
+- Confirmar medidas, unidades y orientación (ancho, profundidad, altura), lugar, tipo de mueble y si la altura solicitada incluye patas o zócalo.
+- «Tres cajones y una gaveta» es **ambiguo**: preguntar si son cuatro cajones (tres normales y una gaveta grande). Preguntar distribución/altura útil y cargas cuando afecten geometría. Para cuatro cajas, el motor acepta como máximo cuatro por módulo.
+- Preguntar decisión de **frente de cajón**: `inset` (embutido) o `overlay` (sobrepuesto), explicando diferencia visual y dimensional. Para `inset` exigir las cuatro holguras y para `overlay` los cuatro solapes; nunca imponer 2 mm, 3 mm u otra cifra en nombre del taller.
+- Preguntar apertura: manija visible (`handle`), push-to-open, uñero (`finger_pull`), perfil (`profile`) o pendiente (`pending`). **«Módulo/perfil T» NO identifica un perfil exacto:** aclarar sección/fabricante/tipo y uso. Son elecciones conceptuales hasta verificar herrajes o mecanizados, NO taladros/fresados ya modelados.
+- Preguntar composición/material y espesor REAL de tablero, apoyos, fondo, obstáculos, vetas, cantos y correderas según el proyecto. No inventar medidas de guía ni compatibilidad de SKU.
+- Preguntar hasta **tres decisiones agrupadas por turno**: primero datos que pueden bloquear geometría o layout, después estética/herrajes, después acabados y montaje. No repetir datos confirmados.
+
+### Paso 2 — diseñar UNA especificación auditable
+
+- Presentar una tabla compacta: `Confirmado / Opción propuesta pendiente de confirmar / Falta crítico / No calculado`.
+- Si se desea proponer anchos o alturas de aperturas, marcarlos como **propuesta editable** y mostrar todas las cotas con su fórmula y el cierre dimensional. No tratar el diseño preliminar como dato declarado por el usuario.
+- Preparar internamente el objeto `{"action":"modular","module_spec":{...}}` usando SOLO campos reales de F6/F7C. El usuario ve las decisiones, medidas, holguras y la totalidad del JSON, o una representación íntegra y equivalente antes de confirmar. Nunca incluir campos desconocidos para forzar compatibilidad.
+- Ante un diseño fuera del contrato (perfiles fresados sin geometría, correderas no documentadas, frentes/puertas incompatibles, cargas o anclajes no comprobados), explicar limitación y pasar a `CONCEPT_ONLY` o marcar bloqueos. No simular un despiece fabricable.
+
+### Paso 3 — ejecución SOLO tras confirmación explícita
+
+1. `carpinova_estado` para comprobar las herramientas presentes; sin servidor conectado, explicar bloqueo y no inventar resultados.
+2. Antes de producir archivos, obtener confirmación expresa del diseño propuesto y del JSON. No interpretar «sigue» como autorización para fabricar ni exportar CAD nativo.
+3. `carpinova_consultar(solicitud_json=JSON_aprobado)` para obtener preguntas y bloqueos; si la geometría no está en `DRAFT_NOT_FOR_CUTTING`, corregir y confirmar nuevamente.
+4. `carpinova_generar_borrador(solicitud_json=JSON_aprobado, proyecto=NOMBRE_NUEVO)`; no sobrescribir otro proyecto. Conservar `manifest.json`, SHA, CSV nominal y vistas.
+5. `carpinova_renderizar_lamina(proyecto=NOMBRE_NUEVO)` y `carpinova_leer_entregable(proyecto, "lamina/three-views.png")`. Mostrar la imagen y resumen legible de piezas, medida, material, veta y canto confirmado o pendiente.
+6. Solo si el host habilitó FreeCAD/Blender y el propietario autorizó independientemente desde su terminal, `carpinova_exportar_3d` y luego leer `native/presentation.png`. Si falla, conservar salida 2D válida y explicar el bloqueo 3D; NO intentar habilitar apps ni emitir aprobaciones desde el modelo.
+
+### Paso 4 — QA obligatorio en el chat
+
+- Verificar ancho/alto/profundidad y equivalencia de cm→mm; número de cajones/cajas; IDs físicos únicos; cierre vertical de aberturas; separación de fachadas; cero colisiones; correspondencia entre CADExchange, CSV, SVG, PNG y manifest.
+- Separar **medidas nominales** de **medidas finales de corte**, compensación de canto, uniones, holguras reales de corredera, soportes, ranuras, perforaciones, compra y estabilidad. En el MVP los cuatro flags siguen `false`.
+- Indicar claramente los supuestos NO confirmados por persona, los datos necesarios para terminar y el estado de cada entregable. Ningún render por sí solo es una instrucción para taller.
+
+### Escenario obligatorio de aceptación
+
+Solicitud: «Mueble de 50 × 50 cm y altura 80 cm; tres cajones y una gaveta; quiero elegir manijas o sin manijas y frentes que sobresalgan o entren». El agente confirma que 500 × 500 × 800 mm son cotas exteriores sujetas a aclaración, si la gaveta es un cuarto cajón, el alto con patas, el sistema de apertura y el tipo de frente. Después, solo con datos aprobados, presenta un borrador F7C con **28 piezas nominales** si son 4 cajas de cinco paneles, 4 fachadas y 4 piezas de carcasa sin fondo; si se añade fondo, la cuenta cambia. No inventa taladros ni autoriza fabricación.

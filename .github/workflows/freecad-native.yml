@@ -1,0 +1,74 @@
+name: FreeCAD native proof F7B
+on:
+  push:
+    branches: ["feat/f7-construction-knowledge-cad-contract"]
+  pull_request:
+    branches: ["feat/f6-modular-carcase-and-finishes", "feat/f7-construction-knowledge-cad-contract", "feat/f7c-inset-backs-service-access", "feat/f7c-door-fronts-geometric-review"]
+permissions:
+  contents: read
+
+jobs:
+  native-freecad:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'feat/f7'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FreeCAD from Jammy official universe repository
+        run: |
+          # GitHub runner images can ship unrelated third-party APT sources.
+          # Microsoft packages caused transient HTTP 403 and are not needed here.
+          # Disable ONLY files pointing at packages.microsoft.com on this ephemeral runner.
+          while IFS= read -r -d '' aptfile; do
+            if grep -q 'packages.microsoft.com' "$aptfile"; then
+              echo "Disabling unrelated APT source: $aptfile"
+              sudo mv "$aptfile" "$aptfile.disabled"
+            fi
+          done < <(find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -print0)
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3
+          apt-cache policy freecad-python3
+          command -v freecadcmd || command -v FreeCADCmd
+      - name: Produce fixed F6 CAD exchange
+        run: |
+          python -m carpinova_agent.cad_cli --input examples/modular-two-drawers-inset.json --output "$RUNNER_TEMP/drawers-contract.json"
+      - name: Run actual FreeCAD console; compare solid bounds before file save
+        env:
+          CARPINOVA_CAD_INPUT: ${{ runner.temp }}/drawers-contract.json
+          CARPINOVA_FCSTD_OUTPUT: ${{ runner.temp }}/drawers-native.FCStd
+        run: |
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          # .FCScript is executed by FreeCADCmd, unlike Python modules that may only be imported.
+          timeout 90s "$FC_BIN" integrations/freecad_headless_proof.FCScript 2>&1 | tee "$RUNNER_TEMP/freecad-proof.log"
+          test -s "$RUNNER_TEMP/drawers-native.FCStd"
+          grep -q 'FREECAD_NATIVE_RESULT=' "$RUNNER_TEMP/freecad-proof.log"
+          grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/freecad-proof.log"
+      - name: Verify actual FCStd archive structure and piece count
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          from xml.etree import ElementTree as ET
+          import os
+          p=Path(os.environ["RUNNER_TEMP"])/"drawers-native.FCStd"
+          with ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              assert "Document.xml" in names
+              root=ET.fromstring(z.read("Document.xml"))
+              objects=root.findall(".//Object")
+              assert len(objects)>=17, f"Expected >=17 objects, got {len(objects)}"
+              print("FREECAD_FCSTD_REAL=PASS", "objects=", len(objects), "files=", sorted(names)[:8])
+          PY
+      - name: Preserve real FreeCAD proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: f7c-native-freecad-drawer-validation
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/drawers-contract.json
+            ${{ runner.temp }}/drawers-native.FCStd
+            ${{ runner.temp }}/freecad-proof.log

@@ -1,0 +1,33 @@
+"""Entry-point for FreeCADCmd (exec'd as .FCScript by FreeCAD 0.19+).
+
+Environment is set by the known GitHub Actions runner; only imports our
+reviewed local adapter. Do not treat arbitrary project JSON as Python code.
+"""
+import json
+import os
+import sys
+import traceback
+from pathlib import Path
+
+try:
+    root = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+    sys.path.insert(0, str(root))
+    from integrations.freecad_from_contract import build_freecad
+
+    source = Path(os.environ["CARPINOVA_CAD_INPUT"]).resolve()
+    target = Path(os.environ["CARPINOVA_FCSTD_OUTPUT"]).resolve()
+    if not str(source).startswith(str(Path(os.environ["RUNNER_TEMP"]).resolve()) + os.sep):
+        raise ValueError("Expected approved input inside runner temp.")
+    if not str(target).startswith(str(Path(os.environ["RUNNER_TEMP"]).resolve()) + os.sep):
+        raise ValueError("Expected output inside runner temp.")
+    report = build_freecad(source, target)
+    if report["native_measurements"]["status"] != "NATIVE_GEOMETRY_MATCH":
+        raise ValueError("FreeCAD solids do not match the source geometry.")
+    if not target.is_file() or target.stat().st_size == 0:
+        raise ValueError("No actual .FCStd document saved.")
+    print("FREECAD_NATIVE_RESULT=" + json.dumps(report, sort_keys=True), flush=True)
+except BaseException:
+    traceback.print_exc()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(12)

@@ -1,0 +1,23 @@
+{
+  "action": "modular",
+  "module_spec": {
+    "type": "modular_run",
+    "application": "kitchen",
+    "width_mm": 800,
+    "height_mm": 720,
+    "depth_mm": 550,
+    "installation": "freestanding",
+    "modules": [
+      {
+        "module_id": "PILOTO",
+        "width_mm": 800,
+        "panel_thickness_mm": 18,
+        "material_id": "MELAMINA_18",
+        "construction": "sides_full",
+        "fronts": "none",
+        "back": "none",
+        "support": "floor"
+      }
+    ]
+  }
+}

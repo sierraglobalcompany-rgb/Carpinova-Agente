@@ -1,0 +1,81 @@
+{
+  "type": "modular_run",
+  "application": "closet",
+  "width_mm": 2000,
+  "height_mm": 2400,
+  "depth_mm": 600,
+  "installation": "built_in",
+  "site_width_mm": {
+    "top": 2035,
+    "middle": 2024,
+    "bottom": 2012
+  },
+  "modules": [
+    {
+      "module_id": "LEFT",
+      "width_mm": 950,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_ROBLE_18",
+      "construction": "sides_full",
+      "fronts": "pending",
+      "back": "pending",
+      "support": "floor",
+      "finish": {
+        "grain": {
+          "left_side": "face_y",
+          "right_side": "face_y",
+          "top": "face_x",
+          "bottom": "face_x"
+        },
+        "edgebanding": {
+          "left_side": [
+            "x_min"
+          ],
+          "right_side": [
+            "x_min"
+          ],
+          "top": [
+            "y_min"
+          ],
+          "bottom": [
+            "y_min"
+          ]
+        },
+        "edgeband_thickness_mm": 1
+      }
+    },
+    {
+      "module_id": "RIGHT",
+      "width_mm": 1050,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_ROBLE_18",
+      "construction": "top_bottom_full",
+      "fronts": "pending",
+      "back": "pending",
+      "support": "floor",
+      "finish": {
+        "grain": {
+          "left_side": "face_y",
+          "right_side": "face_y",
+          "top": "face_x",
+          "bottom": "face_x"
+        },
+        "edgebanding": {
+          "left_side": [
+            "x_min"
+          ],
+          "right_side": [
+            "x_min"
+          ],
+          "top": [
+            "y_min"
+          ],
+          "bottom": [
+            "y_min"
+          ]
+        },
+        "edgeband_thickness_mm": 1
+      }
+    }
+  ]
+}

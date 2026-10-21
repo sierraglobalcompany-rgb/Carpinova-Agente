@@ -1,0 +1,157 @@
+{
+  "action": "modular",
+  "module_spec": {
+    "type": "modular_run",
+    "application": "cabinet_run",
+    "width_mm": 500,
+    "height_mm": 800,
+    "depth_mm": 500,
+    "installation": "freestanding",
+    "modules": [
+      {
+        "module_id": "M1",
+        "width_mm": 500,
+        "panel_thickness_mm": 18,
+        "material_id": "MELAMINA_BLANCA_18",
+        "construction": "sides_full",
+        "fronts": "none",
+        "back": "none",
+        "support": "floor",
+        "drawers": [
+          {
+            "drawer_id": "D1",
+            "opening_bottom_offset_mm": 0,
+            "opening_height_mm": 145,
+            "opening_depth_mm": 470,
+            "box_height_mm": 110,
+            "panel_thickness_mm": 18,
+            "bottom_thickness_mm": 6,
+            "slide_clearance_left_mm": 13,
+            "slide_clearance_right_mm": 13,
+            "front_setback_mm": 30,
+            "rear_setback_mm": 40,
+            "material_id": "MELAMINA_BLANCA_18",
+            "bottom_material_id": "HDF_6",
+            "facade": {
+              "style": "overlay",
+              "material_id": "MELAMINA_BLANCA_18",
+              "thickness_mm": 18,
+              "left_overlap_mm": 16,
+              "right_overlap_mm": 16,
+              "top_overlap_mm": 10,
+              "bottom_overlap_mm": 10,
+              "grain_axis": "none",
+              "edgebanding_edges": [
+                "x_min",
+                "x_max",
+                "y_min",
+                "y_max"
+              ],
+              "edgeband_thickness_mm": 1,
+              "opening_system": "pending"
+            }
+          },
+          {
+            "drawer_id": "D2",
+            "opening_bottom_offset_mm": 173,
+            "opening_height_mm": 145,
+            "opening_depth_mm": 470,
+            "box_height_mm": 110,
+            "panel_thickness_mm": 18,
+            "bottom_thickness_mm": 6,
+            "slide_clearance_left_mm": 13,
+            "slide_clearance_right_mm": 13,
+            "front_setback_mm": 30,
+            "rear_setback_mm": 40,
+            "material_id": "MELAMINA_BLANCA_18",
+            "bottom_material_id": "HDF_6",
+            "facade": {
+              "style": "overlay",
+              "material_id": "MELAMINA_BLANCA_18",
+              "thickness_mm": 18,
+              "left_overlap_mm": 16,
+              "right_overlap_mm": 16,
+              "top_overlap_mm": 10,
+              "bottom_overlap_mm": 10,
+              "grain_axis": "none",
+              "edgebanding_edges": [
+                "x_min",
+                "x_max",
+                "y_min",
+                "y_max"
+              ],
+              "edgeband_thickness_mm": 1,
+              "opening_system": "pending"
+            }
+          },
+          {
+            "drawer_id": "D3",
+            "opening_bottom_offset_mm": 346,
+            "opening_height_mm": 145,
+            "opening_depth_mm": 470,
+            "box_height_mm": 110,
+            "panel_thickness_mm": 18,
+            "bottom_thickness_mm": 6,
+            "slide_clearance_left_mm": 13,
+            "slide_clearance_right_mm": 13,
+            "front_setback_mm": 30,
+            "rear_setback_mm": 40,
+            "material_id": "MELAMINA_BLANCA_18",
+            "bottom_material_id": "HDF_6",
+            "facade": {
+              "style": "overlay",
+              "material_id": "MELAMINA_BLANCA_18",
+              "thickness_mm": 18,
+              "left_overlap_mm": 16,
+              "right_overlap_mm": 16,
+              "top_overlap_mm": 10,
+              "bottom_overlap_mm": 10,
+              "grain_axis": "none",
+              "edgebanding_edges": [
+                "x_min",
+                "x_max",
+                "y_min",
+                "y_max"
+              ],
+              "edgeband_thickness_mm": 1,
+              "opening_system": "pending"
+            }
+          },
+          {
+            "drawer_id": "D4",
+            "opening_bottom_offset_mm": 519,
+            "opening_height_mm": 245,
+            "opening_depth_mm": 470,
+            "box_height_mm": 200,
+            "panel_thickness_mm": 18,
+            "bottom_thickness_mm": 6,
+            "slide_clearance_left_mm": 13,
+            "slide_clearance_right_mm": 13,
+            "front_setback_mm": 30,
+            "rear_setback_mm": 40,
+            "material_id": "MELAMINA_BLANCA_18",
+            "bottom_material_id": "HDF_6",
+            "facade": {
+              "style": "overlay",
+              "material_id": "MELAMINA_BLANCA_18",
+              "thickness_mm": 18,
+              "left_overlap_mm": 16,
+              "right_overlap_mm": 16,
+              "top_overlap_mm": 10,
+              "bottom_overlap_mm": 10,
+              "grain_axis": "none",
+              "edgebanding_edges": [
+                "x_min",
+                "x_max",
+                "y_min",
+                "y_max"
+              ],
+              "edgeband_thickness_mm": 1,
+              "opening_system": "pending"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

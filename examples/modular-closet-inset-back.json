@@ -1,0 +1,26 @@
+{
+  "type": "modular_run",
+  "application": "closet",
+  "width_mm": 900,
+  "height_mm": 1800,
+  "depth_mm": 550,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "WARDROBE",
+      "width_mm": 900,
+      "panel_thickness_mm": 18,
+      "material_id": "OAK_MELAMINE_18",
+      "construction": "sides_full",
+      "fronts": "pending",
+      "back": {
+        "style": "inset_full",
+        "material_id": "HDF_OAK_6",
+        "thickness_mm": 6,
+        "services_present": false,
+        "grain_axis": "face_y"
+      },
+      "support": "floor"
+    }
+  ]
+}

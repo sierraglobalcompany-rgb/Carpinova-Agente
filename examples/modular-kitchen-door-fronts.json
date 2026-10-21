@@ -1,0 +1,80 @@
+{
+  "type": "modular_run",
+  "application": "kitchen",
+  "width_mm": 1200,
+  "height_mm": 720,
+  "depth_mm": 560,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "SINK",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "WHITE_MELAMINE_18",
+      "construction": "sides_full",
+      "fronts": {
+        "style": "overlay",
+        "leaf_count": 2,
+        "material_id": "OAK_MELAMINE_18",
+        "thickness_mm": 18,
+        "hinge_sides": [
+          "left",
+          "right"
+        ],
+        "left_reveal_mm": 3,
+        "right_reveal_mm": 3,
+        "top_reveal_mm": 4,
+        "bottom_reveal_mm": 4,
+        "center_gap_mm": 4,
+        "grain_axis": "face_y",
+        "edgebanding_edges": [
+          "x_min",
+          "x_max",
+          "y_min",
+          "y_max"
+        ],
+        "edgeband_thickness_mm": 1
+      },
+      "back": {
+        "style": "inset_two_strips",
+        "material_id": "HDF_WHITE_6",
+        "thickness_mm": 6,
+        "services_present": true,
+        "top_strip_height_mm": 90,
+        "bottom_strip_height_mm": 120,
+        "grain_axis": "none"
+      },
+      "support": "floor"
+    },
+    {
+      "module_id": "STORAGE",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "WHITE_MELAMINE_18",
+      "construction": "top_bottom_full",
+      "fronts": {
+        "style": "inset",
+        "leaf_count": 1,
+        "material_id": "OAK_MELAMINE_18",
+        "thickness_mm": 18,
+        "hinge_sides": [
+          "right"
+        ],
+        "left_clearance_mm": 2,
+        "right_clearance_mm": 2,
+        "top_clearance_mm": 2,
+        "bottom_clearance_mm": 2,
+        "grain_axis": "face_y",
+        "edgebanding_edges": [
+          "x_min",
+          "x_max",
+          "y_min",
+          "y_max"
+        ],
+        "edgeband_thickness_mm": 1
+      },
+      "back": "none",
+      "support": "floor"
+    }
+  ]
+}

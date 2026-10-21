@@ -1,0 +1,202 @@
+name: CarpiNova MCP stdio real integration
+on:
+  push:
+    branches: ["feat/connect-carpinova-mcp-stdio", "main"]
+  pull_request:
+    paths:
+      - "carpinova_agent/mcp_bridge.py"
+      - "tests/test_mcp_bridge.py"
+      - ".github/workflows/mcp-bridge-ci.yml"
+      - "docs/conectar-agente-codex-antigravity.md"
+      - "integrations/blender_presentation.py"
+      - "scripts/verify_local_mcp.py"
+      - "scripts/prepare_windows.ps1"
+      - "requirements-mcp.txt"
+      - "carpinova_agent/**"
+      - "integrations/**"
+      - "examples/**"
+      - "tests/**"
+permissions:
+  contents: read
+jobs:
+  mcp-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install optional official MCP SDK
+        run: python -m pip install -r requirements-mcp.txt
+      - name: Unit-test safe local bridge
+        run: python -m unittest discover -s tests -p "test_mcp_bridge.py" -v
+      - name: Real stdio MCP client-server roundtrip (no FreeCAD Blender)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/carpinova-mcp-output"
+          python scripts/verify_local_mcp.py --output-root "$RUNNER_TEMP/carpinova-mcp-output"
+      - name: Preserve first MCP furniture project
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-first-mcp-furniture
+          retention-days: 14
+          path: ${{ runner.temp }}/carpinova-mcp-output/
+
+  native-cad-deliverables:
+    name: FreeCAD + Blender native files from exact MCP-generated furniture
+    needs: mcp-protocol
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the same pinned MCP protocol dependencies in this isolated native runner
+        run: python -m pip install -r requirements-mcp.txt
+      - name: Fetch the EXACT two furniture projects generated through MCP in this run
+        uses: actions/download-artifact@v4
+        with:
+          name: carpinova-first-mcp-furniture
+          path: ${{ runner.temp }}/source
+      - name: Validate source projects and compile audited Blender presenter
+        run: |
+          python -m compileall -q integrations/blender_presentation.py
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from carpinova_agent.cad_exchange import validate_exchange
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          for project, count in (("primer_mueble", 4), ("cocina_dos_modulos", 13)):
+              folder = root / project
+              manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+              cad = validate_exchange(json.loads((folder / "cad-exchange.json").read_text(encoding="utf-8")))
+              assert manifest["piece_count"] == count == len(cad["boxes"])
+              assert manifest["geometry_sha256"] == cad["geometry_sha256"]
+              assert all(manifest[k] is False for k in (
+                  "fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+              print("MCP_INPUT_REUSED=" + project + "; SHA256=" + cad["geometry_sha256"])
+          PY
+      - name: Install audited Ubuntu FreeCAD and Blender runtimes
+        shell: bash
+        run: |
+          while IFS= read -r -d '' aptfile; do
+            if grep -q 'packages.microsoft.com' "$aptfile"; then
+              sudo mv "$aptfile" "$aptfile.disabled"
+            fi
+          done < <(find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -print0)
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3 blender
+          command -v freecadcmd || command -v FreeCADCmd
+          blender --version | head -n 2
+      - name: Export both existing MCP projects using the SIXTH live MCP native CAD tool
+        shell: bash
+        env:
+          CARPINOVA_NATIVE_EXECUTION_ENABLED: "1"
+        run: |
+          export CARPINOVA_FREECADCMD="$(command -v freecadcmd || command -v FreeCADCmd)"
+          export CARPINOVA_BLENDER="$(command -v blender)"
+          echo "FREECAD_EXECUTABLE_TARGET=$(readlink -f "$CARPINOVA_FREECADCMD")"
+          echo "BLENDER_EXECUTABLE_TARGET=$(readlink -f "$CARPINOVA_BLENDER")"
+          test -f "$CARPINOVA_FREECADCMD"
+          test -f "$CARPINOVA_BLENDER"
+          # No arbitrary program/tool names are sent by the MCP client:
+          # reviewed repo adapters and host-configured executables only.
+          python scripts/verify_local_mcp.py \
+            --native-only --output-root "$RUNNER_TEMP/source"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          report = json.loads((root / "native-preflight-report.json").read_text(encoding="utf-8"))
+          assert len(report) == 2
+          assert {r["project"] for r in report} == {"primer_mueble", "cocina_dos_modulos"}
+          assert {r["pieces"] for r in report} == {4, 13}
+          assert all(r["four_release_flags"] is False for r in report)
+          print("MCP_NATIVE_CAD_EXECUTION_WITH_ONE_ENGINE=PASS")
+          PY
+      - name: Verify 28-panel inset and overlay drawers in real FreeCAD and Blender
+        shell: bash
+        env:
+          CARPINOVA_NATIVE_EXECUTION_ENABLED: "1"
+        run: |
+          export CARPINOVA_FREECADCMD="$(command -v freecadcmd || command -v FreeCADCmd)"
+          export CARPINOVA_BLENDER="$(command -v blender)"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from carpinova_agent.mcp_bridge import carpinova_generar_borrador
+          from carpinova_agent.native_export import (
+              REVIEW_CONFIRMATION, issue_native_approval, export_native_project
+          )
+          from carpinova_agent.pilot_cli import verify_pilot_bundle
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          ci_approvals = Path(os.environ["RUNNER_TEMP"]) / "four-drawer-ci-approvals"
+          ci_approvals.mkdir()
+          os.environ["CARPINOVA_OUTPUT_ROOT"] = str(root)
+          for style in ("INSET", "OVERLAY"):
+              raw = (Path("examples") / (
+                  "four-drawer-500x500x800-" + style + "-UNCONFIRMED.json"
+              )).read_text(encoding="utf-8")
+              project = "four_drawers_" + style.lower()
+              stage = carpinova_generar_borrador(raw, project)
+              assert stage["piece_count"] == 28
+              cad = verify_pilot_bundle(root / project)
+              assert len(cad["boxes"]) == 28
+              assert cad["geometry_sha256"] == stage["geometry_sha256"]
+              assert all(stage[k] is False for k in (
+                  "fabrication_ready", "cutting_ready", "drilling_ready",
+                  "purchase_ready"))
+              # This approval is issued by the trusted isolated CI harness,
+              # never by a user-facing MCP tool or a model on the owner PC.
+              issue_native_approval(root / project, ci_approvals)
+              native = export_native_project(
+                  root / project,
+                  confirmation=REVIEW_CONFIRMATION,
+                  freecad_executable=os.environ["CARPINOVA_FREECADCMD"],
+                  blender_executable=os.environ["CARPINOVA_BLENDER"],
+                  enabled=True, approval_dir=ci_approvals)
+              assert native["piece_count"] == 28
+              assert native["geometry_sha256"] == cad["geometry_sha256"]
+              assert all(native[k] is False for k in (
+                  "fabrication_ready", "cutting_ready", "drilling_ready",
+                  "purchase_ready"))
+              assert set(native["reports"]) == {
+                  "FreeCAD", "Blender", "BlenderPresentation"}
+              for report in native["reports"].values():
+                  assert report["verified_piece_count"] == 28
+                  assert report["geometry_sha256"] == cad["geometry_sha256"]
+                  assert report["status"] == "NATIVE_GEOMETRY_MATCH"
+                  assert report["max_abs_error_mm"] <= 0.05
+              print("MCP_F7C_28_PIECES_NATIVE=" + style +
+                    "; GEOMETRY_SHA256=" + cad["geometry_sha256"] +
+                    "; FABRICATION_AUTHORITY=NO")
+          PY
+      - name: Preserve all real 3D furniture projects and render PNGs
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-mcp-freecad-blender-real
+          retention-days: 14
+          path: ${{ runner.temp }}/source/
+
+  windows-mcp-preflight:
+    name: Windows Python 3.12 + actual MCP session + SVG PNG PDF
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the SAME clean-Windows setup as the owner PC
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare_windows.ps1 -OutputRoot "$env:RUNNER_TEMP\carpinova-win-mcp"
+      - name: Archive inspectable Windows MCP preflight result
+        uses: actions/upload-artifact@v4
+        with:
+          name: carpinova-mcp-windows-preflight
+          retention-days: 14
+          path: ${{ runner.temp }}/carpinova-win-mcp/

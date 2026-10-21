@@ -1,0 +1,41 @@
+name: Knowledge adapter checks
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile reader
+        run: python -m compileall -q knowledge_client tests
+      - name: Unit tests (synthetic integrity fixtures)
+        run: python -m unittest discover -s tests -p test_knowledge_reader.py -v
+      - name: Real pinned Knowledge pilot (partial corpus only)
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.request import urlopen
+          from knowledge_client import load_bundle, search_content
+          base = ("https://raw.githubusercontent.com/sierraglobalcompany-rgb/"
+                  "CarpiNova-Knowledge/4df02ef54562fac5a820cbad92b0edee547c310b/"
+                  "dist/pilot/")
+          root = Path("/tmp/carpinova-source-pilot")
+          root.mkdir(exist_ok=True)
+          for name in ("manifest.json", "knowledge.bundle.json",
+                       "figures.bundle.json", "lessons.bundle.json"):
+              with urlopen(base + name, timeout=30) as response:
+                  (root / name).write_bytes(response.read())
+          bundle = load_bundle(root)
+          assert bundle["coverage"] == "PARTIAL_CORPUS"
+          output = search_content(bundle, "bisagra")
+          assert output["total_matches"] > 0
+          assert all(x["manufacturing_authority"] is False for x in output["results"])
+          print("Real canonical pilot: PASS (not equivalent to full book QA)")
+          PY

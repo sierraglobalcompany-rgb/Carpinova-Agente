@@ -1,0 +1,23 @@
+{
+  "action": "combined",
+  "project": {
+    "project_type": "gabinete",
+    "width_mm": 600,
+    "height_mm": 720,
+    "depth_mm": 560,
+    "panel_thickness_mm": 18,
+    "construction": "sides_full",
+    "front_style": "overlay"
+  },
+  "hardware": {
+    "manufacturer": "Blum",
+    "front_style": "overlay",
+    "door_thickness_mm": 18,
+    "door_height_mm": 680,
+    "door_weight_g": 3200,
+    "door_material": "MDF",
+    "hinge_sku": "71B3550",
+    "plate_sku": "173H7100"
+  },
+  "query": "bisagras"
+}

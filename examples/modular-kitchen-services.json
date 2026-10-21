@@ -1,0 +1,38 @@
+{
+  "type": "modular_run",
+  "application": "kitchen",
+  "width_mm": 1200,
+  "height_mm": 720,
+  "depth_mm": 560,
+  "installation": "freestanding",
+  "modules": [
+    {
+      "module_id": "SINK",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "WHITE_MELAMINE_18",
+      "construction": "sides_full",
+      "fronts": "pending",
+      "back": {
+        "style": "inset_two_strips",
+        "material_id": "HDF_WHITE_6",
+        "thickness_mm": 6,
+        "services_present": true,
+        "top_strip_height_mm": 90,
+        "bottom_strip_height_mm": 120,
+        "grain_axis": "none"
+      },
+      "support": "floor"
+    },
+    {
+      "module_id": "STORAGE",
+      "width_mm": 600,
+      "panel_thickness_mm": 18,
+      "material_id": "WHITE_MELAMINE_18",
+      "construction": "top_bottom_full",
+      "fronts": "pending",
+      "back": "none",
+      "support": "floor"
+    }
+  ]
+}
