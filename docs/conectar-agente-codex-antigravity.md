@@ -20,7 +20,7 @@ Los archivos son: maestro-review.json, front-review.svg, parts-review.csv, cad-e
 
 1. Clonar en Windows la rama/commit certificada del PR MCP; abrirla en Codex o AntiGravity.
 2. Abrir PowerShell en la raíz del repo: python -m venv .venv
-3. Instalar el SDK opcional en ese venv: .\.venv\Scripts\python.exe -m pip install "mcp>=1.27,<2"
+3. Instalar el SDK opcional en ese venv: .\.venv\Scripts\python.exe -m pip install "mcp==1.30.0" "CairoSVG==2.9.1"
 4. Correr: .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 5. Crear carpeta de entregables privada, por ejemplo C:\CarpiNova\entregables, y no reutilizar nombres de proyecto ya creados.
 6. Solo si hay un bundle Knowledge compilado y validado, configurar CARPINOVA_KNOWLEDGE_BUNDLE_DIR apuntando a su carpeta en el PC. No es necesario para el primer módulo sin citas del libro.
@@ -97,11 +97,11 @@ https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-co
 
 ## Plano de tres vistas en SVG, PNG y PDF — segundo paso opcional
 
-El **quinto** método \`carpinova_renderizar_lamina(proyecto)\` utiliza el
-\`cad-exchange.json\` verificado del proyecto ya generado y produce en
-\`entregables/<proyecto>/lamina/\` cuatro archivos: \`three-views.svg\`,
-\`three-views.png\`, \`three-views.pdf\` y \`render-manifest.json\`.
-Requiere instalar en el mismo Python \`CairoSVG>=2.7,<3\` y las bibliotecas
+El **quinto** método `carpinova_renderizar_lamina(proyecto)` utiliza el
+`cad-exchange.json` verificado del proyecto ya generado y produce en
+`entregables/<proyecto>/lamina/` cuatro archivos: `three-views.svg`,
+`three-views.png`, `three-views.pdf` y `render-manifest.json`.
+Requiere instalar en el mismo Python `CairoSVG>=2.7,<3` y las bibliotecas
 Cairo compatibles con el sistema operativo. Es opcional: si no está instalado,
 el diseño SVG frontal, el CSV y el CADExchange anteriores siguen funcionando.
 
@@ -112,8 +112,8 @@ no es un render 3D ni resuelve líneas ocultas, no representa uniones,
 calados, tornillos o materiales fotográficos. **No imprimir estas láminas
 como instrucciones de corte.**
 
-El cliente MCP lee el archivo vectorial vía \`carpinova_leer_entregable\`
-con \`archivo="lamina/three-views.svg"\`; para PNG y PDF, la herramienta
+El cliente MCP lee el archivo vectorial vía `carpinova_leer_entregable`
+con `archivo="lamina/three-views.svg"`; para PNG y PDF, la herramienta
 devuelve la ubicación local en la carpeta de entregables. En Codex o
 AntiGravity se abren desde esa ruta y se pueden adjuntar al chat.
 No se puede leer un PDF binario mediante la herramienta de texto ni usar
@@ -157,3 +157,8 @@ $env:PYTHONPATH = (Get-Location).Path
 4. Abrir `.FCStd`, `presentation.blend` y `presentation.png` para revisión. Comparar IDs, cantidad de piezas, orientación, aspecto y el mismo hash con el manifiesto original.
 
 **Límite de confianza:** la herramienta MCP todavía **no lanza programas nativos por sí misma**: un operador o un cliente Codex/AntiGravity con permisos explícitos debe ejecutar los adaptadores. No instalar MCP FreeCAD/Blender de terceros sin auditoría de código, permisos, procedencia, versiones y aislamiento. Un render bonito o una comprobación numérica de 0,05 mm no equivalen a instrucciones seguras de corte, perforación, anclaje o fabricación. Mantener los cuatro flags en falso.
+
+
+## Certificación pendiente antes de PC — gates obligatorios
+
+La última CI Linux verificó específicamente **MCP 1.30.0 y CairoSVG 2.9.1** (Python 3.12), fijados como dependencias directas para reproducir el ensayo. **No es un lockfile de todas las dependencias indirectas ni una validación de Windows.** Antes de declarar `PC_READY=YES`, verificar la instalación limpia de Windows, arranque y descubrimiento de las cinco herramientas en Codex/AntiGravity, configuración del bundle Knowledge si se van a responder preguntas del libro, lectura de SVG/PNG/PDF reales, apertura de `.FCStd` y `.blend` en los programas locales, una inspección humana de las imágenes y al menos un mueble con dimensiones aportadas y confirmadas. También se debe integrar la cadena de 12 PR con aprobación del propietario y correr QA en el SHA final de `main`. Sin ello no afirmar 100%.

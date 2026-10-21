@@ -5,13 +5,20 @@ Agente especialista en diseño, enseñanza y preparación de fabricación de mue
 ## Objetivo
 Ayudar a diseñar cocinas, clósets, cajones, nichos, escritorios y mobiliario personalizado desde necesidades iniciales hasta entregables verificables: requerimientos, esquema 2D, lista de piezas, dirección de veta, cantos, herrajes, ubicaciones de perforación, compras y procedimiento de ensamblaje.
 
-**Estado de desarrollo (pila F1–F7C aún sin fusionar):** hay cálculo geométrico **nominal** de carcasas, fondos, puertas y cajones, despiece de revisión y archivos FreeCAD/Blender comprobados mediante ejecución nativa en CI. No hay MCP interactivos conectados ni validación industrial de fabricación, cargas, herrajes o taladros. Ninguna salida autoriza cortar, perforar o comprar.
+**Estado PR #16 (aún DRAFT y no fusionado):** el motor ya genera geometría nominal de carcasas, fondos, puertas y cajones, CSV, bocetos SVG y láminas SVG/PNG/PDF. El **MCP stdio local del Agente tiene cinco herramientas y pasó una sesión real de CI**, que generó `.FCStd`, `.blend` y PNG de presentación en FreeCAD/Blender nativos. **No está certificado en el PC del propietario ni conectado directamente a este chat; tampoco existe liberación industrial de medidas de corte, cargas, herrajes o perforaciones.** No autorizar compras, corte ni fabricación.
+
+
+### Punto de entrada operativo (Codex/AntiGravity)
+
+El servidor **`python -m carpinova_agent.mcp_bridge`** implementa cinco herramientas: `carpinova_estado`, `carpinova_consultar`, `carpinova_generar_borrador`, `carpinova_renderizar_lamina` y `carpinova_leer_entregable`. La [guía de conexión](docs/conectar-agente-codex-antigravity.md) documenta los requisitos locales; la conexión GitHub de este chat **no equivale a ejecutar el servidor en tu PC**.
+
+Un solo Maestro produce geometría, despiece nominal y CADExchange. El mismo contrato alimenta planos 2D y los adaptadores nativos FreeCAD/Blender. Ningún flujo produce aún hoja final de corte, patrones de taladro ni autorización de fabricación.
 
 ## Arquitectura KISS
 1. Agente orquestador e interrogatorio mínimo por proyecto.
 2. Skill 'diseño de muebles' para flujo de preguntas, decisiones, validación y entregables.
 3. Adaptador de conocimiento de lectura, con citas de libro/página/registro, versión y estado de confianza. La fuente permanece en Knowledge; no copiarla ni modificarla aquí.
-4. Motores deterministas futuros: geometría paramétrica, despiece, holguras/cantos, perforación y optimización de tablero.
+4. Motor existente y único: `core.design` → `modular` y F7C → `cad_exchange`. La compensación de cantos, mecanizados y optimización de tablero son trabajos NO completados.
 5. Catálogo de herrajes versionado por fabricante y referencia exacta, no equivalencias implícitas.
 6. QA: límites, piezas, colisiones, montaje, orientación de vetas, tolerancias, cargas y validación humana previa a fabricación.
 
@@ -27,8 +34,8 @@ La ingeniería de muebles nueva se incorporará mediante reglas explícitas vali
 - Cambios por PR con tests, sin merge automático.
 - La salida fabricable requiere geometría, especificación y revisión humana verificadas.
 
-## Primer objetivo de implementación
-Leer Knowledge por SHA fijo, diseñar modelo paramétrico de gabinete rectangular y un cajón, generar despiece con test de cierre dimensional y representar vistas 2D con cotas. Sin bibliotecas CAD pesadas hasta que las pruebas lo justifiquen.
+## Primer objetivo histórico, ya completado como borrador
+Los motores y pruebas de gabinete/cajón, Knowledge y bocetos preliminares existen; el objetivo de ahora es integrar y certificar el flujo en un cliente real Windows. Las salidas de corte/producción requieren validaciones nuevas.
 
 Consulta [AGENTS.md](AGENTS.md), [skill de diseño](skills/diseno-muebles/SKILL.md) y [contrato de entrega](docs/contrato-fabricacion.md).
 
@@ -63,7 +70,7 @@ python -m carpinova_agent.maestro_cli --input examples/maestro-modular.json --sk
 El SVG y CSV son **BORRADORES**, no datos de corte autorizados: F6 básico exporta carcasas abiertas; la ampliación F7C puede añadir **fondos, puertas y cajones nominales** según el contrato y los datos aportados. Ningún modo compensa aún todas las dimensiones de corte por canto, uniones, tolerancias o anclajes. Para parámetros, limitaciones y ejemplos consultar [F6 módulos/vetas/cantos](docs/f6-modulos-vetas-cantos.md) y los contratos F7C posteriores.
 
 ## Auditoría V2 / F7A (rama de integración)
-Se añadió un asesor consultivo de canto, fondos, patas/zócalo, soportes a pared y uniones, además de un intercambio CAD único en milímetros con adaptadores **opcionales** para FreeCAD y Blender. No hay instalación ni sesión MCP confirmada.
+Se añadió asesor consultivo de cantos, fondos, patas/zócalo, soportes y uniones, y CADExchange único. **Hay un MCP stdio confirmado en CI, pero no instalado ni confirmado en Windows del propietario.** FreeCAD/Blender se ejecutaron en CI por adaptadores nativos, no mediante MCP externos.
 ```bash
 python -m carpinova_agent.maestro_cli --input examples/construction-bathroom.json
 python -m carpinova_agent.cad_cli --input examples/modular-closet.json --output /tmp/closet-cad.json

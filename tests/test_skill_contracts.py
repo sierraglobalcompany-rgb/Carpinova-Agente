@@ -65,12 +65,31 @@ class SkillContractTest(unittest.TestCase):
             "drilling_ready=false",
             "cutting_ready=false",
             "purchase_ready=false",
-            "Ningún MCP interactivo",
+            "MCP local stdio del Agente",
             "pruebas nativas reales en CI",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, skill)
 
+
+
+    def test_single_mcp_contract_is_visible_in_entry_docs(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        skill = (SKILLS_ROOT / "maestro-carpintero" / "SKILL.md").read_text(encoding="utf-8")
+        from carpinova_agent import mcp_bridge
+        names = (
+            "carpinova_estado", "carpinova_consultar",
+            "carpinova_generar_borrador", "carpinova_renderizar_lamina",
+            "carpinova_leer_entregable",
+        )
+        for name in names:
+            with self.subTest(name=name):
+                self.assertTrue(callable(getattr(mcp_bridge, name)))
+                self.assertIn(name, readme)
+                self.assertIn(name, skill)
+        self.assertIn("MCP local", agents)
+        self.assertNotIn("No hay MCP interactivos conectados", readme)
 
 if __name__ == "__main__":
     unittest.main()
