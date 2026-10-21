@@ -93,7 +93,7 @@ El servidor `carpinova_agent.mcp_bridge` tiene **seis herramientas**: `carpinova
 
 **Puerta humana de exportación 3D (obligatoria):** aun con `CARPINOVA_NATIVE_EXECUTION_ENABLED=1` y la frase `AUTORIZO_EXPORTAR_BORRADOR_3D`, la exportación se niega sin aprobación local independiente de un solo uso, ligada al SHA, y generada **desde terminal del operador** según [guía vigente](../../docs/conectar-agente-codex-antigravity.md). Nunca crear el comprobante por el modelo ni simular consentimiento en el PC. No fabricar.
 
-\n## Uso directo en Codex — contrato de conversación V1
+## Uso directo en Codex — contrato de conversación V1
 
 Al recibir una instrucción natural de diseño, Codex es **solo el intérprete y la interfaz de conversación**. CarpiNova Maestro sigue siendo el motor determinista. Este flujo NO exige que el usuario escriba JSON ni que se introduzca otro LLM, motor, MCP o skill.
 
