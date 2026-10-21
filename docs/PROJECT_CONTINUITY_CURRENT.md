@@ -77,3 +77,17 @@ P2 — Fabricación: ajuste dimensional de corte por cantos, optimización de ta
 **NEXT operativo:** autorización específica del propietario para la integración ordenada de los **12 PR todavía DRAFT**, QA en el main efectivamente fusionado, instalación/QA visual en su Windows de FreeCAD/Blender y un mueble real con medidas confirmadas, instalaciones, vetas, cantos y herrajes. Las banderas `fabrication_ready`, `cutting_ready`, `drilling_ready` y `purchase_ready` permanecen false hasta revisión de ingeniería/taller.
 
 **Estado de este checkpoint funcional:** SIX_MCP_TOOLS=PASS · HOST_NATIVE_ONE_USE_APPROVAL=PASS_IN_CI · WINDOWS_483_TESTS=GREEN · NATIVE_LINUX_CAD_4_13=GREEN · FULL_STACK_REHEARSAL=GREEN · MAIN_MERGE=WAITING_OWNER · OWNER_PC_CAD=NOT_VERIFIED · FABRICATION=BLOCKED.
+
+## Exportación CAD congelada y reconstrucción verificada — checkpoint 2026-10-21
+
+**HEAD de código funcional certificado `3414ebf0efbaeda046cbab95da00176b1fe0e19a`**, [CI MCP/Windows/CAD #39545335026](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39545335026): **6/6 workflows GREEN**, **487 pruebas en Windows**, MCP real seis herramientas y FreeCAD/Blender nativos Linux con los muebles de 4 y 13 piezas. [Ensayo de los 12 PR #39545335064](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39545335064) GREEN, con árbol idéntico sin alterar `main`.
+
+**Causa raíz corregida:** antes, los tres adaptadores CAD nativos leían directamente `cad-exchange.json` mutable del proyecto durante la exportación. Ahora `carpinova_agent/native_export.py` copia los **cinco** archivos Maestro/CSV/SVG/CAD/manifest a una única carpeta temporal, verifica de nuevo el paquete mediante **el mismo** `verify_pilot_bundle` y obliga a que FreeCAD, Blender y BlenderPresentation lean **exactamente esa copia**. Compara los cinco archivos originales por SHA-256 de bytes antes de iniciar los programas y antes de publicar; si hubo cambios, descarta la exportación temporal. No altera geometría ni agrega motores. **No protege contra un proceso malicioso que ya controle plenamente los archivos y el entorno del usuario**; es un control de coherencia frente a cambios concurrentes.
+
+**Regresiones añadidas:** los tres adaptadores usan una única ruta temporal distinta del proyecto editable; cambiar el CSV original mientras corre el render impide publicar `native/`, y los originales de revisión permanecen la fuente. Las aprobaciones del propietario siguen siendo de un solo uso, con ruta externa y duración máxima de 15 minutos.
+
+**Artefactos del gate nativo:** `carpinova-first-mcp-furniture`, `carpinova-mcp-windows-preflight`, `carpinova-mcp-freecad-blender-real`; caducan el **2026-11-04**. El material de reconstrucción está versionado aquí, en la rama PR #16.
+
+**NEXT REAL:** No crear más skills, engines ni flujos paralelos. Se requiere autorización explícita del propietario para integrar secuencialmente los **12 PR DRAFT** a `main` y repetir QA sobre el commit resultante. Luego prueba local en Windows con la conexión MCP real, Knowledge, FreeCAD/Blender y un mueble medido, con revisión visual. Ingeniería, mecanizados, corte, compra y fabricación siguen BLOQUEADOS.
+
+**Estado verificado SHA `3414ebf0`:** SIX_MCP=GREEN · WINDOWS_487_TESTS=GREEN · FROZEN_FIVE_FILE_NATIVE_SOURCE=GREEN · NATIVE_CAD_LINUX_4_AND_13=GREEN · FULL_12PR_REHEARSAL=GREEN · MAIN_MERGE=PENDING_OWNER · OWNER_WINDOWS_IDE=UNVERIFIED · FABRICATION=BLOCKED.
