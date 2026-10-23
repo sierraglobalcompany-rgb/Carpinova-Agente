@@ -11,7 +11,7 @@ class PR37RecoveredTests(unittest.TestCase):
         import hashlib
         svg = opening_guide_svg("all")
         self.assertEqual(hashlib.sha256(svg.encode("utf-8")).hexdigest(),
-                         "589565e03f19313a0acca078fd68cb9877c4a5b6ad946d47df20de8cfe212008")
+                         "900dc44defdce5db35bc2d70078b5248089b1591085042cf61bfbae414abe3f1")
         first = svg.index('<rect x="58" y="146" width="554" height="290" rx="13" class="card"/>')
         fifth = svg.index('<rect x="58" y="795" width="1127" height="306" rx="13" class="card"/>')
         four_cards = svg[first:fifth]
@@ -38,6 +38,15 @@ class PR37RecoveredTests(unittest.TestCase):
         self.assertGreater(flange_right, stem_right)
         self.assertGreater(float(flange.get("y")), float(stem.get("y")))
         self.assertGreater(float(front.get("x")), flange_right)
+        fingertip = next(node for node in root.iter()
+                         if node.get("data-action") == "touch-lower-flange")
+        self.assertLess(flange_left, float(fingertip.get("cx")))
+        self.assertLess(float(fingertip.get("cx")), flange_right)
+        self.assertLess(float(fingertip.get("cx")), float(front.get("x")))
+        flange_bottom = float(flange.get("y")) + float(flange.get("height"))
+        self.assertGreater(float(fingertip.get("cy")), flange_bottom)
+        self.assertLessEqual(float(fingertip.get("cy")) - flange_bottom, 12)
+        self.assertIn("Dedos BAJO la aleta inferior", svg)
         self.assertIn("ALETA INFERIOR", svg)
         self.assertIn("TOPE DE CAJÓN NO VERIFICADO", svg)
         self.assertIn("aleta horizontal inferior", root.find("{http://www.w3.org/2000/svg}desc").text)
