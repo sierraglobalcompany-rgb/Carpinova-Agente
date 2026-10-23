@@ -1,7 +1,8 @@
 """Recovery of the PR #37 educational opening guide from exact visual evidence.
 
 This is a *functional reconstruction*, not the original lost Git commit.
-First four illustrations retain the reviewed OPENING_all.svg evidence.\nG20 corrects only the fifth panel using the verified Knowledge book pp. 124-125.
+First four illustrations retain the reviewed OPENING_all.svg evidence.
+G20 corrects only the fifth panel using the verified Knowledge book pp. 124-125.
 No new tool, CAD geometry, panel BOM, machining, or fabrication authority.
 """
 from __future__ import annotations
@@ -127,10 +128,10 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
         "Uñero: rebaje que permite meter los dedos y tirar.",
         "Perfil/gola: canal continuo de agarre; sección real por confirmar.",
         "Por presión: el frente se libera mediante mecanismo compatible.",
-        "Gola de madera con T invertida: aleta horizontal inferior, fija; "
-        abrir el frente desde el hueco oculto. No es la tapa T de F1 ni equivale 
-        automáticamente al perfil Gola metálico. Aplicación a cajones, anclaje y 
-        "holgura sin validar. El tope mecánico NO está demostrado.",
+        "Gola de madera con T invertida: aleta horizontal inferior y montante fijo. "
+        "Los dedos entran detrás del frente para tirar de él. "
+        "El libro lo ilustra para puertas; su aplicación a cajones, anclaje, "
+        "holgura y función de tope aún no están validados.",
         "NO CORTAR, NO TALADRAR, NO COMPRAR, NO FABRICAR.",
     ]
     return {
@@ -145,17 +146,17 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
             for key, name, detail in _OPTIONS
         ] + [{"intent": None, "concept_id": "t_rail_concept",
               "name": "Gola de madera: T invertida",
-              "description": "Concepto ilustrativo sin sección constructiva.",
+              "description": "Gola de madera con T invertida del libro; montaje y tope de cajón no verificados.",
               "selectable_for_drawer": False}],
         "sketch_svg": svg,
         "sketch_text": "\n".join(lines),
         "human_summary": (
-            Manija, uñero, perfil y apertura por presión conservan las 
-            cuatro opciones anteriores. La T invertida de madera se explica 
-            "como agarre educativo; no se certifican topes ni montaje."
+            "Las cuatro aperturas habituales se conservan. La quinta muestra "
+            "una T invertida de madera fija con aleta inferior para explicar "
+            "el agarre oculto; no acredita un tope ni montaje en cajones."
         ),
         "blockers": [
-            La fuente describe una T invertida de madera para puertas; 
+            "El libro describe una T invertida de madera para puertas; "
             "usarla en cajones o como tope requiere validación independiente.",
             "Faltan material, agarre útil, sección, fijaciones y "
             "compatibilidad; no aprobar mecanizado ni fabricación."
