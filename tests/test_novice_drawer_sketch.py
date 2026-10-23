@@ -275,7 +275,7 @@ class NoviceSketchTests(unittest.TestCase):
         self.assertEqual(result["element_refs"][10]["fixing"], "french_cleat")
         self.assertIn("400 mm", result["sketch_text"])
         self.assertFalse(result["support_height_is_suggestion"])
-        self.assertIn("MF · listón francés", result["sketch_svg"])
+        self.assertIn("MF: listón francés", result["sketch_svg"])
         self.assertTrue(any("NO acredita" in v for v in result["blockers"]))
         ET.fromstring(result["sketch_svg"])
 

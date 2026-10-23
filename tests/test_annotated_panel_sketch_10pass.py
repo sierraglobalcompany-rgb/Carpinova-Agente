@@ -221,7 +221,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         self.assertEqual(r["back_thickness_mm"], 2)
         self.assertTrue(r["unvalidated_mounting"])
         self.assertTrue(r["unvalidated_back_panel"])
-        self.assertIn("MF · listón francés", r["sketch_svg"])
+        self.assertIn("MF: listón francés", r["sketch_svg"])
         self.assertIn("FP · lámina delgada", r["sketch_svg"])
         self.assertEqual(r["parts"], [])
         self.assertEqual(r["piece_count"], 0)
@@ -291,7 +291,7 @@ class TenPassPanelSketchAudit(unittest.TestCase):
                 png = resvg_py.svg_to_bytes(svg_string=svg, width=1160)
                 img = Image.open(BytesIO(png))
                 img.verify()
-                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 1080))
+                self.assertEqual(Image.open(BytesIO(png)).size, (1160, 1325))
                 self.assertGreater(len(png), 10000)
 
     def test_12_svg_structure_is_parseable_accessible_and_render_review_only(self):
@@ -299,7 +299,9 @@ class TenPassPanelSketchAudit(unittest.TestCase):
         s = r["modular"]["sketch_svg"]
         root = ET.fromstring(s)
         self.assertEqual(root.get("role"), "img")
-        self.assertEqual(root.get("viewBox"), "0 0 1160 1080")
+        self.assertEqual(root.get("viewBox"), "0 0 1160 1325")
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}title"))
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
         self.assertIn("tapa T, base BS", root.get("aria-label"))
         self.assertIn("LI / LD · LATERALES", s)
         for choice in ("Manija", "Uñero", "Presión", "Perfil"):
