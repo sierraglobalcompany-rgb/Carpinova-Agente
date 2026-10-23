@@ -9,6 +9,20 @@ from carpinova_agent.cad_exchange import validate_exchange
 from integrations.geometry_audit import verify_native_boxes
 
 
+def assert_visible_preview(pixels):
+    """Check saved Blender RGBA PNG data; not a substitute for human review."""
+    pixel_count = len(pixels) // 4
+    if pixel_count < 4 or len(pixels) % 4:
+        raise ValueError("Render PNG sin píxeles RGBA válidos.")
+    stride = max(1, pixel_count // 8192)
+    samples = [
+        max(pixels[4 * i], pixels[4 * i + 1], pixels[4 * i + 2])
+        for i in range(0, pixel_count, stride)
+    ]
+    if max(samples) < 0.12 or max(samples) - min(samples) < 0.08:
+        raise ValueError("Render PNG oscuro o sin contraste: escena no visible.")
+
+
 def render_presentation(input_blend, input_cad, output_blend, output_png):
     import bpy
     from mathutils import Vector
@@ -48,6 +62,7 @@ def render_presentation(input_blend, input_cad, output_blend, output_png):
         material.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.65
         obj.data.materials.clear()
         obj.data.materials.append(material)
+        obj.color = color  # Workbench uses object colors, not shader nodes.
     proof = verify_native_boxes(cad, observed)
     low = Vector(tuple(min(v[i] for v in vertices) for i in range(3)))
     high = Vector(tuple(max(v[i] for v in vertices) for i in range(3)))
@@ -61,30 +76,33 @@ def render_presentation(input_blend, input_cad, output_blend, output_png):
     camera_data.ortho_scale = span * 2.4
     scene = bpy.context.scene
     scene.camera = camera
-    for i, direction in enumerate(((-1.4, -1.5, 2.4), (1.4, -0.3, 1.5))):
-        light = bpy.data.lights.new("Area " + str(i), "AREA")
-        light.energy, light.size = 550, 3.0
-        obj = bpy.data.objects.new(light.name, light)
-        bpy.context.collection.objects.link(obj)
-        obj.location = center + Vector(tuple(v * span for v in direction))
-        obj.rotation_euler = (center - obj.location).to_track_quat("-Z", "Y").to_euler()
-    scene.render.engine = "CYCLES"
-    scene.cycles.device = "CPU"
-    scene.cycles.samples = 8
+    # Prior Cycles CI produced a valid PNG with RGB only 0..1: invisible.
+    # Workbench is simpler and deterministic for nominal panel presentation.
+    scene.render.engine = "BLENDER_WORKBENCH"
+    scene.display.shading.light = "STUDIO"
+    scene.display.shading.color_type = "OBJECT"
+    scene.display.shading.background_type = "VIEWPORT"
+    scene.display.shading.background_color = (0.88, 0.91, 0.95)
+    scene.display.shading.show_shadows = True
+    scene.render.film_transparent = False
     scene.render.resolution_x = 960
     scene.render.resolution_y = 720
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGB"
+    scene.render.image_settings.color_depth = "8"
     scene.render.filepath = str(output_png)
-    world = bpy.data.worlds.new("CarpiNova Studio")
-    world.use_nodes = True
-    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.77, 0.82, 0.91, 1)
-    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.7
-    scene.world = world
+    scene.use_nodes = False  # No stale compositor may hide the scene.
     bpy.ops.wm.save_as_mainfile(filepath=str(output_blend))
     bpy.ops.render.render(write_still=True)
-    if not output_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+    raw = output_png.read_bytes()
+    if not raw.startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))):
         raise ValueError("Invalid Blender PNG")
+    saved_image = bpy.data.images.load(str(output_png), check_existing=False)
+    try:
+        assert_visible_preview(saved_image.pixels)
+    finally:
+        bpy.data.images.remove(saved_image)
     return {
         "status": "VISUAL_PREVIEW_NOT_FOR_FABRICATION",
         "geometry_sha256": cad["geometry_sha256"],

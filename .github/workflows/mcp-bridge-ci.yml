@@ -89,10 +89,23 @@ jobs:
             fi
           done < <(find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -print0)
           sudo apt-get -o Acquire::Retries=3 update -qq
-          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3 blender
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3 blender xvfb libgl1-mesa-dri
           command -v freecadcmd || command -v FreeCADCmd
           blender --version | head -n 2
-      - name: Export both existing MCP projects using the SIXTH live MCP native CAD tool
+      - name: Start isolated software display for headless Blender Workbench
+        shell: bash
+        run: |
+          # Workbench requires an OpenGL context, unlike CPU Cycles.
+          # The display is job-local, software-only and not network accessible.
+          Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+          for attempt in $(seq 1 40); do
+            test -S /tmp/.X11-unix/X99 && break
+            sleep 0.25
+          done
+          test -S /tmp/.X11-unix/X99 || { cat "$RUNNER_TEMP/xvfb.log"; exit 1; }
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+      - name: Export both existing MCP projects using the FIFTH live MCP native CAD tool
         shell: bash
         env:
           CARPINOVA_NATIVE_EXECUTION_ENABLED: "1"
@@ -175,6 +188,68 @@ jobs:
               print("MCP_F7C_28_PIECES_NATIVE=" + style +
                     "; GEOMETRY_SHA256=" + cad["geometry_sha256"] +
                     "; FABRICATION_AUTHORITY=NO")
+          PY
+      - name: Inspect four saved PNGs and verify inset vs overlay differences
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from PIL import Image, ImageStat
+          from carpinova_agent.pilot_cli import verify_pilot_bundle
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "source"
+          expected = {
+              "primer_mueble": 4,
+              "cocina_dos_modulos": 13,
+              "four_drawers_inset": 28,
+              "four_drawers_overlay": 28,
+          }
+          renders = {}
+          hashes = []
+          for project, pieces in expected.items():
+              folder = root / project
+              cad = verify_pilot_bundle(folder)
+              manifest = json.loads(
+                  (folder / "native" / "native-manifest.json").read_text(encoding="utf-8")
+              )
+              png = folder / "native" / "presentation.png"
+              raw = png.read_bytes()
+              assert manifest["status"] == "NATIVE_PREVIEW_NOT_FOR_CUTTING"
+              assert manifest["piece_count"] == pieces == len(cad["boxes"])
+              assert manifest["geometry_sha256"] == cad["geometry_sha256"]
+              assert all(manifest[k] is False for k in (
+                  "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"
+              ))
+              digest = hashlib.sha256(raw).hexdigest()
+              assert digest == manifest["presentation_png_sha256"]
+              hashes.append(digest)
+              with Image.open(png) as image:
+                  assert image.format == "PNG" and image.size == (960, 720)
+                  image.verify()
+              with Image.open(png) as image:
+                  rgb = image.convert("RGB")
+              stats = ImageStat.Stat(rgb)
+              peak = max(high for low, high in rgb.getextrema())
+              contrast = max(stats.stddev)
+              # These thresholds reject prior CI's RGB 0..1 and flat frames;
+              # they are NOT a substitute for aesthetic/human design review.
+              assert peak >= 90 and contrast >= 10, (
+                  project, "blank/dark 3D presentation", peak, contrast
+              )
+              renders[project] = rgb
+              print(f"VISUAL_PNG_PASS={project}; PEAK={peak}; "
+                    f"STDDEV={contrast:.2f}; SHA256={digest}; "
+                    "FABRICATION_AUTHORITY=NO")
+          assert len(set(hashes)) == len(expected), "Duplicated render across projects"
+          inset = renders["four_drawers_inset"]
+          overlay = renders["four_drawers_overlay"]
+          changed = sum(a != b for a, b in zip(inset.get_flattened_data(), overlay.get_flattened_data()))
+          ratio = changed / (inset.width * inset.height)
+          assert ratio >= 0.01, f"Inset/overlay visually indistinguishable: {ratio:.2%}"
+          print(f"VISUAL_INSET_OVERLAY_DIFFERENT=PASS; PIXELS_CHANGED={ratio:.2%}")
           PY
       - name: Preserve all real 3D furniture projects and render PNGs
         uses: actions/upload-artifact@v4
