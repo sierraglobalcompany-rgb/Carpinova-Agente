@@ -1,16 +1,24 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-> **ESTADO ACTUAL — recuperación en repositorio nuevo (23-oct-2026 UTC).** Fuente activa: [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), rama `main` fijada a `e17d9c61793ca8f2333b2ca7d760952647e0b1f5` (consultar HEAD vivo antes de operar). Se preservó el historial original; el antiguo propietario `sierraglobalcompanyv2` es **referencia histórica**, no origen operativo de nuevos clones.
->
-> **Revisiones abiertas sin merge:** [PR #1](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/1) = Blender original PR35 (`7848a69bb1839b0e29e5883cdb1bc898d6b8e3e7`); [PR #2](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/2) = recuperación funcional parcial PR37 (`112fd76374d11e7683187e983e092b8027058ed4`); [PR #3](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/3) = recuperación funcional parcial PR36 (`184d354fb63de3dcec81d34a115abc0052c61778`). **Ninguna rama está fusionada**. El PR34 documental histórico tampoco fue recuperado; este cambio recupera continuidad operativa sin afirmar su commit antiguo.
->
-> **Pruebas:** PR #2 GitHub CI 5/5 PASS; PR #1 4/5 success + 1 canceled; PR #3 Codex Windows 574 total (563 PASS, 11 SKIP, 0 FAIL), 10/10 SVG de referencia idénticos; GitHub CI y PNG Windows deben comprobarse por separado (no inventar resultados). La inspección visual en ChatGPT no sustituye el render en equipo final.
->
-> **Continuación sin recaptura:** G1–G8 completados; NO repetir respaldos masivos `.codex`, rescate G2–G4, exportación de 43 archivos ni reconstrucciones PR36/PR37. Siguiente orden: comprobar CI vivo PR #3, resolver la cancelación de PR #1 con evidencia, revisar integración cruzada de los tres borradores y hacer QA visual PNG donde corresponda. No tocar CarpiNova-Knowledge ni CarpiNova-PC; no hacer merge hasta aprobación explícita.
->
-> **Las cuatro leyes siguen vigentes:** KISS, antirruido **con prueba de impacto**, antiparches (causa raíz + regresión) y UX/UI Pro (comparación visual real). Mantener `piece_count=0` y `fabrication_ready/cutting_ready/drilling_ready/purchase_ready=false` para propuestas no aprobadas. **Los apartados fechados 21-oct-2026 más abajo describen un checkpoint histórico**, y no reemplazan este estado en el nuevo GitHub.
+## ESTADO VIGENTE — G13: cuatro PR integrados (23-oct-2026 UTC)
 
+**Repositorio operativo único:** https://github.com/sierraglobalcompany-rgb/Carpinova-Agente · rama `main`. Verificar `git rev-parse HEAD` contra el HEAD vivo antes de actuar. **Commit de integración confirmado:** `753dcac69fa235bf897f614a36e43b524161b5d4`; cualquier commit exclusivamente documental posterior puede avanzar HEAD sin modificar la funcionalidad.
 
+**Integración aprobada expresamente por el propietario y completada en orden (método merge, sin squash/force):**
+- [PR #1 — Blender recuperado](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/1): HEAD histórico `7848a69bb1839b0e29e5883cdb1bc898d6b8e3e7`; merge `e2ecf82b76a72d864c1166be31c1d2c4c11b722f`. Cuatro commits originales preservados.
+- [PR #3 — bocetos UX F1 reconstruidos](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/3): `184d354fb63de3dcec81d34a115abc0052c61778`; merge `204530f1701f9f18dd60e5cc994d79815c178878`. Reconstrucción funcional, **no** el antiguo commit #36.
+- [PR #2 — guía de aperturas reconstruida](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/2): `112fd76374d11e7683187e983e092b8027058ed4`; merge `1047ce306fabd74250124cee6468974efe0c13af`. Reconstrucción funcional, **no** el antiguo commit #37.
+- [PR #4 — recuperación documental](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/4): `4563f79dbb1e90efd32cf3860537ca47e648a011`; merge `753dcac69fa235bf897f614a36e43b524161b5d4`. Recupera continuidad, **no** el antiguo commit #34.
+
+**Verificaciones de integración:** GitHub confirma cuatro PR cerrados por merge, cuatro commits de fusión con ambos padres correctos. Diferencia desde `e17d9c61793ca8f2333b2ca7d760952647e0b1f5`: 15 rutas previstas, 11 commits por delante, sin divergencia. **G10** probó *antes de fusionar* exactamente estas cuatro ramas en una copia aislada, con siete cherry-picks, Python 3.12.10 y **584 pruebas = 577 PASS, 7 SKIP, 0 FAIL**. C01/C02 PNG 1160×1325 fueron renderizados y revisados visualmente; 10 SVG de referencia verificados en G8. Es evidencia de la **composición funcional**, no sustituto automático de CI del nuevo HEAD `main`.
+
+**CI y limitaciones:** al integrar, PR #2/#3/#4 tenían 5/5 workflows GREEN. PR #1 tuvo 4/5 GREEN y un trabajo FreeCAD/Blender **cancelado por tiempo en descarga apt Ubuntu (25 minutos)**, antes de ejecutar CAD. El propietario **aceptó expresamente la integración con esta excepción**; no marcar ese trabajo como aprobado ni afirmar certificación nativa actual. Revisar los runs del HEAD vivo de `main` sin reiniciar pruebas ya suficientes. Artefactos nativos históricos y hashes permanecen preservados como evidencia, no como liberación industrial.
+
+**Reglas inmutables:** KISS (motor único), antirruido (demostrar el impacto al unir/eliminar), antiparches (causa raíz + regresión integral), diseño UX/UI Pro (comparar dibujos/render legibles). Para bocetos/revisión: `NEEDS_USER_CONFIRMATION`, `piece_count=0`, `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. No fabricar, cortar, perforar, comprar ni instalar/autorizar CAD automáticamente. No modificar CarpiNova-PC o CarpiNova-Knowledge desde este proyecto.
+
+**Continuidad sin trabajo repetido:** G1–G12 se cerraron; no repetir rescates `.codex`, exportación de 43 fuentes, PR36/37, suite G10 o auditorías de cherry-picks. Siguiente paso operativo: verificar CI del HEAD actual de `main` y realizar solo la aceptación local necesaria en PC (MCP seis herramientas, comparación de skill instalada, C01/C02 sobre instalación real) si procede; documentar lo no certificado. El historial bajo el encabezado siguiente corresponde a PR #32/33 **antes de la migración**, y no manda sobre este estado.
+
+---
 
 **Corte de referencia anterior:** 21-oct-2026; las secciones históricas bajo esta cabecera conservan evidencias de PR #32/33. **El estado vigente de recuperación figura arriba**; no reconstruir el estado sumando entregas históricas.
 
