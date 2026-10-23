@@ -16,6 +16,7 @@ from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 from .intake import guide_project
 from .modular import design_modular_run
 from .drawer_modules import propose_drawer_layout, guide_drawer_layout
+from .opening_guide import guide_opening_systems
 from .construction_advice import construction_advice
 
 
@@ -127,7 +128,9 @@ def consult_maestro(
     if action == "modular":
         spec = inp["module_spec"]
         modular = (
-            guide_drawer_layout(spec)
+            guide_opening_systems(spec)
+            if spec.get("type") == "opening_system_guide"
+            else guide_drawer_layout(spec)
             if spec.get("type") == "drawer_layout_guide"
             else propose_drawer_layout(spec)
             if spec.get("type") == "drawer_layout_proposal"
@@ -135,7 +138,17 @@ def consult_maestro(
         )
         result["modular"] = modular
         result["blockers"].extend(modular["blockers"])
-        if modular["status"] == "NEEDS_USER_CONFIRMATION" and modular.get("guided"):
+        if (modular["status"] == "NEEDS_USER_CONFIRMATION"
+                and spec.get("type") == "opening_system_guide"):
+            result["questions"].append({
+                "field": "module_spec.focus",
+                "question": (
+                    "¿Cuál apertura quieres conocer o comparar? "
+                    "El travesaño tipo T es solo una idea, no fabricación."
+                ),
+                "unit": "opening_choice_review",
+            })
+        elif modular["status"] == "NEEDS_USER_CONFIRMATION" and modular.get("guided"):
             result["questions"].append({
                 "field": "module_spec.proposed_layout_spec",
                 "question": (
