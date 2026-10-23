@@ -2,7 +2,7 @@
 
 ## Fuente y alcance
 
-Este manual corresponde exclusivamente al repositorio `sierraglobalcompanyv2/Carpinova-Agente`, rama canónica **`main`**, con integración funcional [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) ya fusionada. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
+Este manual aplica al repositorio operativo `sierraglobalcompany-rgb/Carpinova-Agente`, rama base **`main`**; las referencias antiguas a `sierraglobalcompanyv2` documentan el origen histórico, con integración funcional [PR #17](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/17) ya fusionada. CarpiNova-Knowledge se consume como fuente externa de solo lectura y CarpiNova-PC está fuera del alcance.
 
 **Estructura KISS:** cuatro skills existentes, un Maestro, un motor dimensional F1/F6/F7C, un CADExchange y seis herramientas MCP **local stdio**. No hay MCP remoto de ChatGPT; la quinta herramienta de exportación nativa está deshabilitada por defecto y exige permisos explícitos del host. Nunca presentar el despiece nominal como documento de producción.
 
@@ -13,7 +13,7 @@ Se requiere Git, Python **3.12**, PowerShell y un clon del Agente desde **`main`
 Desde PowerShell, al preparar la prueba final en tu PC:
 
 ~~~powershell
-git clone https://github.com/sierraglobalcompanyv2/Carpinova-Agente.git
+git clone https://github.com/sierraglobalcompany-rgb/Carpinova-Agente.git
 cd Carpinova-Agente
 git switch main
 git rev-parse HEAD

@@ -1,10 +1,24 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-**Fecha del estado comprobado:** 21-oct-2026, GitHub. **Solo este archivo es el checkpoint maestro vigente:** no reconstruir el estado sumando entregas de chats o archivos históricos.
+> **ESTADO ACTUAL — recuperación en repositorio nuevo (23-oct-2026 UTC).** Fuente activa: [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), rama `main` fijada a `e17d9c61793ca8f2333b2ca7d760952647e0b1f5` (consultar HEAD vivo antes de operar). Se preservó el historial original; el antiguo propietario `sierraglobalcompanyv2` es **referencia histórica**, no origen operativo de nuevos clones.
+>
+> **Revisiones abiertas sin merge:** [PR #1](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/1) = Blender original PR35 (`7848a69bb1839b0e29e5883cdb1bc898d6b8e3e7`); [PR #2](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/2) = recuperación funcional parcial PR37 (`112fd76374d11e7683187e983e092b8027058ed4`); [PR #3](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/3) = recuperación funcional parcial PR36 (`184d354fb63de3dcec81d34a115abc0052c61778`). **Ninguna rama está fusionada**. El PR34 documental histórico tampoco fue recuperado; este cambio recupera continuidad operativa sin afirmar su commit antiguo.
+>
+> **Pruebas:** PR #2 GitHub CI 5/5 PASS; PR #1 4/5 success + 1 canceled; PR #3 Codex Windows 574 total (563 PASS, 11 SKIP, 0 FAIL), 10/10 SVG de referencia idénticos; GitHub CI y PNG Windows deben comprobarse por separado (no inventar resultados). La inspección visual en ChatGPT no sustituye el render en equipo final.
+>
+> **Continuación sin recaptura:** G1–G8 completados; NO repetir respaldos masivos `.codex`, rescate G2–G4, exportación de 43 archivos ni reconstrucciones PR36/PR37. Siguiente orden: comprobar CI vivo PR #3, resolver la cancelación de PR #1 con evidencia, revisar integración cruzada de los tres borradores y hacer QA visual PNG donde corresponda. No tocar CarpiNova-Knowledge ni CarpiNova-PC; no hacer merge hasta aprobación explícita.
+>
+> **Las cuatro leyes siguen vigentes:** KISS, antirruido **con prueba de impacto**, antiparches (causa raíz + regresión) y UX/UI Pro (comparación visual real). Mantener `piece_count=0` y `fabrication_ready/cutting_ready/drilling_ready/purchase_ready=false` para propuestas no aprobadas. **Los apartados fechados 21-oct-2026 más abajo describen un checkpoint histórico**, y no reemplazan este estado en el nuevo GitHub.
+
+
+
+**Corte de referencia anterior:** 21-oct-2026; las secciones históricas bajo esta cabecera conservan evidencias de PR #32/33. **El estado vigente de recuperación figura arriba**; no reconstruir el estado sumando entregas históricas.
+
+## Registro histórico de PR #32/33 (mantener como evidencia, no instrucciones de estado actual)
 
 ## 1. Identidad y evidencia exacta — checkpoint PR #32
 
-- **Fuente única:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama `main`. Este archivo es el **único checkpoint canónico**; no acumular handoffs, ZIP ni motores duplicados en GitHub.
+- **Repositorio histórico PR #32:** [sierraglobalcompanyv2/Carpinova-Agente](https://github.com/sierraglobalcompanyv2/Carpinova-Agente), rama `main` en octubre de 2026. Para trabajo vigente utilizar `sierraglobalcompany-rgb/Carpinova-Agente` y las refs del bloque inicial; no acumular handoffs, ZIP ni motores duplicados.
 - **Último commit FUNCIONAL de main certificado antes de este cambio documental:** `e39037fdac0466300428e866a41ddbc176f8055e`, merge del [PR #32](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/pull/32). Su commit probado `ad0b17dffe5dd5ca0a35843c54833269042b2b0a` comparte árbol Git **`e2bf87e3277fc22d8552cae0b5023a13b2fa1707`** con el merge. El HEAD puede cambiar al fusionar esta **actualización solo documental**: verificar SHA vivo, diff y CI del nuevo HEAD, no usar el antiguo SHA como obligación inmutable.
 - **CI certificado en el merge PR #32:** **5/5 workflows GREEN**: Knowledge adapter checks [#39663721549](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39663721549), Maestro F5 [#39663721368](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39663721368), Python geometry [#39663721372](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39663721372), manufacturer hardware [#39663721399](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39663721399), MCP real/Windows/CAD [#39663721395](https://github.com/sierraglobalcompanyv2/Carpinova-Agente/actions/runs/39663721395). **570 tests Windows Python 3.12 PASS**, seis herramientas MCP stdio, cuatro skills instalables, preflight aislado, FreeCAD/Blender nativos de CI PASS; las cuatro banderas de fabricación siguen falsas.
 - **Historia reciente:** PR #28 introdujo boceto conversacional etiquetado y revisiones; #29 actualizó continuidad; #30 corrigió cotas y panel inferior BS; #31 corrigió la profundidad sin interpolar en SVG; **#32 corrigió el desacuerdo constructivo entre frente y costado y pasó a sugerir T y BS cubriendo laterales**. Todos están **MERGED**. No volver a fusionarlos.
@@ -36,7 +50,7 @@ Construir muebles **preliminares revisables** desde conversación guiada: pedir 
 Requisitos Windows: Git, **Python 3.12**, PowerShell, conectividad para instalar paquetes; FreeCAD/Blender son **posteriores y opcionales** durante el preflight. Desde PowerShell:
 
 ```powershell
-git clone https://github.com/sierraglobalcompanyv2/Carpinova-Agente.git
+git clone https://github.com/sierraglobalcompany-rgb/Carpinova-Agente.git
 cd Carpinova-Agente
 git fetch origin
 git switch main
