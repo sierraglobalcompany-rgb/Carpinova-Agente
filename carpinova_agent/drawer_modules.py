@@ -612,6 +612,13 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
     int_x, int_y = fx + ft, fy + ft
     int_w = fw - 2 * ft
     large_ref = _large_drawer_label(plan)
+    if plan.get("wall_contact"):
+        wall_text = (f'MF: {WALL_LABELS[plan.get("wall_fixing", "pending")]}; '
+                     f'elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm"))}; '
+                     f'FP · {BACK_LABELS[plan.get("back_style", "pending")]}')
+    else:
+        wall_text = ('MF: sin muro solicitado; apoyo/instalación por revisar; FP · '
+                     f'{BACK_LABELS[plan.get("back_style", "pending")]}')
     shapes: list[str] = []
 
     # Both joint patterns follow F1. Orange dotted panels are UNVALIDATED ideas.
@@ -663,7 +670,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
             f'<text x="499" y="{y+ph/2-3:.2f}" class="dimension">'
             f'{label} · {kind} {opening["opening_height_mm"]} mm</text>',
             f'<text x="499" y="{y+ph/2+16:.2f}" class="small">'
-            f'{CHOICE_LABELS[choice]}</text>',
+            f'Apertura: {CHOICE_LABELS[choice]}</text>',
         ])
         cx = int_x + int_w / 2
         if choice == "handle":
@@ -681,6 +688,22 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         elif choice == "push_to_open":
             shapes.append(f'<text x="{cx:.2f}" y="{y+ph/2+7:.2f}" '
                           'class="small" text-anchor="middle">PUSH</text>')
+    # Display the calculation-only spans between nominal F1 openings.
+    # These rectangles represent NO boards, facade joints, or cutting data.
+    openings_top_down = _annotated_openings(plan)
+    for (_, upper), (_, lower) in zip(openings_top_down, openings_top_down[1:]):
+        lower_edge = (int_y + (plan["clear_height_mm"] -
+                      upper["opening_bottom_offset_mm"]) * fs)
+        next_top = (int_y + (plan["clear_height_mm"] -
+                    lower["opening_bottom_offset_mm"] -
+                    lower["opening_height_mm"]) * fs)
+        gap_px = next_top - lower_edge
+        if gap_px > 0:
+            shapes.append(
+                f'<rect x="{int_x:.2f}" y="{lower_edge:.2f}" '
+                f'width="{int_w:.2f}" height="{gap_px:.2f}" '
+                'class="calculation-gap" data-concept="calculation-only"/>'
+            )
     shapes.append(f'<text x="{fx-20:.2f}" y="{fy+35:.2f}" '
                   'class="ref" text-anchor="end">LI</text>')
     shapes.append(f'<text x="{fx+fw+8:.2f}" y="{fy+fh-25:.2f}" '
@@ -741,6 +764,17 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
                 f'width="{(depth+fr+re)*ss:.2f}" height="{st:.2f}" '
                 'class="concept"/>',
             ])
+            # Place the label inside the profile, away from nominal joint lines.
+            front = panel["concept_overhang_front_mm"]
+            rear = panel["concept_overhang_rear_mm"]
+            if front or rear:
+                placement = "frente" if front else "atrás"
+                amount = front or rear
+                label_y = sy + (st + 45 if ref == "T" else sh - st - 40)
+                shapes.append(
+                    f'<text x="{sx+12:.2f}" y="{label_y:.2f}" class="overhang-label">'
+                    f'{ref} +{amount} mm {placement} · idea</text>'
+                )
     if style in ("legs", "plinth"):
         bottom = fy+fh
         sup = support_h * fs
@@ -795,11 +829,9 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'{"(sugeridos) " if plan.get("support_height_is_suggestion") else ""}'
         f'· ALTO {overall} mm</text>',
         f'<text x="35" y="810" class="small">'
-        f'MF · {WALL_LABELS[plan.get("wall_fixing", "pending")]} '
-        f'(elevación {_sketch_mm(plan.get("wall_bottom_above_floor_mm", 0))}); '
-        f'FP · {BACK_LABELS[plan.get("back_style", "pending")]}</text>',
+        f'{wall_text}</text>',
         f'<text x="35" y="835" class="small">'
-        f'Franjas interiores {plan["vertical_gap_mm"]} mm: NO son divisores ni juntas de frentes.</text>',
+        f'Franjas grises {plan["vertical_gap_mm"]} mm = ESPACIOS DE CÁLCULO; NO son tablones ni juntas de frentes.</text>',
         f'<text x="35" y="865" class="small">'
         f'Envolvente ilustrativa: {plan.get("concept_envelope", {}).get("width_mm", width)} '
         f'× {plan.get("concept_envelope", {}).get("depth_mm", depth)} mm en planta.</text>',
@@ -819,17 +851,102 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '<text x="443" y="992" class="small" text-anchor="middle">Uñero</text>'
         '<text x="718" y="992" class="small" text-anchor="middle">Presión</text>'
         '<text x="993" y="992" class="small" text-anchor="middle">Perfil</text>'
-        '<text x="35" y="1039" class="warning">'
-        'NARANJA PUNTEADA = SALIENTE SIN VALIDAR; '
-        'OCRE PUNTEADO INTERIOR = T/BS OCULTAS.</text>'
-        '<text x="35" y="1061" class="warning">'
-        'NO CORTAR, TALADRAR NI COMPRAR.</text>',
+        # Footer legend is contextual: absent layers are not advertised.
     ])
+    # Enlarge the original F1 join logic for an understandable, non-CAD view.
+    cover = plan["construction"] == "top_bottom_full"
+    if cover:
+        joints = (
+            '<rect x="78" y="1182" width="115" height="17" class="panel-actual" data-detail="joint-cover"/>'
+            '<rect x="95" y="1199" width="17" height="64" class="panel-side" data-detail="joint-side"/>',
+            '<rect x="632" y="1246" width="115" height="17" class="panel-actual" data-detail="joint-cover"/>'
+            '<rect x="649" y="1182" width="17" height="64" class="panel-side" data-detail="joint-side"/>',
+        )
+    else:
+        joints = (
+            '<rect x="78" y="1182" width="17" height="81" class="panel-side" data-detail="joint-side"/>'
+            '<rect x="95" y="1199" width="98" height="17" class="panel-actual" data-detail="joint-inset"/>',
+            '<rect x="632" y="1182" width="17" height="81" class="panel-side" data-detail="joint-side"/>'
+            '<rect x="649" y="1229" width="98" height="17" class="panel-actual" data-detail="joint-inset"/>',
+        )
+    top_rear = (plan.get("top_overhang_front_mm", 0) +
+                plan.get("top_overhang_rear_mm", 0))
+    bottom_rear = (plan.get("bottom_overhang_front_mm", 0) +
+                   plan.get("bottom_overhang_rear_mm", 0))
+    extensions = top_panel["extension_not_modeled_in_F1"] or bottom_panel["extension_not_modeled_in_F1"]
+    if top_rear or bottom_rear:
+        detail_note = (
+            f'Salientes SOLO ilustrativos: T +{top_rear} mm · BS +{bottom_rear} mm; '
+            f'fondo máximo {plan.get("concept_envelope", {}).get("depth_mm", depth)} mm, no suma.'
+        )
+    elif extensions:
+        detail_note = (
+            'Salientes laterales SOLO ilustrativos; '
+            f'ancho exterior máximo {plan.get("concept_envelope", {}).get("width_mm", width)} mm. '
+            'No son piezas aprobadas.'
+        )
+    else:
+        detail_note = (
+            f'Tableros de {t} mm y franjas de {plan["vertical_gap_mm"]} mm: SUPUESTOS sin aprobar.'
+        )
+    n = len(plan["opening_plan"])
+    construction_label = ("T y BS cubren los laterales" if cover else "T y BS entre los laterales")
+    visual_summary = (f'{construction_label}. Las uniones se muestran ampliadas; '
+                      'las franjas grises son espacios de cálculo y no tableros. '
+                      + ('Los salientes punteados no son fabricables.' if extensions
+                         else 'No se solicitaron salientes.'))
+    footer_warning = (
+        ('<text x="35" y="1291" class="warning">'
+         + ('NARANJA PUNTEADA = SALIENTE SIN VALIDAR.' if cover else
+            'NARANJA PUNTEADA = SALIENTE SIN VALIDAR; OCRE PUNTEADO INTERIOR = T/BS OCULTAS.')
+         + '</text>') if extensions else
+        ('<text x="35" y="1291" class="warning">OCRE PUNTEADO INTERIOR = T/BS OCULTAS.</text>'
+         if not cover else '')
+    )
+    revisions = plan.get("revisions", [])
+    revision_items = [
+        (f'{r["ref"]}: {r["before_mm"]} → {r["after_mm"]} mm '
+         f'({"solicitado" if r["cause"] == "USER_REQUESTED" else "redistribuido"})')
+        for r in revisions
+    ]
+    if revision_items:
+        note_line = (
+            '<text x="49" y="1082" class="small">CAMBIOS DESDE LA PROPUESTA: '
+            + ' · '.join(revision_items[:2]) + '</text>'
+            + ('<text x="49" y="1104" class="small">'
+               + ' · '.join(revision_items[2:]) + '</text>'
+               if len(revision_items) > 2 else '')
+        )
+    else:
+        note_line = (
+            '<text x="49" y="1082" class="small">Los detalles muestran la unión superior e inferior '
+            'de la MISMA construcción F1; ninguna unión está aprobada.</text>'
+        )
+    joint_detail = (
+        note_line
+        + f'<text x="49" y="1125" class="{"overhang-label" if extensions else "note"}">{detail_note}</text>'
+        '<text x="78" y="1163" class="card-title">UNIÓN SUPERIOR · T / lateral</text>'
+        + joints[0] +
+        '<text x="215" y="1206" class="small">'
+        + ('T cubre el lateral' if cover else 'El lateral cubre T')
+        + f' ({t} mm supuesto)</text>'
+        '<text x="215" y="1231" class="note">Detalle ampliado · unión nominal</text>'
+        '<text x="632" y="1163" class="card-title">UNIÓN INFERIOR · BS / lateral</text>'
+        + joints[1] +
+        '<text x="769" y="1206" class="small">'
+        + ('BS cubre el lateral' if cover else 'El lateral cubre BS')
+        + f' ({t} mm supuesto)</text>'
+        '<text x="769" y="1231" class="note">Detalle ampliado · unión nominal</text>'
+        + footer_warning +
+        '<text x="35" y="1313" class="warning">NO CORTAR, TALADRAR NI COMPRAR.</text>'
+    )
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1080" '
-        'viewBox="0 0 1160 1080" role="img" '
-        'aria-label="Boceto de frente y lateral: cajones A-D, tapa T, base BS, '
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1325" '
+        'viewBox="0 0 1160 1325" role="img" '
+        f'aria-label="Boceto de frente y lateral: aberturas A-{chr(64+n)}, tapa T, base BS, '
         'laterales LI LD y cotas para revisión">'
+        f'<title>Gabinete con aberturas A-{chr(64+n)}, frente y costado</title>'
+        f'<desc>{visual_summary}</desc>'
         '<style>text{font-family:Arial,sans-serif;fill:#26394d}'
         '.title{font-size:24px;font-weight:700}'
         '.subtitle{font-size:16px;fill:#5a6b7d}'
@@ -843,12 +960,14 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         '.drawer{fill:#e7edf5;stroke:#69829b;stroke-width:1.25}'
         '.drawer-large{fill:#d4e9e5;stroke:#538c82;stroke-width:1.5}'
         '.support{fill:#dfc2a0;stroke:#927257;stroke-width:1.5}'
+        '.calculation-gap{fill:#f4f6f8;stroke:#a8b3bd;stroke-width:.8;stroke-dasharray:3 3}'
+        '.overhang-label{font-size:14px;fill:#9a5b14;font-weight:700}'
         '.hidden-panel{fill:none;stroke:#926f42;stroke-width:1.7;'
         'stroke-dasharray:5 3}'
         '.concept{fill:#efc578;fill-opacity:.23;stroke:#c18025;'
         'stroke-width:2.5;stroke-dasharray:6 4}'
         '.leader{stroke:#94a7b7;stroke-width:1.3;stroke-dasharray:4 4}'
-        '</style><rect width="1160" height="1080" rx="18" fill="#ffffff"/>'
+        '</style><rect width="1160" height="1325" rx="18" fill="#ffffff"/>'
         '<text x="35" y="43" class="title">Tu mueble, explicado por partes</text>'
         '<text x="35" y="70" class="subtitle">Puedes decir: “A más alto”, '
         '“T sobresale 5 cm” o “BS más ancha”.</text>'
@@ -857,7 +976,7 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         'espesores y franjas ilustrativos. No aprobado para taller.</text>'
         '<text x="175" y="120" class="card-title">FRENTE · aberturas nominales</text>'
         '<text x="800" y="120" class="card-title">VISTA LATERAL · COSTADO</text>'
-        + "".join(shapes) + '</svg>'
+        + "".join(shapes) + joint_detail + '</svg>'
     )
 
 
