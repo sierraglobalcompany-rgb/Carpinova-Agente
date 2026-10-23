@@ -1,0 +1,62 @@
+"""Regression for functional PR37 recovery, not a claim of original commit identity."""
+import unittest
+from xml.etree import ElementTree as ET
+
+from carpinova_agent.core import DesignError
+from carpinova_agent.opening_guide import guide_opening_systems, opening_guide_svg
+
+
+class PR37RecoveredTests(unittest.TestCase):
+    def test_exact_original_svg_for_all(self):
+        import hashlib
+        self.assertEqual(hashlib.sha256(opening_guide_svg("all").encode()).hexdigest(),
+                         "f20f3aa2f1e3e928b1a04f5cef34b20a156103fb8047064945631873b5acad58")
+
+    def test_all_focus_modes_render_valid_accessible_svg(self):
+        for focus in ("all", "handle", "finger_pull", "profile",
+                      "push_to_open", "t_rail_concept"):
+            with self.subTest(focus=focus):
+                root = ET.fromstring(opening_guide_svg(focus))
+                self.assertEqual(root.attrib["role"], "img")
+                self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}title"))
+                self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
+                assert root.attrib["viewBox"] == "0 0 1240 1240"
+
+    def test_only_one_highlight_and_human_gestures(self):
+        for focus in ("handle", "finger_pull", "profile",
+                      "push_to_open", "t_rail_concept"):
+            with self.subTest(focus=focus):
+                r = guide_opening_systems({"type":"opening_system_guide", "focus":focus})
+                root = ET.fromstring(r["sketch_svg"])
+                self.assertEqual(sum(node.attrib.get("class") == "selected"
+                                     for node in root.iter()), 1)
+                actions = {node.attrib.get("data-action") for node in root.iter()}
+                self.assertIn("insert-fingers", actions)
+                self.assertIn("pull-front", actions)
+
+    def test_stays_review_only_and_preserves_intents(self):
+        r = guide_opening_systems({"type":"opening_system_guide"})
+        self.assertEqual(r["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertEqual([x["intent"] for x in r["opening_options"]],
+                         ["handle", "finger_pull", "profile", "push_to_open", None])
+        self.assertFalse(r["opening_options"][-1]["selectable_for_drawer"])
+        self.assertFalse(r["can_generate_f7c"])
+        self.assertEqual(r["piece_count"], 0)
+        for field in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
+            self.assertIs(r[field], False)
+
+    def test_rejects_unapproved_fabrication_and_unknown_focus(self):
+        for spec in ("invalid", {"type":"opening_system_guide", "focus":"t_profile"},
+                     {"type":"opening_system_guide", "fabrication_ready":True},
+                     {"type":"opening_system_guide", "focus":0}):
+            with self.subTest(spec=spec), self.assertRaises(DesignError):
+                guide_opening_systems(spec)
+
+    def test_manual_recover_preserves_base_vocabulary(self):
+        from carpinova_agent.drawer_modules import OPENING_CHOICES
+        self.assertEqual(OPENING_CHOICES,
+                         frozenset(("pending","handle","finger_pull","profile","push_to_open")))
+
+
+if __name__ == "__main__":
+    unittest.main()
