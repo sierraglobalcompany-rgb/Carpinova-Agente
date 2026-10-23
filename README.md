@@ -1,5 +1,7 @@
 # CarpiNova Agente
 
+**Repositorio operativo:** https://github.com/sierraglobalcompany-rgb/Carpinova-Agente · `main` es la base recuperada, sin merge de borradores. Los PR [#1 Blender](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/1), [#2 aperturas](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/2) y [#3 bocetos UX](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/3) están en **DRAFT**. Ver [continuidad canónica](docs/PROJECT_CONTINUITY_CURRENT.md). No confundir las fechas/PR históricos inferiores con este estado.
+
 Agente especialista en diseño, enseñanza y preparación de fabricación de muebles, integrado con la fuente canónica [CarpiNova-Knowledge](https://github.com/sierraglobalcompany-rgb/CarpiNova-Knowledge).
 
 ## Objetivo
