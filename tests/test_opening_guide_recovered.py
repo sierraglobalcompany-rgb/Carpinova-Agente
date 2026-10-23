@@ -7,53 +7,54 @@ from carpinova_agent.opening_guide import guide_opening_systems, opening_guide_s
 
 
 class PR37RecoveredTests(unittest.TestCase):
-    def test_exact_g20_svg_and_four_original_cards(self):
+    def test_g23_svg_and_first_four_openings_remain_identical(self):
         import hashlib
         svg = opening_guide_svg("all")
         self.assertEqual(hashlib.sha256(svg.encode("utf-8")).hexdigest(),
-                         "900dc44defdce5db35bc2d70078b5248089b1591085042cf61bfbae414abe3f1")
+                         "11f5c3fdd7a6ad14da1da9a6b9b20b6468311b46a77a5c495c87c2fb5f9574a7")
         first = svg.index('<rect x="58" y="146" width="554" height="290" rx="13" class="card"/>')
-        fifth = svg.index('<rect x="58" y="795" width="1127" height="306" rx="13" class="card"/>')
-        four_cards = svg[first:fifth]
-        self.assertEqual(hashlib.sha256(four_cards.encode("utf-8")).hexdigest(),
+        fifth = svg.index('<rect x="58" y="795" width="1127" height="573" rx="13" class="card"/>')
+        self.assertEqual(hashlib.sha256(svg[first:fifth].encode("utf-8")).hexdigest(),
                          "35ad6aa765479ae758e82a4264539779de3a8cbd8650a9e8205472e5bd2116c8")
 
-    def test_preserve_four_openings_and_correct_inverted_t_section(self):
+    def test_g23_blocked_vs_accessible_is_an_honest_explanation(self):
         svg = opening_guide_svg("all")
         root = ET.fromstring(svg)
-        for text in ("1. Manija externa", "2. Uñero",
-                     "3. Perfil / gola", "4. Por presión"):
+        self.assertEqual(root.get("viewBox"), "0 0 1240 1510")
+        for text in ("A · ENTRADA BLOQUEADA", "B · ACCESO POSIBLE",
+                     "La T es FIJA", "AGARRAR el borde gris",
+                     "H ≈ 20 mm es propuesta del usuario",
+                     "NO es mínimo recomendado",
+                     "SIN VALIDAR"):
             self.assertIn(text, svg)
-        shapes = {node.attrib["data-concept"]: node for node in root.iter()
-                  if "data-concept" in node.attrib}
+        shapes = {node.get("data-concept"): node for node in root.iter()
+                  if node.get("data-concept")}
         stem = shapes["inverted-t-stem"]
         flange = shapes["inverted-t-lower-flange"]
-        front = next(node for node in root.iter()
-                     if node.get("data-part") == "moving-drawer-front")
-        stem_left = float(stem.get("x"))
-        stem_right = stem_left + float(stem.get("width"))
-        flange_left = float(flange.get("x"))
-        flange_right = flange_left + float(flange.get("width"))
-        self.assertLess(flange_left, stem_left)
-        self.assertGreater(flange_right, stem_right)
+        self.assertLess(float(flange.get("x")), float(stem.get("x")))
+        self.assertGreater(float(flange.get("x")) + float(flange.get("width")),
+                           float(stem.get("x")) + float(stem.get("width")))
         self.assertGreater(float(flange.get("y")), float(stem.get("y")))
-        self.assertGreater(float(front.get("x")), flange_right)
-        fingertip = next(node for node in root.iter()
-                         if node.get("data-action") == "touch-lower-flange")
-        self.assertLess(flange_left, float(fingertip.get("cx")))
-        self.assertLess(float(fingertip.get("cx")), flange_right)
-        self.assertLess(float(fingertip.get("cx")), float(front.get("x")))
-        flange_bottom = float(flange.get("y")) + float(flange.get("height"))
-        self.assertGreater(float(fingertip.get("cy")), flange_bottom)
-        self.assertLessEqual(float(fingertip.get("cy")) - flange_bottom, 12)
-        self.assertIn("Dedos BAJO la aleta inferior", svg)
-        self.assertIn("ALETA INFERIOR", svg)
-        self.assertIn("TOPE DE CAJÓN NO VERIFICADO", svg)
-        self.assertIn("aleta horizontal inferior", root.find("{http://www.w3.org/2000/svg}desc").text)
-        self.assertIn("Gola de madera con T invertida", root.get("aria-label"))
-        self.assertIn("PDF 124-125", svg)
-        self.assertNotIn("unvalidated-t-crosspiece", svg)
-        self.assertEqual(root.get("viewBox"), "0 0 1240 1240")
+        for field in ("H-vertical-clearance", "V-top-overhang",
+                      "access-height-h-unverified"):
+            self.assertIn(field, shapes)
+        parts = {node.get("data-part"): node for node in root.iter()
+                 if node.get("data-part")}
+        closed_top = parts["blocked-fixed-top-board"]
+        closed_front = parts["blocked-drawer-front"]
+        open_top = parts["accessible-fixed-top-board"]
+        open_front = parts["moving-drawer-front"]
+        self.assertEqual(float(closed_top.get("y")) + float(closed_top.get("height")),
+                         float(closed_front.get("y")))
+        self.assertLess(float(open_top.get("y")) + float(open_top.get("height")),
+                        float(open_front.get("y")))
+        actions = {node.get("data-action") for node in root.iter()
+                   if node.get("data-action")}
+        self.assertTrue({"insert-fingers", "grip-drawer-front", "pull-front"} <= actions)
+        self.assertFalse(any(node.get("class") == "finger" for node in root.iter()))
+        self.assertNotIn("touch-lower-flange", svg)
+        self.assertIn("T invertida", root.get("aria-label"))
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
 
     def test_all_focus_modes_render_valid_accessible_svg(self):
         for focus in ("all", "handle", "finger_pull", "profile",
@@ -63,7 +64,7 @@ class PR37RecoveredTests(unittest.TestCase):
                 self.assertEqual(root.attrib["role"], "img")
                 self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}title"))
                 self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
-                assert root.attrib["viewBox"] == "0 0 1240 1240"
+                assert root.attrib["viewBox"] == "0 0 1240 1510"
 
     def test_only_one_highlight_and_human_gestures(self):
         for focus in ("handle", "finger_pull", "profile",
