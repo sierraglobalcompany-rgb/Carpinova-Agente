@@ -7,10 +7,31 @@ from carpinova_agent.opening_guide import guide_opening_systems, opening_guide_s
 
 
 class PR37RecoveredTests(unittest.TestCase):
-    def test_exact_original_svg_for_all(self):
-        import hashlib
-        self.assertEqual(hashlib.sha256(opening_guide_svg("all").encode()).hexdigest(),
-                         "f20f3aa2f1e3e928b1a04f5cef34b20a156103fb8047064945631873b5acad58")
+    def test_preserve_four_openings_and_correct_inverted_t_section(self):
+        svg = opening_guide_svg("all")
+        root = ET.fromstring(svg)
+        for text in ("1. Manija externa", "2. Uñero",
+                     "3. Perfil / gola", "4. Por presión"):
+            self.assertIn(text, svg)
+        shapes = {node.attrib["data-concept"]: node for node in root.iter()
+                  if "data-concept" in node.attrib}
+        stem = shapes["inverted-t-stem"]
+        flange = shapes["inverted-t-lower-flange"]
+        front = next(node for node in root.iter()
+                     if node.get("data-part") == "moving-drawer-front")
+        stem_left = float(stem.get("x"))
+        stem_right = stem_left + float(stem.get("width"))
+        flange_left = float(flange.get("x"))
+        flange_right = flange_left + float(flange.get("width"))
+        self.assertLess(flange_left, stem_left)
+        self.assertGreater(flange_right, stem_right)
+        self.assertGreater(float(flange.get("y")), float(stem.get("y")))
+        self.assertGreater(float(front.get("x")), flange_right)
+        self.assertIn("ALETA INFERIOR", svg)
+        self.assertIn("TOPE DE CAJÓN NO VERIFICADO", svg)
+        self.assertIn("PDF 124-125", svg)
+        self.assertNotIn("unvalidated-t-crosspiece", svg)
+        self.assertEqual(root.get("viewBox"), "0 0 1240 1240")
 
     def test_all_focus_modes_render_valid_accessible_svg(self):
         for focus in ("all", "handle", "finger_pull", "profile",
