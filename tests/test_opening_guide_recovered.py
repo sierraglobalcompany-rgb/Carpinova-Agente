@@ -11,7 +11,7 @@ class PR37RecoveredTests(unittest.TestCase):
         import hashlib
         svg = opening_guide_svg("all")
         self.assertEqual(hashlib.sha256(svg.encode("utf-8")).hexdigest(),
-                         "dc4dc701b80247683fefb2214f8976019c43f0e1ade7e08524e7685511730a6d")
+                         "589565e03f19313a0acca078fd68cb9877c4a5b6ad946d47df20de8cfe212008")
         first = svg.index('<rect x="58" y="146" width="554" height="290" rx="13" class="card"/>')
         fifth = svg.index('<rect x="58" y="795" width="1127" height="306" rx="13" class="card"/>')
         four_cards = svg[first:fifth]
@@ -40,6 +40,8 @@ class PR37RecoveredTests(unittest.TestCase):
         self.assertGreater(float(front.get("x")), flange_right)
         self.assertIn("ALETA INFERIOR", svg)
         self.assertIn("TOPE DE CAJÓN NO VERIFICADO", svg)
+        self.assertIn("aleta horizontal inferior", root.find("{http://www.w3.org/2000/svg}desc").text)
+        self.assertIn("Gola de madera con T invertida", root.get("aria-label"))
         self.assertIn("PDF 124-125", svg)
         self.assertNotIn("unvalidated-t-crosspiece", svg)
         self.assertEqual(root.get("viewBox"), "0 0 1240 1240")
