@@ -1,6 +1,22 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ESTADO VIGENTE — G13: cuatro PR integrados (23-oct-2026 UTC)
+## ESTADO VIGENTE — G27: G23 y MCP local verificados (23–24 oct 2026 UTC)
+
+**Fuente de verdad:** [CarpiNova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), `main@3775ca84503873ed7ed888da29ce1a6a70357e25`, comprobado en GitHub. Los apartados G13 y PR #32/33 inferiores son **historia**, no el estado operativo actual. Siempre comparar con el HEAD vivo antes de actuar.
+
+**G23 — explicación humana de la Gola de madera:** [PR #5](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/5) fusionado en `3775ca84503873ed7ed888da29ce1a6a70357e25`. Solo modificó `carpinova_agent/opening_guide.py` y `tests/test_opening_guide_recovered.py`. Quinta lámina: **A entrada bloqueada** por tapa superior y **B acceso posible** por ranura al canto del **frente móvil**; **T invertida fija, no manija**. H es la altura libre y V el vuelo de tapa, ambos sin validar. Aproximadamente 20 mm es propuesta del usuario, NO mínimo documentado del libro. Las cuatro aperturas anteriores se conservaron. El libro PDF 124–125 ilustra T para **puertas**; su uso en cajones, tope, fijación y ergonomía real **no está aprobado**.
+
+**Pruebas exact-HEAD posteriores al merge:** **5/5 workflows SUCCESS** en `main@3775ca84`: Knowledge adapter, Python geometry, Manufacturer hardware, Maestro F5 y MCP stdio real. El último incluyó protocolo, Windows y FreeCAD/Blender nativos **SUCCESS** en GitHub CI. Una ejecución **anterior al merge** quedó cancelada por descarga apt al límite del job; histórica y registrada, no confundirla con el PASS del nuevo `main`. CI no autoriza taller ni acredita CAD nativo instalado en Windows del dueño.
+
+**Validación real del PC:** G24 `STATIC=PASS`: clon Windows `C:\codex\Agente Carpinteria` sincronizado mediante fast-forward hasta `3775ca84`, árbol limpio; siete pruebas focales y smoke G23 PASS; no cambios en configuración/skills. G25 tuvo transporte PASS pero guía desactualizada en memoria (BLOCKED). G26 `CARPN-G26-MCP-FRESH=PASS`, reportado por Codex en sesión nueva: código directo y `carpinova_consultar` coinciden en A/B/H≈20 mm; `carpinova_estado` por stdio `DRAFT_DESIGN_ONLY`; `NEEDS_USER_CONFIRMATION`, cero piezas, `can_generate_f7c=false`, cuatro banderas false. No fue necesario atribuir PID, reinstalar ni alterar configuración. G26 **cierra el bloqueo de frescura MCP**.
+
+**NEXT — prueba guiada G27, sin Codex para programar:** usar la herramienta MCP existente `carpinova_consultar` → `action=modular`, `module_spec.type=drawer_layout_guide`, ancho 500, fondo 500, alto 800 mm, `small_drawers=3`, gaveta D abajo. Presentar **ambas** construcciones por separado, frente y costado: `top_bottom_full` (C01; T/BS 500×500×18, LI/LD 764×500×18) y `sides_full` (C02; T/BS 464×500×18, LI/LD 800×500×18). Alturas ilustrativas A=B=C=136, D=272; franjas 28 mm **no son divisores ni juntas reales de frente**. Datos de tablero/proporción siguen sin aprobar. No generar paneles, CSV, CAD ni render 3D desde la propuesta. Revisar con el usuario claridad visual, opción preferida y modificaciones antes de F7C. Ninguna aprobación visual autoriza fabricación.
+
+**Cuatro leyes:** KISS (un Maestro y único F1/CADExchange), antirruido (sin skills/motores/docs paralelos; cambios con evidencia), antiparches (corregir causa raíz y consumidores), diseño humano UX/UI legible y verificable. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. No tocar CarpiNova-PC ni CarpiNova-Knowledge.
+
+---
+
+## ARCHIVO HISTÓRICO — G13: cuatro PR integrados (23-oct-2026 UTC)
 
 **Repositorio operativo único:** https://github.com/sierraglobalcompany-rgb/Carpinova-Agente · rama `main`. Verificar `git rev-parse HEAD` contra el HEAD vivo antes de actuar. **Commit de integración confirmado:** `753dcac69fa235bf897f614a36e43b524161b5d4`; cualquier commit exclusivamente documental posterior puede avanzar HEAD sin modificar la funcionalidad.
 
