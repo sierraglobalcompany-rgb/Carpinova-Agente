@@ -135,8 +135,8 @@ text{font-family:Arial,sans-serif;fill:#25374b}.head{font-size:29px;font-weight:
 <rect x="769" y="340" width="124" height="24" class="part" data-part="inverted-t-bottom-flange"/>
 <path d="M843 246 H944" stroke="#536a7b" stroke-width="2"/>
 <text x="947" y="240" class="note">Montante fijo</text>
-<path d="M893 354 H948" stroke="#536a7b" stroke-width="2"/>
-<text x="949" y="353" class="note">Ala INFERIOR</text>
+<path d="M769 354 L725 383 H715" stroke="#536a7b" stroke-width="2"/>
+<text x="622" y="397" class="note">Ala inferior</text>
 <rect x="997" y="278" width="29" height="159" class="front" data-part="moving-drawer-front"/>
 <path d="M1106 301 H1045 L1027 300" fill="none" stroke="#157d98" stroke-width="4" data-action="finger-access-to-moving-front"/>
 <path d="M1043 292 L1027 300 L1043 309" fill="none" stroke="#157d98" stroke-width="4"/>
