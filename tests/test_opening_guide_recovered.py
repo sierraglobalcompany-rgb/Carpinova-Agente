@@ -153,5 +153,126 @@ class PR37RecoveredTests(unittest.TestCase):
                          frozenset(("pending","handle","finger_pull","profile","push_to_open")))
 
 
+    def test_legacy_focus_responses_remain_exact(self):
+        """Catch accidental response changes outside the opt-in G39 focus."""
+        import hashlib
+        import json
+        expected = {
+            "all": "9202e639fe2f2de4993b5ed6e94802557b1043e88eccad9a5d0bdddbf2a00e59",
+            "handle": "c6ff15ebf6520fb56ecc63908dff288bc68c559202fb7458933a150157b7f52c",
+            "finger_pull": "cd81b9e8670371e694ed2ee3b3dabc43654465038bf5f88da8deb068e1794c16",
+            "profile": "d72c1c8ac07d451aba34ec1fb305b35ee578984c934bb1c7f2e0441c5f034cbe",
+            "push_to_open": "1a4f89fdfe4fe65218ae03894aeec4df8de01501571218a2a087bb69465f5135",
+            "t_rail_concept": "afc0314f0906788fda56ed823b11aeeb057d6b017b34d4cde0edeae9328c6cb1",
+        }
+        for focus, digest in expected.items():
+            with self.subTest(focus=focus):
+                result = guide_opening_systems({"type": "opening_system_guide", "focus": focus})
+                encoded = json.dumps(
+                    result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+                self.assertEqual(hashlib.sha256(encoded).hexdigest(), digest)
+
+    def test_g39_focus_is_opt_in_and_keeps_ordinary_outputs_compatible(self):
+        focus = "t_rail_ab_review"
+        result = guide_opening_systems({"type": "opening_system_guide", "focus": focus})
+        rail = guide_opening_systems({"type": "opening_system_guide", "focus": "t_rail_concept"})
+        self.assertEqual(result["focus"], focus)
+        self.assertEqual(result["sketch_svg"], rail["sketch_svg"])
+        self.assertEqual(result["between_sides_concept_svg"], rail["between_sides_concept_svg"])
+        self.assertIn("shared_grip_ab_concept_svg", result)
+        for old_focus in ("all", "handle", "finger_pull", "profile", "push_to_open", "t_rail_concept"):
+            prior = guide_opening_systems({"type": "opening_system_guide", "focus": old_focus})
+            self.assertNotIn("shared_grip_ab_concept_svg", prior)
+
+    def test_g39_svg_explains_nominal_edges_and_unverified_routes(self):
+        result = guide_opening_systems({
+            "type": "opening_system_guide", "focus": "t_rail_ab_review"
+        })
+        svg = result["shared_grip_ab_concept_svg"]
+        root = ET.fromstring(svg)
+        self.assertEqual(root.get("role"), "img")
+        self.assertEqual(root.get("data-review"), "G39")
+        self.assertEqual(root.get("data-verified"), "false")
+        self.assertEqual(root.get("data-fabrication-ready"), "false")
+        self.assertEqual(root.get("data-piece-count"), "0")
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}title"))
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
+        text = " ".join(" ".join(root.itertext()).split())
+        for phrase in (
+            "500 mm ancho × 800 mm alto", "15 mm", "A · 137 mm", "B · 137 mm",
+            "C · 137 mm", "D · 275 mm", "3 franjas ilustrativas de 28 mm",
+            "borde inferior de A", "borde superior de B",
+            "G_AB = 28 − S_A,inferior − S_B,superior",
+            "separación frontal proyectada", "Solapes sin definir",
+            "G_AB > 0 no demuestra acceso", "NO VERIFICADA",
+            "Muestra aislada", "sin ubicación ni fijación",
+            "MONTANTE ↑", "ALA INFERIOR ↓", "65 × 50 mm",
+            "no valida su uso en cajones", "0 PIEZAS", "NO FABRICAR",
+        ):
+            self.assertIn(phrase, text)
+        self.assertIn("3 × 137 + 275 + 3 × 28 + 2 × 15 = 800 mm", text)
+        bands = [node for node in root.iter()
+                 if node.get("data-kind") == "illustrative-band"]
+        self.assertEqual(len(bands), 3)
+        self.assertTrue(all(node.get("data-nominal-mm") == "28" for node in bands))
+        self.assertTrue(all(node.get("data-physical-part") == "false" for node in bands))
+        parts = [node for node in root.iter() if node.get("data-part")]
+        for part in ("A", "B", "T"):
+            self.assertTrue(any(node.get("data-part") == part for node in parts), part)
+        edges = {node.get("id"): node for node in root.iter() if node.get("id")}
+        self.assertEqual(edges["edge-A-lower"].get("data-part"), "A")
+        self.assertEqual(edges["edge-B-upper"].get("data-part"), "B")
+        routes = {node.get("data-route"): node for node in root.iter()
+                  if node.get("data-route")}
+        self.assertEqual(set(routes), {"A-lower", "B-upper"})
+        self.assertEqual(routes["A-lower"].get("data-target"), "edge-A-lower")
+        self.assertEqual(routes["B-upper"].get("data-target"), "edge-B-upper")
+        for route in routes.values():
+            self.assertEqual(route.get("data-verified"), "false")
+        t_parts = {node.get("data-role"): node for node in parts
+                   if node.get("data-role", "").startswith("t-")}
+        stem, flange = t_parts["t-stem"], t_parts["t-lower-flange"]
+        self.assertEqual(stem.get("data-verified"), "false")
+        self.assertEqual(flange.get("data-verified"), "false")
+        self.assertLessEqual(float(stem.get("y")) + float(stem.get("height")),
+                             float(flange.get("y")))
+        self.assertLess(float(flange.get("x")), float(stem.get("x")))
+        self.assertGreater(float(flange.get("x")) + float(flange.get("width")),
+                           float(stem.get("x")) + float(stem.get("width")))
+        self.assertEqual(root.get("data-join"), "unverified")
+        self.assertFalse(any(node.tag.endswith("circle") for node in root.iter()))
+        self.assertNotIn("data-action=\"insert-fingers\"", svg)
+        self.assertNotIn("H =", text)
+        self.assertNotIn("V =", text)
+
+    def test_g39_maestro_route_stays_educational_and_blocked(self):
+        from carpinova_agent.maestro import consult_maestro
+        response = consult_maestro({
+            "action": "modular",
+            "module_spec": {
+                "type": "opening_system_guide", "focus": "t_rail_ab_review"
+            },
+        })
+        modular = response["modular"]
+        self.assertIn("shared_grip_ab_concept_svg", modular)
+        self.assertEqual(modular["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertEqual(modular["piece_count"], 0)
+        self.assertFalse(modular["can_generate_f7c"])
+        for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
+            self.assertIs(modular[flag], False)
+            self.assertIs(response[flag], False)
+
+    def test_g39_focus_still_rejects_authorization_and_unknown_inputs(self):
+        for spec in (
+            {"type": "opening_system_guide", "focus": "not_a_focus"},
+            {"type": "opening_system_guide", "focus": "t_rail_ab_review",
+             "fabrication_ready": True},
+            {"type": "opening_system_guide", "focus": "t_rail_ab_review",
+             "authorized_cutting": True},
+        ):
+            with self.subTest(spec=spec), self.assertRaises(DesignError):
+                guide_opening_systems(spec)
+
 if __name__ == "__main__":
     unittest.main()
