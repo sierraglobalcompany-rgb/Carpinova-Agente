@@ -103,6 +103,54 @@ _SVG_ALL = (
     " y=\"1481\" class=\"warning\">NO CORTAR · NO TALADRAR · NO COMPRAR · NO FABRICAR.</text></svg>"
 )
 
+
+
+# G30 · Additional deterministic orientation sketch; DOES NOT replace G23 golden SVG.
+# Source context: Knowledge p0124/p0125; mount and drawer use NOT certified.
+_T_BETWEEN_SIDES_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="745" viewBox="0 0 1180 745" role="img" aria-label="G30. Frente de una T invertida entre los dos laterales LI y LD y sección perpendicular con el ala horizontal abajo, sin unión fabricable">
+<title>G30 · T invertida interior entre los dos laterales · dos vistas</title>
+<desc>Frente: pieza transversal horizontal entre las caras interiores de LI y LD, sin soportes externos. Sección perpendicular: montante vertical arriba y ala horizontal inferior, con forma de T invertida. Frente móvil separado. No hay fijaciones ni holguras aprobadas.</desc>
+<style>
+text{font-family:Arial,sans-serif;fill:#25374b}.head{font-size:29px;font-weight:700}.sub{font-size:17px;fill:#52677c}.panel{fill:#f8fafc;stroke:#b8cad8;stroke-width:2}.label{font-size:21px;font-weight:700}.note{font-size:16px}.part{fill:#d5ad84;stroke:#8c6748;stroke-width:2}.side{fill:#b4c9d6;stroke:#5b7890;stroke-width:2}.rail{fill:#d5ad84;stroke:#8c6748;stroke-width:2}.front{fill:#9fbdca;stroke:#38576f;stroke-width:2}.warn{font-size:17px;font-weight:700;fill:#9b421f}.dash{stroke:#a47742;stroke-width:2;stroke-dasharray:6 5;fill:none}
+</style>
+<rect x="0" y="0" width="1180" height="745" fill="#fff"/>
+<text x="40" y="53" class="head">G30 · T INVERTIDA INTERIOR — REFERENCIA GEOMÉTRICA</text>
+<text x="40" y="84" class="sub">C01 · 500 mm ancho · laterales LI/LD de 15 mm · solo explicación 2D, sin escala de taller</text>
+<rect x="36" y="114" width="550" height="432" rx="14" class="panel"/>
+<text x="56" y="155" class="label">1. FRENTE: ENTRE LI Y LD</text>
+<text x="56" y="183" class="note">La pieza transversal está DENTRO de los laterales.</text>
+<rect x="80" y="225" width="35" height="205" class="side" data-part="LI"/>
+<rect x="545" y="225" width="35" height="205" class="side" data-part="LD"/>
+<rect x="115" y="301" width="430" height="30" class="rail" data-part="rail-spanning-between-sides" data-join="unverified"/>
+<rect x="115" y="331" width="430" height="18" fill="#bd9267" stroke="#8c6748" stroke-width="2" data-part="lower-flange-front-projection"/>
+<path d="M115 291 V354 M545 291 V354" class="dash" data-concept="unvalidated-side-joins"/>
+<text x="97" y="453" text-anchor="middle" class="label">LI</text><text x="563" y="453" text-anchor="middle" class="label">LD</text>
+<path d="M115 476 V486 M545 476 V486 M115 482 H545" stroke="#4b6479" stroke-width="2" fill="none"/>
+<text x="330" y="509" text-anchor="middle" class="note">Luz nominal F1 = 500 − 15 − 15 = 470 mm</text>
+<text x="56" y="529" class="note">Extremos y uniones: SIN DEFINIR · ninguna escuadra exterior</text>
+<rect x="602" y="114" width="543" height="432" rx="14" class="panel"/>
+<text x="622" y="155" class="label">2. CORTE PERPENDICULAR: SECCIÓN ┴</text>
+<text x="622" y="183" class="note">Montante vertical ARRIBA · ala horizontal ABAJO.</text>
+<rect x="819" y="218" width="24" height="122" class="part" data-part="inverted-t-vertical-stem"/>
+<rect x="769" y="340" width="124" height="24" class="part" data-part="inverted-t-bottom-flange"/>
+<path d="M843 246 H944" stroke="#536a7b" stroke-width="2"/>
+<text x="947" y="240" class="note">Montante fijo</text>
+<path d="M893 354 H948" stroke="#536a7b" stroke-width="2"/>
+<text x="949" y="353" class="note">Ala INFERIOR</text>
+<rect x="997" y="278" width="29" height="159" class="front" data-part="moving-drawer-front"/>
+<path d="M1106 301 H1045 L1027 300" fill="none" stroke="#157d98" stroke-width="4" data-action="finger-access-to-moving-front"/>
+<path d="M1043 292 L1027 300 L1043 309" fill="none" stroke="#157d98" stroke-width="4"/>
+<text x="1065" y="457" text-anchor="middle" class="note">Frente móvil</text>
+<path d="M769 404 H893" class="dash"/>
+<text x="646" y="485" class="note">Acceso, altura H y vuelo V: SIN VALIDAR</text>
+<text x="646" y="513" class="note">El dibujo NO muestra tornillos ni unión a los laterales.</text>
+<rect x="36" y="565" width="1109" height="140" rx="12" fill="#fff7ef" stroke="#e5b38f" stroke-width="2"/>
+<text x="58" y="599" class="warn">CONCEPTO, NO CONSTRUCCIÓN APROBADA</text>
+<text x="58" y="632" class="note">Libro PDF 124–125: T de madera para PUERTAS; 6,5 cm alto y 5 cm base solo en su figura.</text>
+<text x="58" y="661" class="note">No se ha validado cómo sujetarla entre LI/LD ni su repetición en cajones A/B/C/D.</text>
+<text x="58" y="689" class="warn">0 piezas · NO CORTAR · NO TALADRAR · NO COMPRAR · NO FABRICAR</text>
+</svg>"""
+
 _OPTIONS = (
     ("handle", "Manija externa", "Agarre sobresaliente: se tira."),
     ("finger_pull", "Uñero", "Rebaje donde entran los dedos para tirar."),
@@ -168,6 +216,7 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
               "description": "Gola de madera con T invertida del libro; montaje y tope de cajón no verificados.",
               "selectable_for_drawer": False}],
         "sketch_svg": svg,
+        "between_sides_concept_svg": _T_BETWEEN_SIDES_SVG,
         "sketch_text": "\n".join(lines),
         "human_summary": (
             "Las cuatro aperturas habituales se conservan. La quinta compara "
@@ -180,7 +229,8 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
             "usarla en cajones o como tope requiere validación independiente.",
             "Verificar H (luz vertical), V (vuelo), acceso real, "
             "correderas, fijaciones e interferencias antes de fabricar.",
-            "Los 20 mm sugeridos no son mínimo documentado en el libro."
+            "Los 20 mm sugeridos no son mínimo documentado en el libro.",
+            "G30 muestra T entre LI/LD en planta frontal y sección ┴, pero NO modela unión ni instala cajones."
         ],
         "piece_count": 0,
         "can_generate_f7c": False,

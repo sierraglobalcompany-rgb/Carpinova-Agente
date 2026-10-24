@@ -89,6 +89,42 @@ class PR37RecoveredTests(unittest.TestCase):
         for field in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
             self.assertIs(r[field], False)
 
+    def test_g30_true_transverse_inverted_t_is_in_existing_maestro_output(self):
+        """Prove the orientation and side-to-side span without a fabricated joint."""
+        r = guide_opening_systems({"type": "opening_system_guide",
+                                   "focus": "t_rail_concept"})
+        svg = r["between_sides_concept_svg"]
+        root = ET.fromstring(svg)
+        self.assertEqual(root.get("role"), "img")
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}title"))
+        self.assertIsNotNone(root.find("{http://www.w3.org/2000/svg}desc"))
+        parts = {node.get("data-part"): node for node in root.iter()
+                 if node.get("data-part")}
+        li, ld = parts["LI"], parts["LD"]
+        rail = parts["rail-spanning-between-sides"]
+        self.assertEqual(float(li.get("x")) + float(li.get("width")),
+                         float(rail.get("x")))
+        self.assertEqual(float(rail.get("x")) + float(rail.get("width")),
+                         float(ld.get("x")))
+        self.assertEqual(rail.get("data-join"), "unverified")
+        stem = parts["inverted-t-vertical-stem"]
+        flange = parts["inverted-t-bottom-flange"]
+        self.assertLess(float(flange.get("x")), float(stem.get("x")))
+        self.assertGreater(float(flange.get("x")) + float(flange.get("width")),
+                           float(stem.get("x")) + float(stem.get("width")))
+        self.assertEqual(float(flange.get("y")),
+                         float(stem.get("y")) + float(stem.get("height")))
+        self.assertNotIn("external-bracket", parts)
+        self.assertIn("470 mm", svg)
+        self.assertIn("SIN DEFINIR", svg)
+        self.assertIn("NO FABRICAR", svg)
+        self.assertIn("inverted-t-lower-flange", r["sketch_svg"])
+        self.assertFalse(r["can_generate_f7c"])
+        self.assertEqual(r["piece_count"], 0)
+        for flag in ("fabrication_ready", "cutting_ready",
+                     "drilling_ready", "purchase_ready"):
+            self.assertFalse(r[flag])
+
     def test_rejects_unapproved_fabrication_and_unknown_focus(self):
         for spec in ("invalid", {"type":"opening_system_guide", "focus":"t_profile"},
                      {"type":"opening_system_guide", "fabrication_ready":True},
