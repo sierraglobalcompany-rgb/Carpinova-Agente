@@ -1,6 +1,24 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ESTADO VIGENTE — G27: G23 y MCP local verificados (23–24 oct 2026 UTC)
+## ESTADO VIGENTE — G32 + G39 / PR #11 (24-oct-2026)
+
+**Fuente operativa:** [CarpiNova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), `main@63265e17fa1e0f37df8eb6fde56baa80f737935f`; confirmado por `git ls-remote` y GitHub al 24-oct-2026. PR #11 integró G39. Verificar el HEAD vivo antes de cualquier tarea posterior.
+
+**G30/G31D — cliente MCP y G23/G30:** el informe G31D registra `CODEX_CLIENT=PASS`: respuesta estructurada con G23 `sketch_svg` SHA-256 `11f5c3fdd7a6ad14da1da9a6b9b20b6468311b46a77a5c495c87c2fb5f9574a7` y G30 `between_sides_concept_svg` SHA-256 `e2f688cf01aa6a177068102dcaa02b5f5271afae593c50a267c3210fd7eaaaf0`; LI/LD y T invertida con ala inferior comprobadas. La unión fabricable no quedó verificada ni hubo rasterización/revisión visual independiente. El G39 integrado añade una comparación educativa A–B; las rutas siguen sin verificar y no constituye solución física. Estado reportado: `NEEDS_USER_CONFIRMATION`, cero piezas, `can_generate_f7c=false` y los cuatro permisos de fabricación en `false`.
+
+**G31D — pruebas sintéticas Windows (estado reportado):** el informe anterior dice que pasaron 9/9 en copia externa, pero observó SHA-256 `1986acb5ed38fbfffd2a6de6749dc0d1e623fbf3c63c7fc519c12847f0320b5c`, distinto del esperado `fd2a94cd9bafde19da8c60e5e2a4c70b3eff895a2020500f13bb89f4dbaeb086`, y clasificó `INSTALLER_WINDOWS=BLOCKED`/`G31_GLOBAL=BLOCKED`. En esta publicación no se repitieron las pruebas y no se encontró el artefacto original de esa validación; discrepancia y causa quedan como REPORTADAS, no revalidadas. No declarar conformidad del instalador.
+
+**PR #10 — reconciliación documental PingPongLaw/G32:** PR `policy/l1-kiss-ponytail-20261024` permanece `OPEN/DRAFT`, sin integrar en `main`. La rama contiene la reconciliación L1–L6/Ponytail y continuidad G32 para revisión. Fuente fija: PingPongLaw@`84e961cadf482d234f4c0ee2ca60e8c7e9b388e8`, blob `0f6e7b4e62d8660c846f135e18dded629d29e0da`. `docs/engineering/LEYES_IMPLEMENTACION_1_A_6.md` es adaptación local V1.0 complementaria, no copia byte idéntica de V2; conservar matices L2–L6. La skill Ponytail es adaptación, no plugin oficial. `HOST_AUTOLOAD=NOT_VERIFIED`.
+
+**C01 — referencia nominal de revisión:** tablero provisional de 15 mm; dimensiones exteriores 500 × 500 × 800 mm; aperturas nominales 137/137/137/275 mm, con tres franjas de 28 mm solo ilustrativas. No convertir estas cifras en medidas de corte; en particular, no hay autorización para cortar la T. Confirmar toda especificación antes de avanzar.
+
+**Seguridad y siguiente estado:** mantener `NEEDS_USER_CONFIRMATION`, cero piezas y los cuatro permisos de fabricación en `false`. C01/G39 son educativos y no autorizan cortar la T. NEXT vigente: revisión del HEAD exacto de PR #10 y de sus checks; resolver la discrepancia Windows solo con evidencia del artefacto original/SHA correcto. No hacer merge sin autorización separada. El NEXT G27 y todos los NEXT/procedimientos del archivo histórico inferior no deben ejecutarse.
+
+---
+
+> **ARCHIVO HISTÓRICO:** desde G27 hasta el final, el contenido conserva el registro previo y no describe el estado vigente. Sus recomendaciones, comandos, cifras y todos sus NEXT son históricos: **NO EJECUTAR** sin una nueva verificación y autorización aplicable.
+
+## ARCHIVO HISTÓRICO — G27: G23 y MCP local verificados (23–24 oct 2026 UTC)
 
 **Fuente de verdad:** [CarpiNova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), `main@3775ca84503873ed7ed888da29ce1a6a70357e25`, comprobado en GitHub. Los apartados G13 y PR #32/33 inferiores son **historia**, no el estado operativo actual. Siempre comparar con el HEAD vivo antes de actuar.
 
@@ -14,7 +32,7 @@
 
 **G28 — política de tablero y frente confirmada por el propietario:** en C01 con `overlay`, utilizar por defecto el **mismo material y espesor de tablero seleccionado** para carcasa y fachadas. Para 15 mm o 18 mm **no pedir un espesor distinto para el frente**; preguntar únicamente si se desea una excepción, otro espesor fuera de esas alternativas o si todavía no se ha seleccionado el tablero. El supuesto ilustrativo de 18 mm no constituye selección. Para límite exterior de fondo 500 mm, carcasa nominal = `500 − espesor_frente` **solo si no hay otros sobresalientes**; hipótesis 15→485 y 18→482 mm. Si el tablero es 15 mm y se mantiene el alto de 800 mm y las franjas ilustrativas 3×28 mm, F1 requiere redistribuir las aberturas, no mantener 136/136/136/272 mm del tablero 18. Ningún espesor, holgura, solape o mecanizado queda fabricable hasta confirmar materiales y herrajes.
 
-**NEXT — prueba guiada G27, sin Codex para programar:** usar la herramienta MCP existente `carpinova_consultar` → `action=modular`, `module_spec.type=drawer_layout_guide`, ancho 500, fondo 500, alto 800 mm, `small_drawers=3`, gaveta D abajo. Presentar **ambas** construcciones por separado, frente y costado: `top_bottom_full` (C01; T/BS 500×500×18, LI/LD 764×500×18) y `sides_full` (C02; T/BS 464×500×18, LI/LD 800×500×18). Alturas ilustrativas A=B=C=136, D=272; franjas 28 mm **no son divisores ni juntas reales de frente**. Datos de tablero/proporción siguen sin aprobar. No generar paneles, CSV, CAD ni render 3D desde la propuesta. Revisar con el usuario claridad visual, opción preferida y modificaciones antes de F7C. Ninguna aprobación visual autoriza fabricación.
+**NEXT HISTÓRICO G27 — NO EJECUTAR; instrucción archivada:** usar la herramienta MCP existente `carpinova_consultar` → `action=modular`, `module_spec.type=drawer_layout_guide`, ancho 500, fondo 500, alto 800 mm, `small_drawers=3`, gaveta D abajo. Presentar **ambas** construcciones por separado, frente y costado: `top_bottom_full` (C01; T/BS 500×500×18, LI/LD 764×500×18) y `sides_full` (C02; T/BS 464×500×18, LI/LD 800×500×18). Alturas ilustrativas A=B=C=136, D=272; franjas 28 mm **no son divisores ni juntas reales de frente**. Datos de tablero/proporción siguen sin aprobar. No generar paneles, CSV, CAD ni render 3D desde la propuesta. Revisar con el usuario claridad visual, opción preferida y modificaciones antes de F7C. Ninguna aprobación visual autoriza fabricación.
 
 **Cuatro leyes:** KISS (un Maestro y único F1/CADExchange), antirruido (sin skills/motores/docs paralelos; cambios con evidencia), antiparches (corregir causa raíz y consumidores), diseño humano UX/UI legible y verificable. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. No tocar CarpiNova-PC ni CarpiNova-Knowledge.
 
