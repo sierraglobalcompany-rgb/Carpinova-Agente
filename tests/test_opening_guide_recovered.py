@@ -115,7 +115,9 @@ class PR37RecoveredTests(unittest.TestCase):
         self.assertEqual(float(flange.get("y")),
                          float(stem.get("y")) + float(stem.get("height")))
         self.assertNotIn("external-bracket", parts)
-        self.assertIn("470 mm", svg)
+        self.assertIn("W − 2·t", svg)
+        self.assertNotIn("470 mm", svg)
+        self.assertNotIn("C01 · 500 mm", svg)
         self.assertIn("SIN DEFINIR", svg)
         self.assertIn("NO FABRICAR", svg)
         self.assertIn("inverted-t-lower-flange", r["sketch_svg"])
@@ -124,6 +126,19 @@ class PR37RecoveredTests(unittest.TestCase):
         for flag in ("fabrication_ready", "cutting_ready",
                      "drilling_ready", "purchase_ready"):
             self.assertFalse(r[flag])
+
+    def test_g30_only_on_relevant_focus_not_on_unrelated_handle_guides(self):
+        all_items = guide_opening_systems({"type": "opening_system_guide"})
+        self.assertIn("between_sides_concept_svg", all_items)
+        self.assertEqual(all_items["between_sides_concept_svg"],
+                         guide_opening_systems({"type": "opening_system_guide",
+                                                "focus": "t_rail_concept"})["between_sides_concept_svg"])
+        for focus in ("handle", "finger_pull", "profile", "push_to_open"):
+            with self.subTest(focus=focus):
+                item = guide_opening_systems({"type": "opening_system_guide",
+                                              "focus": focus})
+                self.assertNotIn("between_sides_concept_svg", item)
+                self.assertFalse(item["can_generate_f7c"])
 
     def test_rejects_unapproved_fabrication_and_unknown_focus(self):
         for spec in ("invalid", {"type":"opening_system_guide", "focus":"t_profile"},

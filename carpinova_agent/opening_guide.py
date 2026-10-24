@@ -115,7 +115,7 @@ text{font-family:Arial,sans-serif;fill:#25374b}.head{font-size:29px;font-weight:
 </style>
 <rect x="0" y="0" width="1180" height="745" fill="#fff"/>
 <text x="40" y="53" class="head">G30 · T INVERTIDA INTERIOR — REFERENCIA GEOMÉTRICA</text>
-<text x="40" y="84" class="sub">C01 · 500 mm ancho · laterales LI/LD de 15 mm · solo explicación 2D, sin escala de taller</text>
+<text x="40" y="84" class="sub">Referencia geométrica genérica: ancho W, tablero t; dimensiones reales a cargo de F1</text>
 <rect x="36" y="114" width="550" height="432" rx="14" class="panel"/>
 <text x="56" y="155" class="label">1. FRENTE: ENTRE LI Y LD</text>
 <text x="56" y="183" class="note">La pieza transversal está DENTRO de los laterales.</text>
@@ -126,7 +126,7 @@ text{font-family:Arial,sans-serif;fill:#25374b}.head{font-size:29px;font-weight:
 <path d="M115 291 V354 M545 291 V354" class="dash" data-concept="unvalidated-side-joins"/>
 <text x="97" y="453" text-anchor="middle" class="label">LI</text><text x="563" y="453" text-anchor="middle" class="label">LD</text>
 <path d="M115 476 V486 M545 476 V486 M115 482 H545" stroke="#4b6479" stroke-width="2" fill="none"/>
-<text x="330" y="509" text-anchor="middle" class="note">Luz nominal F1 = 500 − 15 − 15 = 470 mm</text>
+<text x="330" y="509" text-anchor="middle" class="note">Luz conceptual entre laterales = W − 2·t (F1 calcula)</text>
 <text x="56" y="529" class="note">Extremos y uniones: SIN DEFINIR · ninguna escuadra exterior</text>
 <rect x="602" y="114" width="543" height="432" rx="14" class="panel"/>
 <text x="622" y="155" class="label">2. CORTE PERPENDICULAR: SECCIÓN ┴</text>
@@ -216,7 +216,8 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
               "description": "Gola de madera con T invertida del libro; montaje y tope de cajón no verificados.",
               "selectable_for_drawer": False}],
         "sketch_svg": svg,
-        "between_sides_concept_svg": _T_BETWEEN_SIDES_SVG,
+        **({"between_sides_concept_svg": _T_BETWEEN_SIDES_SVG}
+           if focus in ("all", "t_rail_concept") else {}),
         "sketch_text": "\n".join(lines),
         "human_summary": (
             "Las cuatro aperturas habituales se conservan. La quinta compara "
