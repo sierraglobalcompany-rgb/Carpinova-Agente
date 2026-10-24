@@ -151,6 +151,83 @@ text{font-family:Arial,sans-serif;fill:#25374b}.head{font-size:29px;font-weight:
 <text x="58" y="689" class="warn">0 piezas · NO CORTAR · NO TALADRAR · NO COMPRAR · NO FABRICAR</text>
 </svg>"""
 
+
+_G39_SHARED_GRIP_AB_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="950" viewBox="0 0 1480 950" role="img" aria-label="G39 educativo: agarres A inferior y B superior no verificados; T invertida fija en muestra separada, sin posición ni unión aprobadas" data-review="G39" data-verified="false" data-join="unverified" data-fabrication-ready="false" data-piece-count="0">
+<title>G39 · Revisión educativa del agarre compartido A–B</title>
+<desc>C01 nominal: 500 por 800 mm, tablero de 15 mm, aberturas A/B/C/D de 137/137/137/275 mm y tres franjas ilustrativas de 28 mm. Dos trayectorias hipotéticas apuntan al borde inferior de A y al borde superior de B; ambas están sin verificar. G_AB es separación frontal proyectada, no espacio libre validado. La T se mantiene fija entre LI y LD según G30; aquí se muestra aislada, sección invertida, sin ubicación ni fijación. Cero piezas y sin autorización de fabricación.</desc>
+<style>
+text{font-family:Arial,sans-serif;fill:#243b53}.title{font-size:25px;font-weight:700}.subtitle{font-size:15px;fill:#52677c}.panel{fill:#f8fafc;stroke:#b8cad8;stroke-width:2}.head{font-size:19px;font-weight:700}.note{font-size:14px;fill:#4c6174}.small{font-size:12px;fill:#52677c}.front{fill:#d9e8ef;stroke:#496c83;stroke-width:2}.board{fill:#d7b28f;stroke:#89684c;stroke-width:2}.gap{fill:#fff0d8;stroke:#bd8741;stroke-width:1.5;stroke-dasharray:5 4}.route{fill:none;stroke:#14768b;stroke-width:4;stroke-dasharray:9 5}.edge{stroke:#a34d2e;stroke-width:3}.warn{fill:#963e23;font-size:14px;font-weight:700}.route-label{fill:#126d82;font-size:13px;font-weight:700}
+</style>
+<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#14768b"/></marker></defs>
+<rect width="1480" height="950" fill="#ffffff"/>
+<text x="36" y="42" class="title">G39 · ESTUDIO EDUCATIVO DE AGARRE COMPARTIDO A–B</text>
+<text x="36" y="70" class="subtitle">C01 nominal · hipótesis visuales sin validar · esta lámina no es un plano de fabricación</text>
+<rect x="30" y="100" width="420" height="720" rx="14" class="panel"/>
+<rect x="465" y="100" width="575" height="720" rx="14" class="panel"/>
+<rect x="1055" y="100" width="395" height="720" rx="14" class="panel"/>
+<text x="50" y="139" class="head">1. C01 · ALZADO NOMINAL</text>
+<text x="50" y="165" class="note">500 mm ancho × 800 mm alto · tablero 15 mm</text>
+<text x="50" y="186" class="small">Escala vertical nominal; franjas ilustrativas, no piezas</text>
+<rect x="82" y="196" width="316" height="512" fill="#ffffff" stroke="#536b7d" stroke-width="2" data-kind="nominal-outline" data-physical-part="false"/>
+<rect x="82" y="196" width="316" height="9.6" class="board" data-kind="nominal-board" data-nominal-mm="15" data-physical-part="false"/>
+<rect x="95" y="205.6" width="290" height="87.68" class="front" data-part="A" data-nominal-mm="137" data-verified="false"/>
+<text x="240" y="255" text-anchor="middle" font-size="16" font-weight="700">A · 137 mm</text>
+<rect x="95" y="293.28" width="290" height="17.92" class="gap" data-kind="illustrative-band" data-nominal-mm="28" data-physical-part="false"/>
+<rect x="95" y="311.2" width="290" height="87.68" class="front" data-part="B" data-nominal-mm="137" data-verified="false"/>
+<text x="240" y="361" text-anchor="middle" font-size="16" font-weight="700">B · 137 mm</text>
+<rect x="95" y="398.88" width="290" height="17.92" class="gap" data-kind="illustrative-band" data-nominal-mm="28" data-physical-part="false"/>
+<rect x="95" y="416.8" width="290" height="87.68" class="front" data-part="C" data-nominal-mm="137" data-verified="false"/>
+<text x="240" y="466" text-anchor="middle" font-size="16" font-weight="700">C · 137 mm</text>
+<rect x="95" y="504.48" width="290" height="17.92" class="gap" data-kind="illustrative-band" data-nominal-mm="28" data-physical-part="false"/>
+<rect x="95" y="522.4" width="290" height="176" class="front" data-part="D" data-nominal-mm="275" data-verified="false"/>
+<text x="240" y="615" text-anchor="middle" font-size="16" font-weight="700">D · 275 mm</text>
+<rect x="82" y="698.4" width="316" height="9.6" class="board" data-kind="nominal-board" data-nominal-mm="15" data-physical-part="false"/>
+<text x="50" y="744" class="note">3 franjas ilustrativas de 28 mm</text>
+<text x="50" y="769" class="warn">No son divisores ni acceso para dedos</text>
+<text x="50" y="793" class="small">3 × 137 + 275 + 3 × 28 + 2 × 15 = 800 mm</text>
+<text x="485" y="139" class="head">2. A–B · DOS VÍAS HIPOTÉTICAS</text>
+<text x="485" y="165" class="note">Esquema conceptual, sin escala; A y B son frentes móviles</text>
+<rect x="650" y="218" width="250" height="158" rx="4" class="front" data-part="A" data-role="moving-front" data-verified="false"/>
+<text x="775" y="281" text-anchor="middle" font-size="20" font-weight="700">FACHADA A · MÓVIL</text>
+<text x="775" y="316" text-anchor="middle" class="note">borde inferior de A</text>
+<line id="edge-A-lower" x1="650" y1="376" x2="900" y2="376" class="edge" data-part="A" data-edge="lower" data-verified="false"/>
+<rect x="630" y="396" width="290" height="92" rx="8" class="gap" data-kind="conceptual-overlap-band" data-verified="false" data-physical-part="false"/>
+<text x="775" y="421" text-anchor="middle" font-size="14" font-weight="700">BANDA NOMINAL 28 mm</text>
+<text x="775" y="444" text-anchor="middle" class="small">no es luz libre ni holgura aprobada</text>
+<text x="775" y="468" text-anchor="middle" class="small">G_AB = 28 − S_A,inferior − S_B,superior</text>
+<line id="edge-B-upper" x1="650" y1="500" x2="900" y2="500" class="edge" data-part="B" data-edge="upper" data-verified="false"/>
+<rect x="650" y="500" width="250" height="158" rx="4" class="front" data-part="B" data-role="moving-front" data-verified="false"/>
+<text x="775" y="564" text-anchor="middle" font-size="20" font-weight="700">FACHADA B · MÓVIL</text>
+<text x="775" y="600" text-anchor="middle" class="note">borde superior de B</text>
+<path d="M505 381 C552 381 593 376 642 376" class="route" marker-end="url(#arrow)" data-route="A-lower" data-target="edge-A-lower" data-verified="false"/>
+<path d="M505 496 C552 496 593 500 642 500" class="route" marker-end="url(#arrow)" data-route="B-upper" data-target="edge-B-upper" data-verified="false"/>
+<text x="485" y="329" class="route-label">A · borde inferior</text>
+<text x="485" y="351" class="small">A · ruta NO VERIFICADA</text>
+<text x="485" y="548" class="route-label">B · borde superior</text>
+<text x="485" y="570" class="small">B · ruta NO VERIFICADA</text>
+<text x="485" y="704" class="warn">Separación frontal proyectada, no espacio útil</text>
+<text x="485" y="730" class="note">Solapes sin definir; G_AB &gt; 0 no demuestra acceso</text>
+<text x="485" y="759" class="small">No se dibujan manos; acceso, ergonomía y colisiones pendientes</text>
+<text x="1076" y="139" class="head">3. T FIJA · SECCIÓN ┴</text>
+<text x="1076" y="165" class="note">Muestra aislada; sin ubicación ni fijación</text>
+<text x="1076" y="191" class="small">T permanece interna entre LI/LD según G30;</text>
+<text x="1076" y="211" class="small">esta lámina no la instala en la franja A–B.</text>
+<rect x="1225" y="258" width="32" height="148" class="board" data-part="T" data-role="t-stem" data-verified="false"/>
+<rect x="1172" y="406" width="138" height="27" class="board" data-part="T" data-role="t-lower-flange" data-verified="false"/>
+<text x="1241" y="477" text-anchor="middle" class="note">MONTANTE ↑</text>
+<text x="1241" y="503" text-anchor="middle" class="note">ALA INFERIOR ↓</text>
+<text x="1076" y="552" class="warn">Unión y anclaje: SIN VALIDAR</text>
+<text x="1076" y="582" class="note">Sin tornillos, ranuras ni cotas H/V</text>
+<text x="1076" y="620" class="small">Libro: figura para puertas, 65 × 50 mm;</text>
+<text x="1076" y="641" class="small">no valida su uso en cajones ni esta franja.</text>
+<text x="1076" y="687" class="small">La T no es una manija móvil.</text>
+<rect x="30" y="835" width="1420" height="78" rx="10" fill="#fff5ed" stroke="#e2b18c" stroke-width="2"/>
+<text x="365" y="866" class="warn">T FIJA · A Y B MÓVILES · DOS RUTAS CONCEPTUALES NO VERIFICADAS</text>
+<text x="380" y="893" class="warn">NEEDS_USER_CONFIRMATION · 0 PIEZAS · NO CORTAR · NO TALADRAR · NO COMPRAR · NO FABRICAR</text>
+</svg>
+"""
+
 _OPTIONS = (
     ("handle", "Manija externa", "Agarre sobresaliente: se tira."),
     ("finger_pull", "Uñero", "Rebaje donde entran los dedos para tirar."),
@@ -166,11 +243,12 @@ _FOCUS_COORDS = {
 def opening_guide_svg(focus: str = "all") -> str:
     """Keep the artifact byte-identical for 'all'; accent only selected card."""
     if type(focus) is not str or (focus not in _FOCUS_COORDS
-                                   and focus not in ("all", "t_rail_concept")):
+                                   and focus not in ("all", "t_rail_concept",
+                                                     "t_rail_ab_review")):
         raise DesignError("focus desconocido para la guía de aperturas.")
     if focus == "all":
         return _SVG_ALL
-    if focus == "t_rail_concept":
+    if focus in ("t_rail_concept", "t_rail_ab_review"):
         old = '<rect x="58" y="795" width="1127" height="573" rx="13" class="card"/>'
     else:
         x, y = _FOCUS_COORDS[focus]
@@ -217,13 +295,25 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
               "selectable_for_drawer": False}],
         "sketch_svg": svg,
         **({"between_sides_concept_svg": _T_BETWEEN_SIDES_SVG}
-           if focus in ("all", "t_rail_concept") else {}),
-        "sketch_text": "\n".join(lines),
+           if focus in ("all", "t_rail_concept", "t_rail_ab_review") else {}),
+        **({"shared_grip_ab_concept_svg": _G39_SHARED_GRIP_AB_SVG}
+           if focus == "t_rail_ab_review" else {}),
+        "sketch_text": "\n".join(lines + ([
+            "G39 ilustrativo: A por el borde inferior y B por el borde superior;"
+            " ambas trayectorias están NO VERIFICADAS.",
+            "G_AB = 28 − S_A,inferior − S_B,superior es separación frontal proyectada;"
+            " solapes indeterminados y G_AB > 0 no prueban acceso.",
+            "La T permanece fija entre LI/LD según G30; ubicación y unión en A–B"
+            " sin definir. La figura de 65 × 50 mm corresponde a puertas y no valida cajones.",
+        ] if focus == "t_rail_ab_review" else [])),
         "human_summary": (
             "Las cuatro aperturas habituales se conservan. La quinta compara "
             "un acceso bloqueado por la tapa con una ranura donde sí se puede "
             "tomar el canto del frente móvil. La T permanece fija y no prueba "
             "su uso como tope o su montaje real en cajones."
+            + (" G39 añade una revisión hipotética de los bordes de A y B; las rutas, "
+               "solapes, acceso real y montaje de la T siguen sin validar."
+               if focus == "t_rail_ab_review" else "")
         ),
         "blockers": [
             "El libro describe una T invertida de madera para puertas; "
@@ -232,7 +322,12 @@ def guide_opening_systems(spec: Any) -> dict[str, Any]:
             "correderas, fijaciones e interferencias antes de fabricar.",
             "Los 20 mm sugeridos no son mínimo documentado en el libro.",
             "G30 muestra T entre LI/LD en planta frontal y sección ┴, pero NO modela unión ni instala cajones."
-        ],
+        ] + ([
+            "G39: el acceso por el borde inferior de A y el superior de B es hipotético; rutas, ergonomía e interferencias no verificadas.",
+            "G_AB = 28 − S_A,inferior − S_B,superior es separación frontal proyectada; los solapes no están definidos y G_AB > 0 no prueba agarre.",
+            "La ubicación física y unión de la T respecto a A–B no están definidas; la T se muestra aislada y no fabricable.",
+            "La figura bibliográfica de T 65 × 50 mm describe puertas; no certifica repetición ni montaje en cajones."
+        ] if focus == "t_rail_ab_review" else []),
         "piece_count": 0,
         "can_generate_f7c": False,
         "fabrication_ready": False,
