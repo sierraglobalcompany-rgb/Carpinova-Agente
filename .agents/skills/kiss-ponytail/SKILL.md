@@ -15,6 +15,6 @@ Origen: https://github.com/DietrichGebert/ponytail, fuente oficial v5.3.2 commit
 
 **Uso proporcional:** revisión Ponytail de diff/PR solo si aporta valor; auditoría de repo solo si fue solicitada o el riesgo lo exige. Su tope de 20 hallazgos no oculta P0/P1 del procedimiento forense. No invocar hooks ni instalar scripts automáticamente.
 
-**Canon:** esta skill concreta L1 KISS con Ponytail. L1–L6 y el formato de verificación/cierre se rigen por [el canon único](../../../docs/engineering/LEYES_IMPLEMENTACION_1_A_6.md); esta skill amplía L1 y no redefine L2–L6. `full` es intensidad ordinaria; `ultra` no revoca el contrato del usuario.
+**Jerarquía normativa:** esta skill concreta L1 KISS con Ponytail y no redefine L2–L6. La autoridad normativa es [PingPongLaw V2 en el commit fijado](https://github.com/sierraglobalcompany-rgb/PingPongLaw/blob/84e961cadf482d234f4c0ee2ca60e8c7e9b388e8/docs/engineering/LEYES_IMPLEMENTACION_1_A_6.md), cuya lectura debe verificarse; [la adaptación local CarpiNova V1.0](../../../docs/engineering/LEYES_IMPLEMENTACION_1_A_6.md) es complementaria y no la sustituye. `full` es intensidad ordinaria; `ultra` no revoca el contrato del usuario.
 
 **Salida L1:** objetivo, alternativa viable más simple y justificación. Pruebas, riesgos y cambios externos se reportan conforme al canon y a los permisos del usuario.
