@@ -50,3 +50,6 @@ La autorización 3D **no es** la frase MCP: exigir además ticket local de host 
 
 
 **Uso del Agente desde Codex:** antes de generar un mueble desde texto libre, cargar `skills/maestro-carpintero/SKILL.md` (sección «Uso directo en Codex — contrato de conversación V1»). Interpretar, preguntar (máximo tres decisiones por turno), presentar especificación íntegra y obtener confirmación humana antes de invocar las herramientas MCP con JSON. El modelo conversa; la geometría la calcula solo el Maestro. Los cuatro flags de fabricación permanecen falsos.
+
+## L1 KISS + Ponytail — agente de carpintería
+Antes de cambios de código, aplicar `.agents/skills/kiss-ponytail/SKILL.md`: entender flujo/consumidores, evitar funcionalidad especulativa y reutilizar repositorio, stdlib/nativo y dependencias existentes. Mantener seguridad física y reglas de fabricación/medidas, permisos, SPEC, tests y el canon L2–L6. No simplificar cálculos técnicos eliminando controles. Ponytail global y sus hooks NO se declaran instalados por este documento.
