@@ -222,3 +222,100 @@ def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
         '</g></svg>'
     ]
     return "\n".join(lines)+"\n"
+
+
+def wall_bar_front_contacts_svg(model: dict[str, Any]) -> str:
+    """Visualize EXACT rear-face contact patches, never guessed fasteners.
+
+    One panel for each drawer.  The display is an orthographic projection of
+    canonical CADExchange boxes at the inner facade plane (Z=15 nominal).
+    No holes, screws, supports or physical joinery are implied.
+    """
+    review = model.get("wall_bar_review", {})
+    joints = review.get("front_joint_interfaces")
+    if (not isinstance(joints, dict) or set(joints) != {"D1", "D2", "D3"}
+            or review.get("drawer_opening_face") != "long_side_front"):
+        raise DesignError("No hay evidencia canónica de tres contactos frontales A.")
+    cad = validate_exchange(cad_exchange(model))
+    pieces = {p["piece_id"]: p for p in cad["boxes"]}
+    if len(pieces) != len(cad["boxes"]):
+        raise DesignError("IDs repetidos en plano de contactos.")
+    out = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1210" height="750" '
+        'viewBox="0 0 1210 750" role="img" '
+        'aria-label="CarpiNova: cara posterior de frentes únicos D1 D2 D3">',
+        '<rect width="1210" height="750" fill="white"/>',
+        '<g font-family="Arial,sans-serif" fill="#26354a">',
+        '<text x="30" y="44" font-size="26" font-weight="bold">'
+        'CARPINOVA · UNIÓN DE FRENTE ÚNICO · ORIENTACIÓN A</text>',
+        '<text x="30" y="79" font-size="17">'
+        'Vista POSTERIOR de cada frente. Cajas coloradas = contacto de pieza REAL en CAD.</text>',
+        '<text x="30" y="108" font-size="16" fill="#a11c32" font-weight="bold">'
+        'SIN TORNILLOS / SIN PERFORACIONES / NO ES INSTRUCCIÓN DE ENSAMBLE</text>',
+    ]
+    palette = {"left_side": "#e6a34f",
+               "right_side": "#e6a34f", "bottom": "#60a5fa"}
+    for i, did in enumerate(("D1", "D2", "D3")):
+        x0 = 30 + 390 * i
+        panel = joints[did]
+        facade = pieces[panel["front_piece_id"]]
+        bx, by, bz = facade["origin_xyz_mm"]
+        fw, fh, ft = facade["size_xyz_mm"]
+        if (facade["role"] != "drawer_facade" or ft != 15
+                or panel.get("contact_is_not_a_mechanical_joint") is not True
+                or panel.get("fixing_holes_specified") is not False):
+            raise DesignError("El frontal se presenta como unión no validada.")
+        sx = 0.77
+        sy = min(0.73, 260.0 / fh)
+        left = x0 + (368.0 - fw*sx)/2
+        top = 178.0 + (266.0 - fh*sy)/2
+        out += [
+            f'<rect x="{x0}" y="138" width="370" height="568" rx="10" '
+            'fill="#fbfaf7" stroke="#cbd5e1"/>',
+            f'<text x="{x0+15}" y="164" font-size="22" font-weight="bold">{did}</text>',
+            f'<rect x="{left:.2f}" y="{top:.2f}" width="{fw*sx:.2f}" '
+            f'height="{fh*sy:.2f}" fill="#e6d5b5" stroke="#5c4536" stroke-width="2"/>',
+        ]
+        for role in ("left_side", "right_side", "bottom"):
+            surface = panel["surfaces"].get(role)
+            if not isinstance(surface, dict):
+                raise DesignError("Superficie de contacto no identificada.")
+            part = pieces[surface["piece_id"]]
+            px, py, pz = part["origin_xyz_mm"]
+            dx, dy, dz = part["size_xyz_mm"]
+            wx, wy = surface["nominal_contact_patch_xy_mm"]
+            if pz != bz + ft:
+                raise DesignError("Cara de contacto fuera del plano frontal CAD.")
+            if role in ("left_side", "right_side"):
+                expected = (dx, dy)
+            else:
+                expected = (dx, dy)
+            if tuple(expected) != (wx, wy):
+                raise DesignError("Contacto no coincide con dimensiones CAD.")
+            rx = left + (px-bx)*sx
+            ry = top + (fh-(py-by)-wy)*sy
+            out.append(
+                f'<rect x="{rx:.2f}" y="{ry:.2f}" '
+                f'width="{wx*sx:.2f}" height="{wy*sy:.2f}" '
+                f'fill="{palette[role]}" fill-opacity=".82" '
+                'stroke="#37556f" stroke-width="1.4"/>'
+            )
+        height = "105" if did in ("D1", "D2") else "375"
+        out += [
+            f'<text x="{x0+16}" y="481" font-size="16" font-weight="bold">'
+            f'Frente: {fw} × {fh} × {ft} mm</text>',
+            f'<text x="{x0+16}" y="512" font-size="14">'
+            f'LI / LD: 15 × {height} mm, contacto nominal</text>',
+            f'<text x="{x0+16}" y="538" font-size="14">'
+            'BASE: 244 × 15 mm, contacto nominal</text>',
+            f'<text x="{x0+16}" y="576" font-size="12" fill="#9a1e39">'
+            'Sujeción sin definir · resistencia no verificada</text>',
+            f'<text x="{x0+16}" y="610" font-size="12">'
+            f'{escape(panel["front_piece_id"])}</text>',
+        ]
+    out += [
+        '<text x="30" y="731" font-size="12">'
+        f'Fuente CAD · {escape(cad["geometry_sha256"])} · 21 paneles nominales; no fabricar.</text>',
+        '</g></svg>',
+    ]
+    return "\n".join(out)+"\n"
