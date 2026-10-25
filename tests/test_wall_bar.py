@@ -109,6 +109,36 @@ class WallBarTests(unittest.TestCase):
         self.assertFalse(m["drilling_ready"])
         self.assertFalse(m["purchase_ready"])
 
+    def test_four_edge_pvc_does_not_become_unapproved_cut_dimensions(self):
+        model = self.model()
+        review = model["wall_bar_review"]["front_edgebanding_review"]
+        self.assertEqual(review["status"], "PENDING_FINISHED_VS_RAW_INTERPRETATION")
+        self.assertFalse(review["cutting_dimensions_authorized"])
+        self.assertEqual(review["nominal_gaps_between_fronts_mm"],
+                         {"D3_D2": 2, "D2_D1": 2})
+        self.assertEqual(review["gaps_if_nominal_panels_are_cut_raw_then_banded_mm"],
+                         {"D3_D2": -2, "D2_D1": -2})
+        self.assertEqual(review["nominal_cabinet_side_reveal_each_mm"], 2)
+        self.assertEqual(review["side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm"], 0)
+        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"], 292)
+        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"], 176)
+        self.assertEqual(review["fronts"]["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"], 473)
+        self.assertTrue(all(p["finished_cut_dimensions_mm"] is None
+                            for p in model["parts"]))
+        self.assertFalse(model["cutting_ready"])
+        self.assertEqual(len(model["parts"]), 21)
+
+    def test_reject_unapproved_front_cantoning(self):
+        for edit in ("thickness", "missing_edge"):
+            data = spec()
+            face = data["cabinet_module"]["drawers"][0]["facade"]
+            if edit == "thickness":
+                face["edgeband_thickness_mm"] = 1
+            else:
+                face["edgebanding_edges"].remove("y_min")
+            with self.subTest(edit=edit), self.assertRaises(DesignError):
+                design_wall_bar(data)
+
     def test_no_mutation(self):
         request = spec()
         before = copy.deepcopy(request)
