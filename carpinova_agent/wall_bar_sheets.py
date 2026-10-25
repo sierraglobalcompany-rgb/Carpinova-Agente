@@ -172,6 +172,10 @@ def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
         f'width="{dx*sf:.2f}" height="{dy*sf:.2f}" '
         'fill="#ecdcc1" stroke="#334155" stroke-width="2"/>'
     )
+    lines.append(
+        f'<text x="{fx+10:.2f}" y="{fy-20:.2f}" font-size="14">'
+        f'BAR-COVER-TOP · {w} x {d} mm</text>'
+    )
     cab0, cab1 = rv["cabinet_x_range_mm"]
     cy0, cy1 = rv["cabinet_y_range_mm"]
     lines.append(
