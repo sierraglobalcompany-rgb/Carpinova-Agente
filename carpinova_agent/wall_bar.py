@@ -144,6 +144,7 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     gaps = {}
     rear_gaps = {}
     planar_front_contacts = {}
+    front_joint_interfaces = {}
     for did in ("D1", "D2", "D3"):
         base = p_by_id[f"{cid}-{did}-DRAWER_BOTTOM"]
         facade = p_by_id[f"{cid}-{did}-DRAWER_FACADE"]
@@ -155,13 +156,41 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         )
         if gap < 0 or rear_gap < 0:
             raise DesignError(f"{did}: solape con base de carcasa o respaldo.")
-        contact_z = facade["nominal_origin_xyz_mm"][2] + facade["thickness_mm"]
-        planar_front_contacts[did] = (
-            left["nominal_origin_xyz_mm"][2] == contact_z
-            and right["nominal_origin_xyz_mm"][2] == contact_z
-        )
-        if not planar_front_contacts[did]:
-            raise DesignError(f"{did}: frente no contacta ambos laterales en plano.")
+        fx, fy, fz = facade["nominal_origin_xyz_mm"]
+        contact_z = fz + facade["thickness_mm"]
+        surfaces = {}
+        for label, part in (("left_side", left), ("right_side", right),
+                            ("bottom", base)):
+            px, py, pz = part["nominal_origin_xyz_mm"]
+            if pz != contact_z:
+                raise DesignError(f"{did}: {label} no toca plano posterior del frente.")
+            # Physical XY rectangle at the open FRONT end of the panel.
+            pw = (part["thickness_mm"] if part["face_plane"] == "YZ"
+                  else part["nominal_face_x_mm"])
+            ph = (part["thickness_mm"] if part["face_plane"] == "XZ"
+                  else part["nominal_face_y_mm"])
+            shared_width = min(fx + facade["nominal_face_x_mm"], px + pw) - max(fx, px)
+            shared_height = min(fy + facade["nominal_face_y_mm"], py + ph) - max(fy, py)
+            if shared_width != pw or shared_height != ph:
+                raise DesignError(
+                    f"{did}: {label} sin contacto frontal completo en ambos ejes."
+                )
+            surfaces[label] = {
+                "piece_id": part["piece_id"],
+                "nominal_contact_patch_xy_mm": [shared_width, shared_height],
+                "front_contact_plane_z_mm": contact_z,
+                "attachment_method": "NOT_SPECIFIED",
+                "load_capacity_verified": False,
+            }
+        planar_front_contacts[did] = True
+        front_joint_interfaces[did] = {
+            "front_piece_id": facade["piece_id"],
+            "single_external_front": True,
+            "contact_is_not_a_mechanical_joint": True,
+            "surfaces": surfaces,
+            "fixing_holes_specified": False,
+            "fabrication_ready": False,
+        }
         gaps[did] = gap
         rear_gaps[did] = rear_gap
     result["wall_bar_review"]["drawer_base_clearance_mm"] = gaps
@@ -169,6 +198,7 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     result["wall_bar_review"]["drawer_front_side_contact"] = {
         k: "GEOMETRIC_PLANE_ONLY_NOT_FASTENED" for k in planar_front_contacts
     }
+    result["wall_bar_review"]["front_joint_interfaces"] = front_joint_interfaces
     # The CAD has NOMINAL external faces only. Panel-cut sizing must not
     # silently treat those nominal sizes as raw substrate plus added PVC.
     # 2 mm banding on four edges can change each face dimension by 4 mm.
