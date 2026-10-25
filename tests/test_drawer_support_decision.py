@@ -19,7 +19,7 @@ class DrawerSupportDecisionTests(unittest.TestCase):
         self.assertEqual(reply["questions"][1]["field"], "module_spec.proposed_layout_spec")
         self.assertTrue(plan["support_style_is_suggestion"])
         self.assertEqual(plan["support_style"], "floor_direct")
-        self.assertIn("SIN CONFIRMAR", plan["sketch_svg"])
+        self.assertIn("AP · sin patas (al piso)", plan["sketch_svg"])
         self.assertIn("APOYO SIN CONFIRMAR", plan["sketch_text"])
         self.assertEqual(plan["piece_count"], 0)
         self.assertFalse(plan["can_generate_f7c"])
