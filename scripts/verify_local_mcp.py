@@ -67,6 +67,18 @@ async def execute(output_root: Path) -> None:
             available = await session.list_tools()
             names = {tool.name for tool in available.tools}
             assert names == TOOLS, f"MCP tools mismatch: {names}"
+            catalog = {tool.name: tool for tool in available.tools}
+            for name in ("carpinova_estado", "carpinova_consultar"):
+                annotations = catalog[name].annotations
+                assert annotations is not None, f"Missing read-only hint: {name}"
+                assert annotations.model_dump(by_alias=True).get("readOnlyHint") is True, (
+                    f"Tool must advertise readOnlyHint=true: {name}")
+            for name in ("carpinova_generar_borrador", "carpinova_renderizar_lamina",
+                         "carpinova_exportar_3d"):
+                annotations = catalog[name].annotations
+                assert annotations is None or annotations.model_dump(
+                    by_alias=True).get("readOnlyHint") is not True, (
+                        f"Write-capable tool cannot be marked read-only: {name}")
             state = await session.call_tool("carpinova_estado", {})
             assert not state.isError, "State tool failed"
             for project, request, _ in requests:

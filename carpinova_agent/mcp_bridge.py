@@ -250,6 +250,7 @@ def create_server():
     """Import the optional official MCP SDK only when launching this bridge."""
     try:
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
     except ImportError as exc:
         raise RuntimeError(
             "MCP SDK ausente. Instalar: python -m pip install -r requirements-mcp.txt"
@@ -261,8 +262,11 @@ def create_server():
         "corte, taladro o compra. No ejecutar otras herramientas por analogía."
     ))
 
-    server.tool()(carpinova_estado)
-    server.tool()(carpinova_consultar)
+    # These two functions only inspect state or calculate/read evidence.
+    # MCP annotations are advisory hints, never authorization for other tools.
+    read_only = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+    server.tool(annotations=read_only)(carpinova_estado)
+    server.tool(annotations=read_only)(carpinova_consultar)
     server.tool()(carpinova_generar_borrador)
     server.tool()(carpinova_renderizar_lamina)
     server.tool()(carpinova_exportar_3d)
