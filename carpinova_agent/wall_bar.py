@@ -61,6 +61,14 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
                 or drawer["facade"].get("style") != "overlay"
                 or drawer.get("front_setback_mm") != 0):
             raise DesignError("Frente exterior único requerido para cada cajón.")
+        facade = drawer["facade"]
+        if (facade.get("edgeband_thickness_mm") != 2
+                or set(facade.get("edgebanding_edges", []))
+                != {"x_min", "x_max", "y_min", "y_max"}):
+            raise DesignError(
+                "Los tres frentes requieren PVC rígido de 2 mm en los cuatro bordes."
+            )
+        # Keep the remaining structural checks below.
     inner = {
         "type": "modular_run", "application": "kitchen",
         "width_mm": cabinet_w, "height_mm": cabinet_h,
@@ -161,6 +169,57 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     result["wall_bar_review"]["drawer_front_side_contact"] = {
         k: "GEOMETRIC_PLANE_ONLY_NOT_FASTENED" for k in planar_front_contacts
     }
+    # The CAD has NOMINAL external faces only. Panel-cut sizing must not
+    # silently treat those nominal sizes as raw substrate plus added PVC.
+    # 2 mm banding on four edges can change each face dimension by 4 mm.
+    front_edge = 2
+    edge_review = {}
+    finished_fronts = sorted(
+        (p for p in result["parts"] if p["role"] == "drawer_facade"),
+        key=lambda p: p["nominal_origin_xyz_mm"][1]
+    )
+    for front_part in finished_fronts:
+        did = front_part["drawer_id"]
+        fw = front_part["nominal_face_x_mm"]
+        fh = front_part["nominal_face_y_mm"]
+        edge_review[did] = {
+            "nominal_face_width_mm": fw,
+            "nominal_face_height_mm": fh,
+            "rigid_edge_mm_each_side": front_edge,
+            "if_nominal_is_finished_theoretical_raw_width_mm": fw - 2 * front_edge,
+            "if_nominal_is_finished_theoretical_raw_height_mm": fh - 2 * front_edge,
+            "if_nominal_is_raw_resulting_width_mm": fw + 2 * front_edge,
+            "if_nominal_is_raw_resulting_height_mm": fh + 2 * front_edge,
+            "theoretical_only_not_cut_dimensions": True,
+        }
+    nominal_reveals = {}
+    uncompensated_reveals = {}
+    for prev, nxt in zip(finished_fronts, finished_fronts[1:]):
+        lower_id, upper_id = prev["drawer_id"], nxt["drawer_id"]
+        prev_y = prev["nominal_origin_xyz_mm"][1]
+        next_y = nxt["nominal_origin_xyz_mm"][1]
+        nominal_gap = next_y - (prev_y + prev["nominal_face_y_mm"])
+        compensated = nominal_gap - 2 * front_edge
+        nominal_reveals[f"{lower_id}_{upper_id}"] = nominal_gap
+        uncompensated_reveals[f"{lower_id}_{upper_id}"] = compensated
+    cabinet_front_reveal = (cabinet_w - finished_fronts[0]["nominal_face_x_mm"]) / 2
+    result["wall_bar_review"]["front_edgebanding_review"] = {
+        "status": "PENDING_FINISHED_VS_RAW_INTERPRETATION",
+        "nominal_panel_dimensions_are_not_cut_dimensions": True,
+        "fronts": edge_review,
+        "nominal_gaps_between_fronts_mm": nominal_reveals,
+        "gaps_if_nominal_panels_are_cut_raw_then_banded_mm": uncompensated_reveals,
+        "nominal_cabinet_side_reveal_each_mm": cabinet_front_reveal,
+        "side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm":
+            cabinet_front_reveal - front_edge,
+        "cutting_dimensions_authorized": False,
+    }
+    result["blockers"].append(
+        "CANTO FRONTAL: hay holguras nominales de 2 mm entre frentes; "
+        "si se cortan a la medida nominal y se agrega PVC 2 mm por borde, "
+        "cada frente crece 4 mm por eje y las separaciones pasan a -2 mm. "
+        "Definir dimensiones terminadas, sustrato, merma y procesos antes de corte."
+    )
     result["blockers"].extend([
         f"D3: holgura vertical inferior nominal de {gaps['D3']} mm sin "
         "validación de correderas, tolerancias, carga ni flexión.",
