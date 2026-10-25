@@ -109,6 +109,48 @@ class WallBarTests(unittest.TestCase):
         self.assertFalse(m["drilling_ready"])
         self.assertFalse(m["purchase_ready"])
 
+    def test_three_front_contacts_are_complete_but_not_fastened(self):
+        m = self.model()
+        joints = m["wall_bar_review"]["front_joint_interfaces"]
+        self.assertEqual(set(joints), {"D1", "D2", "D3"})
+        for did in ("D1", "D2", "D3"):
+            one = joints[did]
+            self.assertTrue(one["single_external_front"])
+            self.assertTrue(one["contact_is_not_a_mechanical_joint"])
+            self.assertFalse(one["fixing_holes_specified"])
+            self.assertFalse(one["fabrication_ready"])
+            self.assertEqual(set(one["surfaces"]),
+                             {"left_side", "right_side", "bottom"})
+            self.assertTrue(all(v["front_contact_plane_z_mm"] == 15
+                                and v["attachment_method"] == "NOT_SPECIFIED"
+                                and v["load_capacity_verified"] is False
+                                for v in one["surfaces"].values()))
+            wall_h = 105 if did in ("D1", "D2") else 375
+            self.assertEqual(one["surfaces"]["left_side"]["nominal_contact_patch_xy_mm"],
+                             [15, wall_h])
+            self.assertEqual(one["surfaces"]["right_side"]["nominal_contact_patch_xy_mm"],
+                             [15, wall_h])
+            self.assertEqual(one["surfaces"]["bottom"]["nominal_contact_patch_xy_mm"],
+                             [244, 15])
+        self.assertEqual(m["piece_count"], 21)
+        self.assertFalse(m["fabrication_ready"])
+
+    def test_shifted_side_must_not_count_as_a_valid_joint(self):
+        from unittest.mock import patch
+        from carpinova_agent import wall_bar
+        original = wall_bar.design_modular_run
+
+        def misaligned(specification):
+            model = original(specification)
+            side = next(p for p in model["parts"]
+                        if p["piece_id"].endswith("D3-DRAWER_SIDE_LEFT"))
+            side["nominal_origin_xyz_mm"][0] -= 30
+            return model
+
+        with patch.object(wall_bar, "design_modular_run", misaligned):
+            with self.assertRaisesRegex(DesignError, "sin contacto frontal completo"):
+                self.model()
+
     def test_four_edge_pvc_does_not_become_unapproved_cut_dimensions(self):
         model = self.model()
         review = model["wall_bar_review"]["front_edgebanding_review"]

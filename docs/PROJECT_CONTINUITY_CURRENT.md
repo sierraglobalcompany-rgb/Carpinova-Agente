@@ -1,6 +1,12 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
 
+## EVIDENCIA DE UNIONES NOMINALES Y GATES (2026-10-25)
+
+El PR #21 añadió `wall_bar_review.front_joint_interfaces` derivado exclusivamente de las piezas F1/F7C, **sin añadir paneles ni taladros**. Cada cajón D1/D2/D3 toca el frente exterior único en la cara interior plana Z=15 mm: dos contactos laterales nominales de 15×105 mm para D1/D2 o 15×375 mm para D3, y un contacto de base nominal de 244×15 mm; estos son RECTÁNGULOS DE CONTACTO, no resistencia mecánica ni instrucciones de mecanizado. El validador exige solape completo en X/Y y mismo plano Z; si una pieza se desplaza y pierde contacto completo, el borrador se rechaza. Todos los métodos de unión, capacidades, agujeros y fijaciones figuran NOT_SPECIFIED/false. Las 21 piezas y `geometry_sha256=a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b` siguen sin cambios. El frente único NO cuenta todavía como ensamblado, estable o fabricable.
+
+**No reiniciar microauditorías/ciclos por este checkpoint:** Lo urgente para liberar montaje es seleccionar y comprobar una unión estructural certificada con MDP15, las correderas (SKU y tolerancias), la base D3 (2 mm de holgura nominal), sistema antivuelco, patas/estabilidad y tipo de muro/cálculo de apoyo de cubierta 600 mm. Confirmar respuesta humana sobre muro antes de especificar anclajes o capacidad. No inferir un producto o una carga sin datos. Controles de fabricar/comprar/cortar/perforar permanentemente FALSE.
+
 ## ESTADO ACTIVO DEL MUEBLE REAL — 25-oct-2026 (PR #21 DRAFT, no merge)
 
 El propietario confirmó una **barra auxiliar de cocina tipo península**: 900 mm desde el muro × 460 mm fondo × 900 mm alto total; cubierta MDP de 15 mm, extremo CORTO de 460 mm directamente fijado al muro (X=0), **ninguna tabla vertical/soporte ficticio junto al muro**. De X=0 a X=600 mm hay 600 mm libres por debajo. Cajonera derecha de 300 mm, X=600..900, sobre concepto de patas de 40 mm; 2 cajones pequeños arriba, uno grande abajo; frentes exteriores ÚNICOS (sin frente interior). Material MDP15. **DECISIÓN NUEVA CONFIRMADA: ORIENTACIÓN A**: los tres cajones abren **hacia el costado largo (plano XY, Z=0, desplazamiento hacia -Z)**, **NO** hacia la punta libre de 460 mm. No reinterpretar como escritorio, muro en lateral largo, ni agregar lateral al muro, faldón o patas izquierdas. Solo piezas CAD sustentadas en F1/F7C.
