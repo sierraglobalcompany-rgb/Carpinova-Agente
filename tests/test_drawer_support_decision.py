@@ -15,8 +15,10 @@ class DrawerSupportDecisionTests(unittest.TestCase):
         reply = consult_maestro({"action": "modular",
                                  "module_spec": self.request()})
         plan = reply["modular"]
-        self.assertEqual(reply["questions"][0]["field"], "module_spec.support_style")
-        self.assertEqual(reply["questions"][1]["field"], "module_spec.proposed_layout_spec")
+        self.assertEqual(len(reply["questions"]), 1)
+        self.assertEqual(reply["questions"][0]["field"],
+                         "module_spec.proposed_layout_spec")
+        self.assertIn("¿irá al piso", reply["questions"][0]["question"])
         self.assertTrue(plan["support_style_is_suggestion"])
         self.assertEqual(plan["support_style"], "floor_direct")
         self.assertIn("AP · sin patas (al piso)", plan["sketch_svg"])
@@ -45,7 +47,9 @@ class DrawerSupportDecisionTests(unittest.TestCase):
     def test_legs_without_height_need_confirmation(self):
         reply = consult_maestro({"action": "modular",
                                  "module_spec": self.request(support_style="legs")})
-        self.assertEqual(reply["questions"][0]["field"], "module_spec.support_height_mm")
+        self.assertEqual(reply["questions"][0]["field"],
+                         "module_spec.proposed_layout_spec")
+        self.assertIn("altura real", reply["questions"][0]["question"])
         self.assertEqual(reply["modular"]["support_height_mm"], 100)
         self.assertTrue(reply["modular"]["support_height_is_suggestion"])
         self.assertIn("sugeridos", reply["modular"]["sketch_svg"])
