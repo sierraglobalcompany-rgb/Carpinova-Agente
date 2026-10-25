@@ -9,6 +9,7 @@
     "feet_height_mm": 40,
     "top_thickness_mm": 15,
     "wall_side": "left",
+    "drawer_opening_face": "long_side_front",
     "cabinet_module": {
       "module_id": "CAJONERA_DERECHA",
       "width_mm": 300,

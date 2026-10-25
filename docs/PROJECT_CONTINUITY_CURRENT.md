@@ -1,5 +1,15 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+
+## ESTADO ACTIVO DEL MUEBLE REAL — 25-oct-2026 (PR #21 DRAFT, no merge)
+
+El propietario confirmó una **barra auxiliar de cocina tipo península**: 900 mm desde el muro × 460 mm fondo × 900 mm alto total; cubierta MDP de 15 mm, extremo CORTO de 460 mm directamente fijado al muro (X=0), **ninguna tabla vertical/soporte ficticio junto al muro**. De X=0 a X=600 mm hay 600 mm libres por debajo. Cajonera derecha de 300 mm, X=600..900, sobre concepto de patas de 40 mm; 2 cajones pequeños arriba, uno grande abajo; frentes exteriores ÚNICOS (sin frente interior). Material MDP15. **DECISIÓN NUEVA CONFIRMADA: ORIENTACIÓN A**: los tres cajones abren **hacia el costado largo (plano XY, Z=0, desplazamiento hacia -Z)**, **NO** hacia la punta libre de 460 mm. No reinterpretar como escritorio, muro en lateral largo, ni agregar lateral al muro, faldón o patas izquierdas. Solo piezas CAD sustentadas en F1/F7C.
+
+La rama `feature/wall-bar-freecad-v10` y el [PR #21](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/21) contienen geometría de revisión con 21 piezas, FreeCAD nativo y prueba de identidad CAD. `module_spec.drawer_opening_face=long_side_front` debe estar explícito y la salida `wall_bar_review` marca apertura hacia -Z; cualquier otra orientación debe rechazarse. Una lámina `wall_bar_orientation_svg` sale del **mismo CADExchange**, no de IA generativa; muro como elemento de CONTEXTO, no tabla. La documentación histórica posterior (G48) es anterior a la entrega del mueble real y **no puede revocar estas medidas ni la decisión A**.
+
+Cantos: rígido PVC 2 mm para los 4 lados de cada frente; flexible 0,45 mm para bordes pertinentes restantes; referencias de herrajes Homecenter Medellín. Pendientes no aprobados: anclaje y material del muro, rigidez/carga del vano 600 mm de cubierta MDP15, sistema de unión de frentes estructurales a laterales/base, guías SKU/capacidad, patas reales y sus fijaciones, compensación de cantos y medidas finales de corte. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. No PR merge, deploy, corte ni compra sin revisión humana y seguridad física. **NEXT: validar CI exact-HEAD del PR #21 y mostrar SVG orientación A generado por GitHub; luego resolver bloques físicos. Responsable: CHATGPT. Codex: no necesario salvo ejecución local Windows indispensable.**
+
+
 ## ESTADO VIGENTE — G48 COMPLETADO / PROYECTO EN PAUSA PARA MUEBLE REAL (25-oct-2026)
 
 **Repositorio autorizado:** [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), rama `main`. **Último HEAD verificado antes de esta actualización de pausa:** `79db2ee3464f0d546d1ef97150718f085dc4c812` (PR #19 fusionado); verificar en vivo al retomar. Este encabezado es la fuente de verdad operacional. Todo el archivo después de la barrera **ARCHIVO HISTÓRICO** es memoria de decisiones, **no contiene NEXT válidos**. No modificar CarpiNova-PC ni CarpiNova-Knowledge desde este proyecto.

@@ -9,7 +9,9 @@ import unittest
 from carpinova_agent.core import DesignError
 from carpinova_agent.wall_bar import design_wall_bar
 from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
-from carpinova_agent.wall_bar_sheets import part_schedule, part_schedule_csv, part_schedule_svg
+from carpinova_agent.wall_bar_sheets import (part_schedule, part_schedule_csv,
+                                              part_schedule_svg, wall_bar_orientation_svg)
+from xml.etree import ElementTree
 from integrations.cad_native import native_boxes
 
 FILE = Path(__file__).resolve().parents[1] / "examples/wall-bar-900-review.json"
@@ -71,6 +73,24 @@ class WallBarTests(unittest.TestCase):
         self.assertIn("BAR-COVER-TOP", part_schedule_svg(m))
         self.assertEqual(sum(p["edge_policy"].startswith("RIGIDO") for p in schedule), 3)
 
+    def test_orientation_A_is_explicit_and_cad_proven(self):
+        model = self.model()
+        review = model["wall_bar_review"]
+        self.assertEqual(review["drawer_opening_face"], "long_side_front")
+        self.assertEqual(review["drawer_open_direction"], "negative_Z")
+        cad = validate_exchange(cad_exchange(model))
+        fronts = [b for b in cad["boxes"] if b["role"] == "drawer_facade"]
+        self.assertEqual(len(fronts), 3)
+        self.assertTrue(all(b["origin_xyz_mm"][2] == 0 and
+                            b["origin_xyz_mm"][0] >= 600 and
+                            b["origin_xyz_mm"][0] + b["size_xyz_mm"][0] <= 900 and
+                            b["size_xyz_mm"][0] == 296 for b in fronts))
+        sheet = wall_bar_orientation_svg(model)
+        ElementTree.fromstring(sheet)
+        self.assertIn("ORIENTACION A CONFIRMADA", sheet)
+        self.assertIn("BAR-COVER-TOP", sheet)
+        self.assertIn("CAJONERA_DERECHA-D1-DRAWER_FACADE", sheet)
+
     def test_no_mutation(self):
         request = spec()
         before = copy.deepcopy(request)
@@ -78,10 +98,14 @@ class WallBarTests(unittest.TestCase):
         self.assertEqual(request, before)
 
     def test_wrong_configuration_fails_closed(self):
-        for scenario in ("wall", "feet", "cabinet", "front", "span", "extra"):
+        for scenario in ("wall", "orientation_B", "orientation_missing", "feet", "cabinet", "front", "span", "extra"):
             request = spec()
             if scenario == "wall":
                 request["wall_side"] = "right"
+            elif scenario == "orientation_B":
+                request["drawer_opening_face"] = "short_free_end"
+            elif scenario == "orientation_missing":
+                del request["drawer_opening_face"]
             elif scenario == "feet":
                 request["feet_height_mm"] = 80
             elif scenario == "cabinet":
