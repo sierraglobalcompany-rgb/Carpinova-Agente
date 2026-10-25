@@ -91,6 +91,24 @@ class WallBarTests(unittest.TestCase):
         self.assertIn("BAR-COVER-TOP", sheet)
         self.assertIn("CAJONERA_DERECHA-D1-DRAWER_FACADE", sheet)
 
+    def test_physical_interfaces_are_derived_and_not_approved(self):
+        m = self.model()
+        review = m["wall_bar_review"]
+        self.assertEqual(review["drawer_base_clearance_mm"]["D3"], 2)
+        self.assertEqual(review["drawer_rear_clearance_mm"]["D3"], 30)
+        self.assertEqual(set(review["drawer_front_side_contact"]), {"D1", "D2", "D3"})
+        self.assertTrue(all(v == "GEOMETRIC_PLANE_ONLY_NOT_FASTENED"
+                            for v in review["drawer_front_side_contact"].values()))
+        self.assertTrue(any("D3: holgura vertical inferior nominal de 2 mm"
+                            in blocker for blocker in m["blockers"]))
+        self.assertEqual(len(m["parts"]), 21)
+        self.assertEqual(cad_exchange(m)["geometry_sha256"],
+                         "a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b")
+        self.assertFalse(m["fabrication_ready"])
+        self.assertFalse(m["cutting_ready"])
+        self.assertFalse(m["drilling_ready"])
+        self.assertFalse(m["purchase_ready"])
+
     def test_no_mutation(self):
         request = spec()
         before = copy.deepcopy(request)
