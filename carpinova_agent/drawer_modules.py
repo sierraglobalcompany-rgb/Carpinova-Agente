@@ -828,7 +828,6 @@ def drawer_layout_sketch_svg(plan: dict[str, Any]) -> str:
         f'<text x="35" y="788" class="small">'
         f'AP · {SUPPORT_LABELS[style]} · {support_h} mm '
         f'{"(sugeridos) " if plan.get("support_height_is_suggestion") else ""}'
-        f'{"(SIN CONFIRMAR) " if plan.get("support_style_is_suggestion") else ""}'
         f'· ALTO {overall} mm</text>',
         f'<text x="35" y="810" class="small">'
         f'{wall_text}</text>',
