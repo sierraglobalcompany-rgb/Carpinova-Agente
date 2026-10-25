@@ -26,7 +26,7 @@ ROOT_FIELDS = frozenset(("type", "application", "width_mm", "height_mm",
 MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "material_id", "construction", "fronts", "back",
                            "support", "finish", "drawers",
-                           "drawer_layout_reference"))
+                           "drawer_layout_reference", "support_concept"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -144,6 +144,53 @@ def _check_drawer_layout_reference(
             )
 
 
+SUPPORT_STYLES = frozenset(("floor_direct", "legs", "plinth", "wall_mounted"))
+SUPPORT_CONCEPT_FIELDS = frozenset(
+    ("style", "support_height_mm", "overall_height_mm"))
+
+
+def _support_concept(
+    value: Any, *, module_id: str, carcass_height_mm: int,
+    existing_support: str, installation: str
+) -> dict[str, Any]:
+    """Preserve confirmed review geometry; never synthesize support parts."""
+    data = _object(value, f"{module_id}.support_concept")
+    if set(data) != SUPPORT_CONCEPT_FIELDS:
+        raise DesignError(
+            f"{module_id}.support_concept: especificar style, "
+            "support_height_mm y overall_height_mm; ningún otro campo."
+        )
+    style = _choice(data["style"], SUPPORT_STYLES, f"{module_id}.support_concept.style")
+    height = data["support_height_mm"]
+    if type(height) is not int or height < 0:
+        raise DesignError(f"{module_id}: altura de patas/zócalo inválida.")
+    total = _positive(data["overall_height_mm"], f"{module_id}.overall_height_mm")
+    if style in ("legs", "plinth"):
+        if height == 0:
+            raise DesignError(f"{module_id}: patas/zócalo necesitan altura positiva.")
+    elif height != 0:
+        raise DesignError(f"{module_id}: sin patas o suspendido exige altura AP cero.")
+    if carcass_height_mm + height != total:
+        raise DesignError(
+            f"{module_id}: alto total y soporte no concuerdan con carcasa F1; "
+            "volver a revisar distribución de cajones."
+        )
+    expected_support = "wall" if style == "wall_mounted" else "floor"
+    if existing_support != expected_support:
+        raise DesignError(f"{module_id}: support y support_concept se contradicen.")
+    if (installation == "wall_mounted") != (style == "wall_mounted"):
+        raise DesignError(
+            f"{module_id}: el apoyo declarado contradice installation."
+        )
+    return {
+        "style": style, "support_height_mm": height,
+        "carcass_height_mm": carcass_height_mm, "overall_height_mm": total,
+        "physical_support_parts": None,
+        "physical_support_specification": "NOT_VERIFIED",
+        "fabrication_ready": False,
+    }
+
+
 def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     """Return documented nominal carcasses, always blocking cut/installation."""
     d = _object(spec, "proyecto")
@@ -165,6 +212,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise DesignError("modules: se requieren entre 1 y 12 módulos.")
     widths: list[int] = []
     prepared: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+    support_concepts: dict[str, dict[str, Any]] = {}
     seen: set[str] = set()
     for i, item in enumerate(modules):
         module = _object(item, f"modules[{i}]")
@@ -187,9 +235,30 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{module_id}: back requiere none, pending u objeto documentado.")
         if module.get("support") not in ("floor", "wall", "pending"):
             raise DesignError(f"{module_id}: indicar support=floor, wall o pending.")
+        if "support_concept" in module:
+            support_concepts[module_id] = _support_concept(
+                module["support_concept"], module_id=module_id,
+                carcass_height_mm=height,
+                existing_support=module["support"], installation=installation,
+            )
         prepared.append((module, _finish(module.get("finish"), module_id)))
         widths.append(w)
 
+    # One horizontal run has one baseline. Partial or contradictory AP heights
+    # cannot be silently merged into the same F1 carcass geometry.
+    if support_concepts:
+        if len(support_concepts) != len(modules):
+            raise DesignError(
+                "Todos los módulos de una fila deben declarar soporte cuando "
+                "uno incluye support_concept; no mezclar alturas implícitas."
+            )
+        baselines = {(v["style"], v["support_height_mm"],
+                      v["overall_height_mm"]) for v in support_concepts.values()}
+        if len(baselines) != 1:
+            raise DesignError(
+                "Fila modular con apoyos/alturas incompatibles: dividir "
+                "o revisar físicamente antes de modelar."
+            )
     total = sum(widths)
     blockers = [
         "Paneles nominales: sin compensación por tapacantos, sierra, cola o mecanizado.",
@@ -299,6 +368,15 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             blockers.append(f"{module['module_id']}: definir fondo, ranura o panel aplicado.")
         if module["support"] == "pending":
             blockers.append(f"{module['module_id']}: definir fijación/soporte.")
+        concept = support_concepts.get(module["module_id"])
+        if concept and concept["style"] in ("legs", "plinth"):
+            blockers.append(
+                f"{module['module_id']}: {concept['style']} de "
+                f"{concept['support_height_mm']} mm solo en geometría de "
+                "revisión: falta modelo, cantidad, ubicación, resistencia, "
+                "fijaciones y compatibilidad con la carga; NO añadir patas "
+                "al CSV de paneles ni autorizar fabricación."
+            )
         out_modules.append({
             "module_id": module["module_id"], "start_x_mm": x_offset,
             "external_width_mm": w, "external_height_mm": height,
@@ -311,6 +389,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 [piece["piece_id"] for piece in drawer_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
+            **({"support_review": concept} if concept is not None else {}),
             "drawer_ids": drawer_ids,
         })
         x_offset += w
