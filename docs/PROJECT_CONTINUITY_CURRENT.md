@@ -1,8 +1,8 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ESTADO VIGENTE — G47 completado / PR #18 fusionado (25-oct-2026)
+## ESTADO VIGENTE — G48 COMPLETADO / PROYECTO EN PAUSA PARA MUEBLE REAL (25-oct-2026)
 
-**Repositorio autorizado:** [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), rama `main`. **Último HEAD verificado al redactar:** `22ce6fc90fdff1036cb89dbbd22f3efabcc4f47d` (PR #18 fusionado); verificar en vivo al retomar. Este encabezado es la fuente de verdad operacional. Todo el archivo después de la barrera **ARCHIVO HISTÓRICO** es memoria de decisiones, **no contiene NEXT válidos**. No modificar CarpiNova-PC ni CarpiNova-Knowledge desde este proyecto.
+**Repositorio autorizado:** [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente), rama `main`. **Último HEAD verificado antes de esta actualización de pausa:** `79db2ee3464f0d546d1ef97150718f085dc4c812` (PR #19 fusionado); verificar en vivo al retomar. Este encabezado es la fuente de verdad operacional. Todo el archivo después de la barrera **ARCHIVO HISTÓRICO** es memoria de decisiones, **no contiene NEXT válidos**. No modificar CarpiNova-PC ni CarpiNova-Knowledge desde este proyecto.
 
 ### Objetivo REAL del propietario — máxima prioridad
 
@@ -17,6 +17,8 @@ El propietario necesita **diseñar un mueble real (aún NO ha entregado croquis 
 - PR [#17](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/17) MERGED `c584dfa5f8cfb21c2740dc3e5db5ebc49289ff41`, 5/5 exact-head PASS (Windows MCP y FreeCAD/Blender CI). **G46:** si no se especifica AP, `floor_direct` es solo supuesto visual; Maestro hace **UNA pregunta inicial** que incluye apoyo (piso/patas/zócalo/suspendido). Patas/zócalo requieren altura confirmada; se descuentan de `overall_height_mm`, generan `carcass_height_mm` diferente y redistribuyen todas las aberturas F1. Bocetos SVG originales preservados, cinco regresiones nuevas; no genera piezas físicas de pata.
 - PR [#18](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/18) **MERGED**, squash `22ce6fc90fdff1036cb89dbbd22f3efabcc4f47d`, revisado HEAD `72fa583d1ea589917dd808ee57f8cdbc7d525683`, CI **5/5 SUCCESS exact-head** (incluidos MCP Windows real y FreeCAD/Blender nativo). **G47:** F7C recibe el objeto **opcional** `modules[].support_concept` con `style`, `support_height_mm`, `overall_height_mm`; valida `carcass_height_mm + support_height_mm == overall_height_mm`, compatibilidad `support=floor/wall`, consistencia de alturas para módulos en una misma fila y `drawer_layout_reference`. Devuelve `modules[].support_review` con `physical_support_parts=null`, `physical_support_specification=NOT_VERIFIED`; **NO** fabrica ni incluye patas físicas en CSV ni desbloquea los cuatro permisos. Añade cinco regresiones; payloads históricos sin `support_concept` siguen funcionando. Tres archivos cambiados y `main` confirmado tras squash.
 
+- PR [#19](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/19) **MERGED**, squash `79db2ee3464f0d546d1ef97150718f085dc4c812`, CI **4/4 PASS**, documento único `docs/PROJECT_CONTINUITY_CURRENT.md` que selló G47 y la prioridad del mueble real. Se conserva íntegro el historial.
+
 ### Qué está VALIDADO y qué NO
 
 - **VALIDADO GitHub:** geometría F1/F7C, despieces *nominales de revisión* en pilotos, 2D SVG, MCP de CI Windows/Linux y CAD nativo CI; ninguna de estas pruebas equivale a producción en la máquina del propietario ni valida patas físicas.
@@ -30,13 +32,17 @@ El propietario necesita **diseñar un mueble real (aún NO ha entregado croquis 
 
 **L1 KISS/Ponytail**: un motor F1, un Maestro y la primera solución completa más simple; **L2 antirruido**: unir/mejorar/eliminar con evidencia, no multiplicar herramientas; **L3 antiparches**: reparar causa raíz y consumidores con regresiones; **L4 diseño**: SVG/planos legibles, orientación real, nunca T invertida dibujada incorrectamente; **L5 verificación independiente**: comparación SHA exact-head, CI y fuentes, sin afirmar PASS no observado; **L6 anti ping-pong**: ChatGPT resuelve GitHub y análisis, Codex solo para ejecución local exclusiva. Canon [PingPongLaw@84e961ca](https://github.com/sierraglobalcompany-rgb/PingPongLaw/blob/84e961cadf482d234f4c0ee2ca60e8c7e9b388e8/docs/engineering/LEYES_IMPLEMENTACION_1_A_6.md), git blob `0f6e7b4e62d8660c846f135e18dded629d29e0da`. No alterar repos de diseño/PC/Knowledge fuera del alcance.
 
+### PAUSA SOLICITADA POR EL PROPIETARIO — 25-oct-2026
+
+El propietario ordenó: **«en el momento ten todo actualizado, después fabricaremos el mueble»**. Interpretar como **PAUSA CONGELADA**, no como solicitud de fabricar, comprar, instalar, rediseñar, preparar una nueva fase, reactivar Codex o lanzar tests. No generar nuevos muebles ni reproducir C01. Para reanudar, esperar un mensaje del propietario con croquis/foto, cotas o instrucciones explícitas del mueble real. El único objetivo entre tanto es conservar el estado, no crear ciclos de trabajo. No existe tarea en segundo plano. 
+
 ### RECOVERY compacto y NEXT EXACTO
 
-**Al iniciar otro chat:** leer primero este apartado VIGENTE → comprobar el HEAD vivo de `main` (último observado `22ce6fc9…`) y PR #18 MERGED → comprobar si PR #19 de continuidad se integró y su CI exact-head → leer `AGENTS.md` y `skills/maestro-carpintero/SKILL.md` → proteger el WIP de Codex y separar repositorios. La sección inferior es HISTÓRICA. No ejecutar NEXT antiguos, repetir G40–G47 ni usar C01 como mueble real. Nunca declarar un despiece listo para cortar si faltan soportes físicos, herrajes o aprobaciones.
+**Al iniciar otro chat:** leer PR #20 de pausa si se integró y verificar el HEAD vivo de `main`; esta línea documenta que el HEAD **previo a la pausa** fue `79db2ee3464f0d546d1ef97150718f085dc4c812`. PR #17/#18/#19 están fusionados y sus CI completos, **NO volver a probarlos**. Revisar `AGENTS.md`, Maestro y este checkpoint; no ejecutar NEXT del historial, no tratar C01 como el mueble real ni tocar CarpiNova-PC/Knowledge. Estado Windows/Codex activo NO verificado; G45 ZIP local reportado, NO adjunto ni auditado. El usuario no ha suministrado todavía diseño ni medidas del nuevo mueble. Respetar pausa.
 
-**NEXT ÚNICO = G48_CONTINUIDAD_CI_FINAL_Y_MUEBLE_REAL:** **TRABAJA CHATGPT**: terminar la revisión CI exact-head del [PR #19](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/19), confirmar que solo modifica `docs/PROJECT_CONTINUITY_CURRENT.md`, merge squash solo si está GREEN, verificar el nuevo `main` y enlazar la continuidad canónica. Inmediatamente después, **priorizar diseño y despiece del mueble real**: pedir al propietario el croquis/foto/medidas del nuevo mueble (aún NO disponibles); hacer boceto frontal/lateral, confirmar AP y altura exterior, espesores, frentes y fijaciones, proponer y revisar piezas nominales y herrajes por separado. **No reabrir otro desarrollo de microfases por defecto.** El ZIP local de G45 solo se usa si el propietario decide reanudar la migración del Codex activo y lo adjunta. **CODEX=PAUSA** mientras no haya tarea Windows exclusiva justificada.
+**NEXT ÚNICO = ESPERAR_INSTRUCCIONES_MUEBLE_REAL_DEL_PROPIETARIO:** estado PASIVO. **SIN EJECUCIÓN PENDIENTE AHORA.** Cuando el propietario lo indique y proporcione datos del mueble verdadero, **CHATGPT** asume boceto frontal/lateral, revisa patas/zócalo y alto total, propone materiales y herrajes verificables, elabora despiece *preliminar* y valida antes de entregar corte. No usar C01, no desarrollar microfases técnicas sin defecto real, ni activar Codex por defecto. Los cuatro permisos de fabricación permanecen `false`; no declarar completo un BOM sin patas/soportes físicos, correderas, fijaciones y tolerancias validadas. **CODEX=PAUSA.**
 
-**ENCARGADO DE LA SIGUIENTE EJECUCIÓN: CHATGPT.**
+**ENCARGADO CUANDO EL PROPIETARIO REANUDE: CHATGPT. EN ESTE MOMENTO: NINGUNA EJECUCIÓN PROGRAMADA.**
 
 
 ---
