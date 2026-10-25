@@ -149,36 +149,30 @@ def consult_maestro(
                 "unit": "opening_choice_review",
             })
         elif modular["status"] == "NEEDS_USER_CONFIRMATION" and modular.get("guided"):
-            # AP affects F1 carcass height and every drawer opening.
+            # One novice-friendly question: never silently approve a floor-only
+            # sketch when legs/plinth would change EVERY F1 drawer opening.
+            intro = "¿Te gusta este boceto como primera idea? "
             if modular.get("support_style_is_suggestion"):
-                result["questions"].append({
-                    "field": "module_spec.support_style",
-                    "question": (
-                        "¿La cajonera irá directamente al piso, con patas, "
-                        "con zócalo o suspendida? El dibujo sin patas es "
-                        "provisional; la elección cambia la altura y los cajones."
-                    ),
-                    "unit": "support_choice",
-                })
+                guidance = (
+                    "Antes de aprobarlo, ¿irá al piso sin patas, con patas, "
+                    "con zócalo o suspendido? Sin patas es solo un ejemplo. "
+                    "Al escoger patas/zócalo recalcularé carcasa y cajones. "
+                )
             elif modular.get("support_height_is_suggestion"):
-                result["questions"].append({
-                    "field": "module_spec.support_height_mm",
-                    "question": (
-                        "¿Qué altura tendrán las patas o el zócalo? "
-                        "Los 100 mm dibujados son solo una sugerencia; "
-                        "se descuentan del alto total y recalculan los cajones."
-                    ),
-                    "unit": "mm",
-                })
-            result["questions"].append({
-                "field": "module_spec.proposed_layout_spec",
-                "question": (
-                    "¿Te gusta este boceto como primera idea? "
+                guidance = (
+                    "Elegiste patas/zócalo. ¿Qué altura real tendrán? "
+                    "Los 100 mm del dibujo son solo una sugerencia: se "
+                    "descuentan del alto total y cambian todos los cajones. "
+                )
+            else:
+                guidance = (
                     "Puedes decir 'A más alto', 'pon patas de 10 cm', "
                     "'T más ancha' o 'quiero colgarlo en muro'. "
-                    "Después revisamos fondo FP, herrajes y materiales."
-
-                ),
+                )
+            result["questions"].append({
+                "field": "module_spec.proposed_layout_spec",
+                "question": intro + guidance
+                + "Después revisamos fondo FP, herrajes y materiales.",
                 "unit": "simple_confirmation",
             })
         elif modular["status"] == "NEEDS_USER_CONFIRMATION":
