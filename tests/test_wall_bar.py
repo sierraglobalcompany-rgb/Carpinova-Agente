@@ -10,7 +10,8 @@ from carpinova_agent.core import DesignError
 from carpinova_agent.wall_bar import design_wall_bar
 from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
 from carpinova_agent.wall_bar_sheets import (part_schedule, part_schedule_csv,
-                                              part_schedule_svg, wall_bar_orientation_svg)
+                                              part_schedule_svg, wall_bar_orientation_svg,
+                                              wall_bar_front_contacts_svg)
 from xml.etree import ElementTree
 from integrations.cad_native import native_boxes
 
@@ -150,6 +151,33 @@ class WallBarTests(unittest.TestCase):
         with patch.object(wall_bar, "design_modular_run", misaligned):
             with self.assertRaisesRegex(DesignError, "sin contacto frontal completo"):
                 self.model()
+
+    def test_contact_drawing_is_exactly_from_cad_and_explicitly_non_fabricable(self):
+        model = self.model()
+        sheet = wall_bar_front_contacts_svg(model)
+        root = ElementTree.fromstring(sheet)
+        self.assertEqual(root.attrib["viewBox"], "0 0 1210 750")
+        self.assertIn("VISTA", sheet.upper())
+        for did in ("D1", "D2", "D3"):
+            self.assertIn(f"CAJONERA_DERECHA-{did}-DRAWER_FACADE", sheet)
+        self.assertIn("Sujeción sin definir", sheet)
+        self.assertIn(cad_exchange(model)["geometry_sha256"], sheet)
+        self.assertNotIn("manufacturing_holes", sheet)
+        self.assertEqual(len(model["parts"]), 21)
+        self.assertFalse(model["drilling_ready"])
+        self.assertFalse(model["cutting_ready"])
+
+    def test_contact_drawing_rejects_missing_or_unapproved_connection(self):
+        good = self.model()
+        for mode in ("missing_side", "fake_holes"):
+            data = copy.deepcopy(good)
+            iface = data["wall_bar_review"]["front_joint_interfaces"]["D3"]
+            if mode == "missing_side":
+                del iface["surfaces"]["left_side"]
+            else:
+                iface["fixing_holes_specified"] = True
+            with self.subTest(mode=mode), self.assertRaises(DesignError):
+                wall_bar_front_contacts_svg(data)
 
     def test_four_edge_pvc_does_not_become_unapproved_cut_dimensions(self):
         model = self.model()
