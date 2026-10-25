@@ -141,7 +141,7 @@ def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
         f'width="{(w-free)*sp:.2f}" height="{d*sp:.2f}" '
         'fill="#c0d3db" fill-opacity=".52" stroke="#64748b" stroke-dasharray="7 4"/>',
         f'<text x="{sx+85:.2f}" y="{sy+92:.2f}" font-size="18">'
-        f'600 mm libres</text>',
+        f'600 mm libres BAJO cubierta</text>',
         f'<text x="{sx+free*sp+8:.2f}" y="{sy+98:.2f}" font-size="17">'
         f'Cajonera 300 mm</text>',
         f'<text x="{sx+80:.2f}" y="{sy+d*sp+33:.2f}" font-size="17">'
@@ -157,10 +157,10 @@ def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
         )
     arrow_x = sx+(free+(w-free)/2)*sp
     lines += [
-        f'<path d="M{arrow_x:.2f} {sy-4:.2f}V{sy-64:.2f}" '
+        f'<path d="M{arrow_x:.2f} {sy-4:.2f}V{sy-31:.2f}" '
         'stroke="#b45309" stroke-width="3" marker-end="url(#arrow)"/>',
-        f'<text x="{sx+free*sp-40:.2f}" y="{sy-80:.2f}" font-size="16">'
-        'Abertura hacia afuera · -Z</text>',
+        f'<text x="{sx+w*sp+25:.2f}" y="{sy+35:.2f}" font-size="16">'
+        'ABRE HACIA -Z</text>',
         '<text x="35" y="630" font-size="21" font-weight="bold">'
         '2. ELEVACION del COSTADO LARGO (mirando hacia +Z)</text>',
     ]
@@ -200,8 +200,10 @@ def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
             f'text-anchor="middle" font-size="19" font-weight="bold">{escape(label)}</text>'
         ]
     lines += [
-        f'<text x="{fx+10:.2f}" y="{fy+205:.2f}" font-size="19">'
-        'SIN TABLERO VERTICAL JUNTO AL MURO</text>',
+        f'<text x="{fx+20:.2f}" y="{fy+205:.2f}" font-size="18">'
+        'SIN LATERAL</text>',
+        f'<text x="{fx+20:.2f}" y="{fy+233:.2f}" font-size="18">'
+        'JUNTO AL MURO</text>',
         f'<text x="{fx+20:.2f}" y="{fy+h*sf+42:.2f}" font-size="18">'
         f'Altura {h} mm · patas {rv["feet_height_mm"]} mm NO MODELADAS</text>',
         '<text x="755" y="717" font-size="18" font-weight="bold">'
