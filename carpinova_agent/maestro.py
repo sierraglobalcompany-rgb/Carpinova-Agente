@@ -15,6 +15,7 @@ from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 
 from .intake import guide_project
 from .modular import design_modular_run
+from .wall_bar import design_wall_bar
 from .drawer_modules import propose_drawer_layout, guide_drawer_layout
 from .opening_guide import guide_opening_systems
 from .construction_advice import construction_advice
@@ -134,6 +135,8 @@ def consult_maestro(
             if spec.get("type") == "drawer_layout_guide"
             else propose_drawer_layout(spec)
             if spec.get("type") == "drawer_layout_proposal"
+            else design_wall_bar(spec)
+            if spec.get("type") == "wall_bar"
             else design_modular_run(spec)
         )
         result["modular"] = modular
@@ -238,7 +241,9 @@ def consult_maestro(
                 "unit": "mm",
             })
         if modular["status"] == "DRAFT_NOT_FOR_CUTTING":
-            modules = inp["module_spec"]["modules"]
+            modules = (inp["module_spec"]["modules"]
+                       if spec.get("type") != "wall_bar"
+                       else [spec["cabinet_module"]])
             # Structural decisions come first; cosmetic finishing must not
             # hide an unresolved drawer/door/support when max_questions=3.
             for module in modules:
