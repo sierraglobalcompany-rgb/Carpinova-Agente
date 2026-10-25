@@ -1,0 +1,96 @@
+name: Wall bar FreeCAD native proof
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'carpinova_agent/wall_bar.py'
+      - 'carpinova_agent/drawer_modules.py'
+      - 'carpinova_agent/cad_exchange.py'
+      - 'carpinova_agent/wall_bar_sheets.py'
+      - 'examples/wall-bar-900-review.json'
+      - 'tests/test_wall_bar.py'
+      - '.github/workflows/wall-bar-native.yml'
+permissions:
+  contents: read
+jobs:
+  native-wall-bar:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Focused geometry and negative tests
+        run: python -m unittest tests.test_wall_bar -v
+      - name: Generate verified canonical 21-panel CADExchange and schedule
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          from xml.etree import ElementTree
+          from carpinova_agent.wall_bar import design_wall_bar
+          from carpinova_agent.cad_exchange import cad_exchange,validate_exchange
+          from carpinova_agent.wall_bar_sheets import part_schedule_csv,part_schedule_svg
+          spec=json.loads(Path("examples/wall-bar-900-review.json").read_text())["module_spec"]
+          model=design_wall_bar(spec)
+          cad=validate_exchange(cad_exchange(model))
+          assert cad["bounds_xyz_mm"]==[900,900,460] and len(cad["boxes"])==21
+          assert len({b["piece_id"] for b in cad["boxes"]})==21
+          assert sum(b["role"]=="drawer_facade" for b in cad["boxes"])==3
+          assert not any(b["role"]=="drawer_front_wall" for b in cad["boxes"])
+          assert all(b["origin_xyz_mm"][0]>=600 or b["origin_xyz_mm"][1]>=885 for b in cad["boxes"])
+          assert all(model[k] is False for k in ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+          svg=part_schedule_svg(model);ElementTree.fromstring(svg)
+          out=Path(os.environ["RUNNER_TEMP"])
+          (out/"wall-bar-cad.json").write_text(json.dumps(cad,indent=2)+"\n")
+          (out/"wall-bar-parts.csv").write_text(part_schedule_csv(model))
+          (out/"wall-bar-parts.svg").write_text(svg)
+          print("WALL_BAR_CAD_MATCH",cad["geometry_sha256"])
+          PY
+      - name: Install FreeCAD only on ephemeral CI runner
+        run: |
+          while IFS= read -r -d '' aptfile; do
+            if grep -q 'packages.microsoft.com' "$aptfile"; then
+              sudo mv "$aptfile" "$aptfile.disabled"
+            fi
+          done < <(find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -print0)
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends freecad-python3
+          command -v freecadcmd || command -v FreeCADCmd
+      - name: Generate and independently measure native FreeCAD solids
+        env:
+          CARPINOVA_CAD_INPUT: ${{ runner.temp }}/wall-bar-cad.json
+          CARPINOVA_FCSTD_OUTPUT: ${{ runner.temp }}/wall-bar-native.FCStd
+        run: |
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          timeout 90s "$FC_BIN" integrations/freecad_headless_proof.FCScript 2>&1 | tee "$RUNNER_TEMP/wall-bar-native.log"
+          test -s "$RUNNER_TEMP/wall-bar-native.FCStd"
+          grep -q 'FREECAD_NATIVE_RESULT=' "$RUNNER_TEMP/wall-bar-native.log"
+          grep -q 'NATIVE_GEOMETRY_MATCH' "$RUNNER_TEMP/wall-bar-native.log"
+      - name: Confirm real FCStd archive has exactly 21 solids
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+          from xml.etree import ElementTree
+          p=Path(os.environ["RUNNER_TEMP"])/"wall-bar-native.FCStd"
+          with ZipFile(p) as archive:
+              assert archive.testzip() is None
+              assert "Document.xml" in archive.namelist()
+              root=ElementTree.fromstring(archive.read("Document.xml"))
+              assert len(root.findall(".//Object"))==21
+          print("WALL_BAR_NATIVE_21_PANELS_PASS")
+          PY
+      - name: Preserve CAD and FreeCAD project for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: wall-bar-21-piece-freecad-preview
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/wall-bar-cad.json
+            ${{ runner.temp }}/wall-bar-parts.csv
+            ${{ runner.temp }}/wall-bar-parts.svg
+            ${{ runner.temp }}/wall-bar-native.FCStd
+            ${{ runner.temp }}/wall-bar-native.log
