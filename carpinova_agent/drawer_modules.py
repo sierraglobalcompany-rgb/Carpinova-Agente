@@ -573,6 +573,7 @@ def drawer_layout_sketch_text(plan: dict[str, Any]) -> str:
     rows.extend([
         f"AP: {SUPPORT_LABELS[plan.get('support_style', 'floor_direct')]}; "
         f"altura {_sketch_mm(plan.get('support_height_mm', 0))}; "
+        f"{'APOYO SIN CONFIRMAR; ' if plan.get('support_style_is_suggestion') else ''}"
         f"alto total {_sketch_mm(plan.get('overall_height_mm', dims['height']))}.",
         f"MF: {WALL_LABELS[plan.get('wall_fixing', 'pending')]}, "
         f"muro {'sí' if plan.get('wall_contact', False) else 'no'}; "
@@ -1080,6 +1081,9 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
     outer_depth = spec["depth_mm"] + max(
         extensions["top", "front"], extensions["bottom", "front"]
     ) + max(extensions["top", "rear"], extensions["bottom", "rear"])
+    # A floor-standing drawing is a provisional visual baseline, not an
+    # owner-confirmed decision to omit legs or a plinth.
+    support_style_is_suggestion = "support_style" not in spec
     support_style = spec.get("support_style", "floor_direct")
     if support_style not in ("floor_direct", "legs", "plinth", "wall_mounted"):
         raise DesignError(
@@ -1207,7 +1211,7 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
             "panel_thickness_mm": 18, "construction": construction,
             "vertical_gap_mm": 28, "drawer_weights": list(weights),
             "large_drawer_position": position,
-            "support_style": support_style,
+            "support_style": support_style if support_style_is_suggestion else None,
             "support_height_mm": sh if support_height_suggested else None,
             "wall_fixing": wall_fixing if "wall_fixing" not in spec else None,
             "back_thickness_mm": back_t if back_style == "thin_sheet"
@@ -1217,6 +1221,7 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         "overall_height_mm": overall_h,
         "carcass_height_mm": overall_h - sh,
         "support_style": support_style,
+        "support_style_is_suggestion": support_style_is_suggestion,
         "support_height_mm": sh,
         "support_height_is_suggestion": support_height_suggested,
         "wall_contact": wall_contact,
@@ -1237,7 +1242,8 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         + ". Identifiqué A-D (arriba hacia abajo), T (tapa), BS (base), LI/LD "
           "(laterales). Puedes pedirme «A 10 cm más alto» o «T sobresale "
           "5 cm»; te mostraré cómo afecta a las demás piezas. "
-          "Puedes escoger piso, patas, zócalo o muro con fondo opcional; "
+          "El apoyo debe elegirse: piso sin patas, patas, zócalo o suspendido; "
+          "si no se eligió, el piso del dibujo es solo una suposición. "
           "AP/MF/FP son partes identificadas solo para conversar. "
           "Los 18 mm de tablero y 28 mm de franjas internas son "
           "supuestos, no especificaciones."
@@ -1246,6 +1252,12 @@ def guide_drawer_layout(spec: Any) -> dict[str, Any]:
         0, "Boceto editable, NO plano de despiece: confirmar cada opción "
            "técnica antes de crear piezas, incluidos apoyos/muro/fondos."
     )
+    if support_style_is_suggestion:
+        result["blockers"].insert(
+            1, "APOYO SIN CONFIRMAR: el boceto provisional muestra la carcasa al "
+               "piso, pero elegir patas/zócalo cambia el alto de la carcasa y "
+               "redistribuye TODOS los cajones. Preguntar antes del despiece."
+        )
     if support_height_suggested:
         result["blockers"].insert(
             1, "Altura AP 100 mm es un ejemplo no solicitado; la persona "
