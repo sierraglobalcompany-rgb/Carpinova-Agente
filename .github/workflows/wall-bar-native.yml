@@ -80,10 +80,14 @@ jobs:
               assert archive.testzip() is None
               assert "Document.xml" in archive.namelist()
               root=ElementTree.fromstring(archive.read("Document.xml"))
-              assert len(root.findall(".//Object"))==21
+              # FreeCAD stores each feature twice: once under Objects and once under ObjectData.
+              objects=root.findall("./Objects/Object")
+              print("FCSTD_DECLARED_FEATURES=",len(objects))
+              assert len(objects)==21, f"Expected 21 actual features, got {len(objects)}"
           print("WALL_BAR_NATIVE_21_PANELS_PASS")
           PY
       - name: Preserve CAD and FreeCAD project for review
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: wall-bar-21-piece-freecad-preview
