@@ -149,6 +149,27 @@ def consult_maestro(
                 "unit": "opening_choice_review",
             })
         elif modular["status"] == "NEEDS_USER_CONFIRMATION" and modular.get("guided"):
+            # AP affects F1 carcass height and every drawer opening.
+            if modular.get("support_style_is_suggestion"):
+                result["questions"].append({
+                    "field": "module_spec.support_style",
+                    "question": (
+                        "¿La cajonera irá directamente al piso, con patas, "
+                        "con zócalo o suspendida? El dibujo sin patas es "
+                        "provisional; la elección cambia la altura y los cajones."
+                    ),
+                    "unit": "support_choice",
+                })
+            elif modular.get("support_height_is_suggestion"):
+                result["questions"].append({
+                    "field": "module_spec.support_height_mm",
+                    "question": (
+                        "¿Qué altura tendrán las patas o el zócalo? "
+                        "Los 100 mm dibujados son solo una sugerencia; "
+                        "se descuentan del alto total y recalculan los cajones."
+                    ),
+                    "unit": "mm",
+                })
             result["questions"].append({
                 "field": "module_spec.proposed_layout_spec",
                 "question": (
