@@ -125,6 +125,48 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "feet_height_mm": feet, "physical_feet_parts": None,
         "top_y_range_mm": [h-top, h]
     }
+    # Physical interfaces read from F1/F7C part coordinates; NO new geometry.
+    # Record gaps and planar contacts, never infer a working mechanical joint.
+    p_by_id = {p["piece_id"]: p for p in result["parts"]}
+    cid = module["module_id"]
+    bottom = p_by_id[f"{cid}-BOTTOM"]
+    back = p_by_id[f"{cid}-BACK_FULL"]
+    bottom_top_y = bottom["nominal_origin_xyz_mm"][1] + bottom["thickness_mm"]
+    rear_front_z = back["nominal_origin_xyz_mm"][2]
+    gaps = {}
+    rear_gaps = {}
+    planar_front_contacts = {}
+    for did in ("D1", "D2", "D3"):
+        base = p_by_id[f"{cid}-{did}-DRAWER_BOTTOM"]
+        facade = p_by_id[f"{cid}-{did}-DRAWER_FACADE"]
+        left = p_by_id[f"{cid}-{did}-DRAWER_SIDE_LEFT"]
+        right = p_by_id[f"{cid}-{did}-DRAWER_SIDE_RIGHT"]
+        gap = base["nominal_origin_xyz_mm"][1] - bottom_top_y
+        rear_gap = rear_front_z - (
+            base["nominal_origin_xyz_mm"][2] + base["nominal_face_y_mm"]
+        )
+        if gap < 0 or rear_gap < 0:
+            raise DesignError(f"{did}: solape con base de carcasa o respaldo.")
+        contact_z = facade["nominal_origin_xyz_mm"][2] + facade["thickness_mm"]
+        planar_front_contacts[did] = (
+            left["nominal_origin_xyz_mm"][2] == contact_z
+            and right["nominal_origin_xyz_mm"][2] == contact_z
+        )
+        if not planar_front_contacts[did]:
+            raise DesignError(f"{did}: frente no contacta ambos laterales en plano.")
+        gaps[did] = gap
+        rear_gaps[did] = rear_gap
+    result["wall_bar_review"]["drawer_base_clearance_mm"] = gaps
+    result["wall_bar_review"]["drawer_rear_clearance_mm"] = rear_gaps
+    result["wall_bar_review"]["drawer_front_side_contact"] = {
+        k: "GEOMETRIC_PLANE_ONLY_NOT_FASTENED" for k in planar_front_contacts
+    }
+    result["blockers"].extend([
+        f"D3: holgura vertical inferior nominal de {gaps['D3']} mm sin "
+        "validación de correderas, tolerancias, carga ni flexión.",
+        "D1/D2/D3: el frente solo contacta geométricamente los laterales; "
+        "faltan conectores dimensionados y verificados.",
+    ])
     result["blockers"].extend([
         "Tipo de muro, unión al muro, cargas y flecha de cubierta NO VERIFICADOS.",
         "Patas: SKU, cantidad, capacidad, distribución y fijaciones SIN VALIDAR.",
