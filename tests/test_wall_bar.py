@@ -8,6 +8,7 @@ import unittest
 
 from carpinova_agent.core import DesignError
 from carpinova_agent.wall_bar import design_wall_bar
+from carpinova_agent.maestro import consult_maestro
 from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
 from carpinova_agent.wall_bar_sheets import (part_schedule, part_schedule_csv,
                                               part_schedule_svg, wall_bar_orientation_svg,
@@ -207,6 +208,67 @@ class WallBarTests(unittest.TestCase):
             else:
                 face["edgebanding_edges"].remove("y_min")
             with self.subTest(edit=edit), self.assertRaises(DesignError):
+                design_wall_bar(data)
+
+    def test_installation_scope_and_cosmetic_edge_choices_do_not_change_cad(self):
+        baseline = self.model()
+        old_cad = cad_exchange(baseline)
+        options = baseline["wall_bar_review"]["design_choices"]
+        self.assertEqual(options["wall_support_presentation"], "installer_defined")
+        self.assertEqual(options["top_edge_presentation"], "actual_15mm")
+        self.assertTrue(options["wall_attachment_by_installer"])
+        self.assertFalse(options["site_wall_material_required_for_design"])
+        self.assertFalse(options["support_parts_modeled"])
+        self.assertFalse(options["false_thickness_parts_modeled"])
+        self.assertTrue(options["options_are_design_notes_only"])
+        for wall in ("installer_defined", "wood_cleat", "metal_l_brackets",
+                     "metal_support", "other_pending"):
+            for edge in ("actual_15mm", "false_thickness_pending", "undecided"):
+                data = spec()
+                data["design_choices"] = {
+                    "wall_support_presentation": wall,
+                    "top_edge_presentation": edge,
+                }
+                result = design_wall_bar(data)
+                self.assertEqual(cad_exchange(result), old_cad)
+                self.assertEqual(result["piece_count"], 21)
+                self.assertFalse(result["fabrication_ready"])
+                self.assertFalse(result["purchase_ready"])
+                self.assertFalse(result["cutting_ready"])
+                self.assertFalse(result["drilling_ready"])
+                self.assertEqual(
+                    result["wall_bar_review"]["design_choices"][
+                        "selected_elements_require_dimensions_and_owner_approval"
+                    ], wall != "installer_defined" or edge == "false_thickness_pending")
+
+    def test_maestro_offers_independent_optional_questions(self):
+        result = consult_maestro({"action": "modular", "module_spec": spec()},
+                                 max_questions=6)
+        fields = {q["field"] for q in result["questions"]}
+        self.assertIn("module_spec.design_choices.wall_support_presentation", fields)
+        self.assertIn("module_spec.design_choices.top_edge_presentation", fields)
+        self.assertFalse(result["fabrication_ready"])
+        self.assertEqual(len(result["modular"]["parts"]), 21)
+        selected = spec()
+        selected["design_choices"] = {
+            "wall_support_presentation": "installer_defined",
+            "top_edge_presentation": "actual_15mm",
+        }
+        resolved = consult_maestro({"action": "modular", "module_spec": selected},
+                                   max_questions=6)
+        self.assertFalse(any("design_choices" in q["field"]
+                             for q in resolved["questions"]))
+
+    def test_mounting_options_fail_closed_on_bad_input(self):
+        for invalid in (
+            {"wall_support_presentation": "blind_invisible_anchor"},
+            {"top_edge_presentation": "automatic_40mm_fascia"},
+            {"mounting_screw_mm": 50},
+            ["wood_cleat"],
+        ):
+            data = spec()
+            data["design_choices"] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(DesignError):
                 design_wall_bar(data)
 
     def test_no_mutation(self):

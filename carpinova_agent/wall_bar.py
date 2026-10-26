@@ -19,13 +19,31 @@ def _positive(spec: Mapping[str, Any], name: str) -> int:
     return n
 
 
+WALL_SUPPORT_CHOICES = frozenset(("installer_defined", "wood_cleat",
+                                   "metal_l_brackets", "metal_support", "other_pending"))
+TOP_EDGE_CHOICES = frozenset(("actual_15mm", "false_thickness_pending", "undecided"))
+
+
 def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     fields = {"type", "overall_width_mm", "overall_height_mm",
               "overall_depth_mm", "free_span_mm", "feet_height_mm",
               "top_thickness_mm", "wall_side", "drawer_opening_face",
               "cabinet_module"}
-    if type(spec) is not dict or set(spec) != fields or spec["type"] != "wall_bar":
+    if (type(spec) is not dict or not fields.issubset(spec)
+            or set(spec) - fields - {"design_choices"}
+            or spec["type"] != "wall_bar"):
         raise DesignError("wall_bar: contrato exacto requerido.")
+    choices = spec.get("design_choices", {})
+    if (type(choices) is not dict
+            or set(choices) - {"wall_support_presentation", "top_edge_presentation"}):
+        raise DesignError("wall_bar.design_choices: opciones desconocidas.")
+    wall_presentation = choices.get("wall_support_presentation", "installer_defined")
+    edge_presentation = choices.get("top_edge_presentation", "actual_15mm")
+    if (type(wall_presentation) is not str
+            or wall_presentation not in WALL_SUPPORT_CHOICES
+            or type(edge_presentation) is not str
+            or edge_presentation not in TOP_EDGE_CHOICES):
+        raise DesignError("Opciones de presentación mural/canto no reconocidas.")
     w = _positive(spec, "overall_width_mm")
     h = _positive(spec, "overall_height_mm")
     d = _positive(spec, "overall_depth_mm")
@@ -131,7 +149,20 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "cabinet_x_range_mm": [free, w],
         "cabinet_y_range_mm": [feet, h-top],
         "feet_height_mm": feet, "physical_feet_parts": None,
-        "top_y_range_mm": [h-top, h]
+        "top_y_range_mm": [h-top, h],
+        "design_choices": {
+            "wall_support_presentation": wall_presentation,
+            "top_edge_presentation": edge_presentation,
+            "wall_attachment_by_installer": True,
+            "site_wall_material_required_for_design": False,
+            "support_parts_modeled": False,
+            "false_thickness_parts_modeled": False,
+            "selected_elements_require_dimensions_and_owner_approval": (
+                wall_presentation != "installer_defined"
+                or edge_presentation == "false_thickness_pending"
+            ),
+            "options_are_design_notes_only": True,
+        },
     }
     # Physical interfaces read from F1/F7C part coordinates; NO new geometry.
     # Record gaps and planar contacts, never infer a working mechanical joint.
@@ -257,7 +288,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "faltan conectores dimensionados y verificados.",
     ])
     result["blockers"].extend([
-        "Tipo de muro, unión al muro, cargas y flecha de cubierta NO VERIFICADOS.",
+        "El instalador verifica en obra los anclajes y la seguridad del apoyo mural; "
+        "NO es requisito para continuar el diseño de la barra.",
+        "Resistencia de la cubierta bajo uso real NO verificada: "
+        "nota técnica, sin impedir la revisión del CAD.",
         "Patas: SKU, cantidad, capacidad, distribución y fijaciones SIN VALIDAR.",
         "Frente exterior único: fijación estructural a costados/base SIN VALIDAR.",
         "Tapacanto rígido en frentes y flexible en restantes: dimensiones de corte pendientes.",

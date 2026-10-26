@@ -1,6 +1,19 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
 
+## ALCANCE APROBADO POR EL PROPIETARIO — MONTAJE POR INSTALADOR (25-oct-2026)
+
+**Esta decisión revoca la condición antigua de pedir material del muro antes de continuar el diseño.** CarpiNova diseña el mueble; el instalador verifica en sitio el tipo de muro, chazos, tornillos, soportes reales, cargas y seguridad. No pedir esos datos como condición del CAD preliminar, no inferir anclajes aptos ni afirmar que se certificó la instalación.
+
+Se añadieron al contrato existente `wall_bar` dos **preferencias de representación independientes, opcionales y NO PRODUCTIVAS** en `module_spec.design_choices`:
+
+- `wall_support_presentation`: `installer_defined` (default), `wood_cleat` (listón horizontal de madera), `metal_l_brackets` (escuadras metálicas en L), `metal_support`, `other_pending`.
+- `top_edge_presentation`: `actual_15mm` (default), `false_thickness_pending` (cenefa/faldón de falso espesor), `undecided`.
+
+Maestro puede formular estas dos preguntas **sin bloquear el diseño**. Seleccionar una opción no agrega piezas automáticamente ni perforaciones: para modelar una cenefa o soporte real se requieren dimensiones/ubicación, aprobación del usuario y regenerar/verificar CAD. La cenefa es estética, NO refuerzo certificado. La nota por defecto es «montaje a definir por instalador» y «canto real de 15 mm», manteniendo **21 paneles originales, 600 mm libres, orientación A, firma de CADExchange y todas las banderas de fabricación FALSE**. Código realizado dentro de motor `wall_bar` y preguntas Maestro, sin crear arquitectura nueva.
+
+**Lo que sigue depende de diseño de muebles, no de inventar anclajes:** abordar acabado, sistema de uniones/correderas del cajón y cerrar decisiones visibles del mueble. Los controles reales de seguridad de fabricación/instalación siguen existiendo, pero no suspenden el avance del diseño.
+
 ## PRESELECCIÓN DE HERRAJES — EVIDENCIA EXTERNA (25-oct-2026, SIN COMPRA)
 
 **Modelo fuente inalterado:** 21 paneles del PR #21, orientación A, 900×460×900 mm, X=0 muro corto, x=600..900 cajonera, tres frentes estructurales únicos; corte/compra/fabricación/taladros bloqueados.
