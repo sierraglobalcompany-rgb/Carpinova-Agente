@@ -281,9 +281,19 @@ class WallBarTests(unittest.TestCase):
         ns = "{http://www.w3.org/2000/svg}"
         faces = [e for e in root.iter(ns+"polygon")
                  if e.get("data-piece-id") is not None]
-        self.assertEqual(len(faces), 63)
+        # 21 CAD boxes remain; only external surfaces belong in this view.
+        self.assertEqual(len(cad["boxes"]), 21)
+        self.assertEqual(len(faces), 7)
+        expected_visible = {"BAR-COVER-TOP",
+                            "CAJONERA_DERECHA-RIGHT_SIDE"}
+        expected_visible.update(
+            b["piece_id"] for b in cad["boxes"] if b["role"] == "drawer_facade")
         self.assertEqual({e.attrib["data-piece-id"] for e in faces},
-                         {b["piece_id"] for b in cad["boxes"]})
+                         expected_visible)
+        self.assertFalse(any("DRAWER_REAR_WALL" in e.attrib["data-piece-id"]
+                             for e in faces))
+        self.assertFalse(any("DRAWER_BOTTOM" in e.attrib["data-piece-id"]
+                             for e in faces))
         self.assertIn(cad["geometry_sha256"], sheet)
         self.assertIn("El extremo CORTO va al muro", sheet)
         self.assertIn("600 mm libres", sheet)

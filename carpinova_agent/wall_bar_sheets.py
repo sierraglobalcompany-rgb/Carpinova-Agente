@@ -342,7 +342,7 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
             or len([b for b in boxes if b["role"] == "drawer_facade"]) != 3):
         raise DesignError("Vista vinculada solo a la barra real de 21 piezas.")
 
-    x0, y0 = 110, 738
+    x0, y0 = 110, 765
     def project(x: float, y: float, z: float) -> tuple[float, float]:
         return (x0 + x*.76 + z*.47, y0 + x*.12 - y*.58 - z*.29)
 
@@ -386,6 +386,8 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         'viewBox="0 0 1460 960" role="img" '
         'aria-label="Barra cocina CarpiNova: isométrica del CAD validado">',
         '<rect width="1460" height="960" fill="#fafbfc"/>',
+        '<defs><clipPath id="scene-clip"><rect x="0" y="113" '
+        'width="1038" height="740"/></clipPath></defs>',
         '<rect width="1460" height="113" fill="#172b40"/>',
         '<g font-family="Arial,sans-serif">',
         '<text x="55" y="44" fill="white" font-size="28" font-weight="bold">'
@@ -446,28 +448,42 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
     # A dashed existing-wall REFERENCE, not a left-hand wooden panel.
     wall = [(0,0,0),(0,945,0),(0,945,460),(0,0,460)]
     lines.append(f'<polygon points="{points(wall)}" fill="none" '
-                 'stroke="#9fb2c3" stroke-width="3" stroke-dasharray="8 7"/>')
+                 'stroke="#9fb2c3" stroke-width="3" stroke-dasharray="8 7" '
+                 'clip-path="url(#scene-clip)"/>')
 
-    faces = []
+
+    # Exterior visibility, not a depth-sort of every internal box.
+    # Drawing all box faces exposes interior drawer parts THROUGH carcass.
+    # External faces come from CADExchange boxes; no geometry is invented.
+    external_faces = []
     for b in boxes:
         x,y,z = b["origin_xyz_mm"]
         dx,dy,dz = b["size_xyz_mm"]
         xx,yy,zz = x+dx,y+dy,z+dz
+        is_cover = b["piece_id"] == "BAR-COVER-TOP"
         is_front = b["role"] == "drawer_facade"
-        cover = b["piece_id"] == "BAR-COVER-TOP"
-        palette = (("#e8f5fa", "#96b6ca", "#bcdce8") if is_front
-                   else ("#f7ecd8","#b49e80","#d8c3a5") if cover
-                   else ("#e7d4b8","#b49e80","#d8c3a5"))
-        for name,poly,color in (
-            ("top",[(x,yy,z),(xx,yy,z),(xx,yy,zz),(x,yy,zz)],palette[0]),
-            ("right",[(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)],palette[1]),
-            ("front",[(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)],palette[2])):
-            cx,cy,cz = [sum(p[i] for p in poly)/4 for i in range(3)]
-            painter_group = 2 if cover else 1 if is_front else 0
-            faces.append(((painter_group,cx*.6+cy*.55-cz*.75),
-                          b["piece_id"],name,points(poly),color))
-    # Facades are in front of the carcass, and cover physically caps it.
-    for _,pid,name,poly,color in sorted(faces):
+        is_right = b["role"] == "right_side"
+        if is_cover:
+            surfaces = (
+                ("top", [(x,yy,z),(xx,yy,z),(xx,yy,zz),(x,yy,zz)], "#f7ecd8"),
+                ("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], "#d8c3a5"),
+                ("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], "#b49e80"),
+            )
+            layer = 2
+        elif is_front:
+            surfaces = (("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], "#bcdce8"),)
+            layer = 1
+        elif is_right:
+            surfaces = (("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], "#d8c3a5"),)
+            layer = 0
+        else:
+            continue  # Internal panels remain in 21-piece CAD, not exterior view.
+        for face_name, face_poly, color in surfaces:
+            external_faces.append(
+                (layer, b["piece_id"], face_name, points(face_poly), color))
+    if len(external_faces) != 7:
+        raise DesignError("Exterior no corresponde a cubierta, lateral y tres frentes.")
+    for _,pid,name,poly,color in sorted(external_faces):
         lines.append(
             f'<polygon data-piece-id="{escape(pid)}" data-face="{name}" '
             f'points="{poly}" fill="{color}" stroke="#4f6576" '
