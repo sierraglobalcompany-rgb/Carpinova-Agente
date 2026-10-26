@@ -574,7 +574,7 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         '<text x="62" y="882" fill="#9c4b21" font-size="16" '
         'font-weight="bold">BORRADOR · 21 PIEZAS CAD · NO CORTAR NI FABRICAR</text>',
         '<text x="62" y="907" fill="#6e655d" font-size="13">'
-        (('Bicolor preliminar elegido; SKU y veta productiva pendientes. '
+        + (('Bicolor preliminar elegido; SKU y veta productiva pendientes. '
           if aesthetic == "bicolor_modern_preliminary"
           else 'Colores/veta ilustrativos; aún sin selección estética. ')
          + 'Sin herrajes, anclajes ni perforaciones físicas.</text>'),
