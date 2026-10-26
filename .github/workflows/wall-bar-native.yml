@@ -32,7 +32,7 @@ jobs:
           from carpinova_agent.wall_bar import design_wall_bar
           from carpinova_agent.cad_exchange import cad_exchange,validate_exchange
           from carpinova_agent.wall_bar_sheets import (part_schedule_csv,part_schedule_svg,
-                                                        wall_bar_orientation_svg,wall_bar_front_contacts_svg)
+                                                        wall_bar_orientation_svg,wall_bar_front_contacts_svg,wall_bar_isometric_svg)
           spec=json.loads(Path("examples/wall-bar-900-review.json").read_text())["module_spec"]
           model=design_wall_bar(spec)
           cad=validate_exchange(cad_exchange(model))
@@ -45,6 +45,7 @@ jobs:
           svg=part_schedule_svg(model);ElementTree.fromstring(svg)
           orientation=wall_bar_orientation_svg(model);ElementTree.fromstring(orientation)
           joint_drawing=wall_bar_front_contacts_svg(model);ElementTree.fromstring(joint_drawing)
+          isometric=wall_bar_isometric_svg(model);ElementTree.fromstring(isometric)
           assert model["wall_bar_review"]["drawer_opening_face"]=="long_side_front"
           assert all(b["origin_xyz_mm"][2]==0 for b in cad["boxes"] if b["role"]=="drawer_facade")
           out=Path(os.environ["RUNNER_TEMP"])
@@ -53,6 +54,7 @@ jobs:
           (out/"wall-bar-parts.svg").write_text(svg)
           (out/"wall-bar-A-orientation.svg").write_text(orientation)
           (out/"wall-bar-front-contacts.svg").write_text(joint_drawing)
+          (out/"wall-bar-A-isometric.svg").write_text(isometric)
           print("WALL_BAR_CAD_MATCH",cad["geometry_sha256"])
           PY
       - name: Install FreeCAD only on ephemeral CI runner
@@ -105,5 +107,6 @@ jobs:
             ${{ runner.temp }}/wall-bar-parts.svg
             ${{ runner.temp }}/wall-bar-A-orientation.svg
             ${{ runner.temp }}/wall-bar-front-contacts.svg
+            ${{ runner.temp }}/wall-bar-A-isometric.svg
             ${{ runner.temp }}/wall-bar-native.FCStd
             ${{ runner.temp }}/wall-bar-native.log

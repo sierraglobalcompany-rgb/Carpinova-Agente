@@ -1,6 +1,14 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
 
+## VISUALIZACIÓN V0.18 — VISTA DE CLIENTE FIEL AL CAD (26-oct-2026)
+
+El nuevo generador `wall_bar_isometric_svg(model)` está en `carpinova_agent/wall_bar_sheets.py`, reusa **exclusivamente** `validate_exchange(cad_exchange(model))` y las coordenadas selladas de las 21 piezas, con test de 63 caras proyectadas y 21 IDs únicos. Se genera en el MISMO workflow FreeCAD, archivo `wall-bar-A-isometric.svg`, junto a `wall-bar-cad.json`, planta `wall-bar-A-orientation.svg`, frentes y `.FCStd`. Cámara de presentación: vista desde frente/costado de la barra, extremo corto de 460 mm en el muro contextual y tres frentes D1/D2/D3 al lado largo. **No es un escritorio.**
+
+Las notas de presentación reflejan `design_choices`: `installer_defined`/listón/escuadras/soporte, y `actual_15mm`/falso espesor/indeciso **sin dibujar componentes opcionales por defecto**. Muro punteado, piso y etiquetas son contexto NO paneles, acabados ilustrativos NO seleccionados, patas conceptuales NO dibujadas. Aun con `wood_cleat` o `false_thickness_pending` el CAD se mantiene con 21 sólidos, firma `a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b`, sin tornillos ni compra/corte. El instalador resuelve anclajes. `main` y CarpiNova-PC no se modifican; PR #21 continúa DRAFT hasta aprobación expresa.
+
+**NEXT QUE APORTA AL MUEBLE:** presentar la isométrica de revisión al propietario; pasar a selección de acabados visibles/frentes y comprobación de herrajes reales cuando haya decisión, evitando microauditorías, alucinación de piezas y rebotes Codex. No confundir resultado geométrico QA con fabricación certificada.
+
 ## ALCANCE APROBADO POR EL PROPIETARIO — MONTAJE POR INSTALADOR (25-oct-2026)
 
 **Esta decisión revoca la condición antigua de pedir material del muro antes de continuar el diseño.** CarpiNova diseña el mueble; el instalador verifica en sitio el tipo de muro, chazos, tornillos, soportes reales, cargas y seguridad. No pedir esos datos como condición del CAD preliminar, no inferir anclajes aptos ni afirmar que se certificó la instalación.

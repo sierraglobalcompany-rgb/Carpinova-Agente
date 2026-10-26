@@ -319,3 +319,163 @@ def wall_bar_front_contacts_svg(model: dict[str, Any]) -> str:
         '</g></svg>',
     ]
     return "\n".join(out)+"\n"
+
+
+def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
+    """CAD-backed kitchen peninsula preview, without invented physical pieces.
+
+    This is a presentation projection of the EXISTING sealed CADExchange
+    boxes, not a geometry engine or a manufacturing drawing. The wall,
+    feet and mounting choices are explanatory notes only.
+    """
+    rv = model.get("wall_bar_review", {})
+    if (rv.get("wall_side") != "left"
+            or rv.get("drawer_opening_face") != "long_side_front"
+            or rv.get("drawer_open_direction") != "negative_Z"):
+        raise DesignError("Vista de barra: orientación A obligatoria.")
+    cad = validate_exchange(cad_exchange(model))
+    w, height, depth = cad["bounds_xyz_mm"]
+    boxes = cad["boxes"]
+    if (len(boxes) != 21 or len({b["piece_id"] for b in boxes}) != 21
+            or (w, height, depth) != (900, 900, 460)
+            or len([b for b in boxes if b["piece_id"] == "BAR-COVER-TOP"]) != 1
+            or len([b for b in boxes if b["role"] == "drawer_facade"]) != 3):
+        raise DesignError("Vista vinculada solo a la barra real de 21 piezas.")
+
+    x0, y0 = 110, 738
+    def project(x: float, y: float, z: float) -> tuple[float, float]:
+        return (x0 + x*.76 + z*.47, y0 + x*.12 - y*.58 - z*.29)
+
+    def points(corners: list[tuple[float, float, float]]) -> str:
+        return " ".join(f"{project(*p)[0]:.2f},{project(*p)[1]:.2f}" for p in corners)
+
+    names = {"installer_defined": "A definir por instalador",
+             "wood_cleat": "Listón bajo cubierta (no modelado)",
+             "metal_l_brackets": "Escuadras L (no modeladas)",
+             "metal_support": "Soporte metálico (no modelado)",
+             "other_pending": "Otro soporte: pendiente"}
+    edges = {"actual_15mm": "Canto real de 15 mm",
+             "false_thickness_pending": "Falso espesor: pendiente de medidas",
+             "undecided": "Aspecto de canto: por definir"}
+    choices = rv.get("design_choices", {})
+    support = choices.get("wall_support_presentation", "installer_defined")
+    edge = choices.get("top_edge_presentation", "actual_15mm")
+    if support not in names or edge not in edges:
+        raise DesignError("Opciones de diseño no soportadas por la vista.")
+    lines = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="960" '
+        'viewBox="0 0 1460 960" role="img" '
+        'aria-label="Barra cocina CarpiNova: isométrica del CAD validado">',
+        '<rect width="1460" height="960" fill="#fafbfc"/>',
+        '<rect width="1460" height="113" fill="#172b40"/>',
+        '<g font-family="Arial,sans-serif">',
+        '<text x="55" y="44" fill="white" font-size="28" font-weight="bold">'
+        'CARPINOVA · BARRA AUXILIAR DE COCINA</text>',
+        '<text x="55" y="78" fill="#cddee9" font-size="16">'
+        'VISTA ISOMÉTRICA CAD · ORIENTACIÓN A · SOLO REVISIÓN</text>',
+        '<rect x="1038" y="140" width="381" height="700" rx="18" '
+        'fill="white" stroke="#e1e8f0"/>',
+        '<text x="1070" y="182" font-size="23" font-weight="bold" '
+        'fill="#273e56">Geometría de revisión</text>',
+        '<text x="1070" y="215" font-size="18" fill="#53697e">'
+        f'{w} × {depth} × {height} mm</text>',
+        '<text x="1070" y="258" font-size="16" font-weight="bold" '
+        'fill="#1a6479">El extremo CORTO va al muro</text>',
+        '<text x="1070" y="288" font-size="16" fill="#53697e">'
+        '900 mm desde el muro</text>',
+        '<text x="1070" y="330" font-size="18" font-weight="bold" '
+        'fill="#243c53">Cajones en el costado largo</text>',
+    ]
+    for i, label in enumerate(("D1 · pequeño superior",
+                               "D2 · pequeño intermedio",
+                               "D3 · grande inferior")):
+        y = 359 + i*40
+        lines.extend([
+            f'<rect x="1070" y="{y-11}" width="14" height="14" '
+            'fill="#bcdce8" stroke="#4d7990"/>',
+            f'<text x="1092" y="{y}" font-size="16" fill="#53697e">'
+            f'{escape(label)}</text>',
+        ])
+    free = rv["free_span_mm"]
+    foot = rv["feet_height_mm"]
+    lines += [
+        '<path d="M1070 480H1384M1070 613H1384" '
+        'stroke="#d5dee8" stroke-width="1.5"/>',
+        '<text x="1070" y="514" font-size="18" font-weight="bold" '
+        f'fill="#243c53">{free} mm libres bajo cubierta</text>',
+        '<text x="1070" y="545" font-size="15" fill="#53697e">'
+        f'Cajonera: últimos {w-free} mm</text>',
+        '<text x="1070" y="578" font-size="15" fill="#53697e">'
+        f'Cubierta MDP de {rv["top_y_range_mm"][1]-rv["top_y_range_mm"][0]} mm</text>',
+        '<text x="1070" y="647" font-size="17" font-weight="bold" '
+        'fill="#243c53">Preferencias (solo notas)</text>',
+        '<text x="1070" y="679" font-size="14" fill="#53697e">'
+        f'{escape(names[support])}</text>',
+        '<text x="1070" y="711" font-size="14" fill="#53697e">'
+        f'{escape(edges[edge])}</text>',
+        '<text x="1070" y="741" font-size="14" fill="#53697e">'
+        f'Patas {foot} mm NO modeladas</text>',
+        '<text x="1070" y="785" font-size="14" font-weight="bold" '
+        'fill="#9a3d32">Anclajes: responsabilidad instalador</text>',
+    ]
+    # A dashed existing-wall REFERENCE, not a left-hand wooden panel.
+    wall = [(0,0,0),(0,945,0),(0,945,460),(0,0,460)]
+    lines.append(f'<polygon points="{points(wall)}" fill="none" '
+                 'stroke="#9fb2c3" stroke-width="3" stroke-dasharray="8 7"/>')
+
+    faces = []
+    for b in boxes:
+        x,y,z = b["origin_xyz_mm"]
+        dx,dy,dz = b["size_xyz_mm"]
+        xx,yy,zz = x+dx,y+dy,z+dz
+        is_front = b["role"] == "drawer_facade"
+        cover = b["piece_id"] == "BAR-COVER-TOP"
+        palette = (("#e8f5fa", "#96b6ca", "#bcdce8") if is_front
+                   else ("#f7ecd8","#b49e80","#d8c3a5") if cover
+                   else ("#e7d4b8","#b49e80","#d8c3a5"))
+        for name,poly,color in (
+            ("top",[(x,yy,z),(xx,yy,z),(xx,yy,zz),(x,yy,zz)],palette[0]),
+            ("right",[(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)],palette[1]),
+            ("front",[(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)],palette[2])):
+            cx,cy,cz = [sum(p[i] for p in poly)/4 for i in range(3)]
+            painter_group = 2 if cover else 1 if is_front else 0
+            faces.append(((painter_group,cx*.6+cy*.55-cz*.75),
+                          b["piece_id"],name,points(poly),color))
+    # Facades are in front of the carcass, and cover physically caps it.
+    for _,pid,name,poly,color in sorted(faces):
+        lines.append(
+            f'<polygon data-piece-id="{escape(pid)}" data-face="{name}" '
+            f'points="{poly}" fill="{color}" stroke="#4f6576" '
+            'stroke-width="1.05" stroke-linejoin="round"/>')
+    for did in ("D1","D2","D3"):
+        front=next(b for b in boxes if b["piece_id"].endswith(f"{did}-DRAWER_FACADE"))
+        x,y,z=front["origin_xyz_mm"]
+        dx,dy,dz=front["size_xyz_mm"]
+        px,py=project(x+dx/2,y+dy/2,0)
+        lines.append(f'<text x="{px:.2f}" y="{py+5:.2f}" '
+                     'text-anchor="middle" font-size="20" font-weight="bold" '
+                     f'fill="#245877">{did}</text>')
+    label_x,label_y=project(0,680,150)
+    lines += [
+        f'<path d="M{label_x:.2f} {label_y:.2f}L98 330" '
+        'stroke="#58738a" stroke-width="2" fill="none"/>',
+        '<text x="52" y="314" fill="#36556f" font-size="18" '
+        'font-weight="bold">MURO</text>',
+        '<text x="52" y="340" fill="#53697e" font-size="13">'
+        'Solo contexto, NO tablero</text>',
+        f'<text x="{project(315,430,80)[0]:.2f}" '
+        f'y="{project(315,430,80)[1]:.2f}" font-size="20" '
+        'font-weight="bold" fill="#36556f">'
+        f'{free} mm libres</text>',
+        '<rect x="40" y="855" width="1380" height="74" rx="8" '
+        'fill="#fff6e8" stroke="#e8d2a9"/>',
+        '<text x="62" y="882" fill="#9c4b21" font-size="16" '
+        'font-weight="bold">BORRADOR · 21 PIEZAS CAD · NO CORTAR NI FABRICAR</text>',
+        '<text x="62" y="907" fill="#6e655d" font-size="13">'
+        'Colores para distinguir caras, NO acabados. Sin anclajes, '
+        'correderas, listones, cenefas, tiradores ni patas inventadas.</text>',
+        f'<text x="48" y="947" fill="#758494" font-size="11">'
+        f'CAD SHA-256: {escape(cad["geometry_sha256"])}</text>',
+        '</g></svg>',
+    ]
+    return "\n".join(lines) + "\n"

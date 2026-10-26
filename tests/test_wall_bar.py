@@ -12,7 +12,8 @@ from carpinova_agent.maestro import consult_maestro
 from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
 from carpinova_agent.wall_bar_sheets import (part_schedule, part_schedule_csv,
                                               part_schedule_svg, wall_bar_orientation_svg,
-                                              wall_bar_front_contacts_svg)
+                                              wall_bar_front_contacts_svg,
+                                              wall_bar_isometric_svg)
 from xml.etree import ElementTree
 from integrations.cad_native import native_boxes
 
@@ -270,6 +271,45 @@ class WallBarTests(unittest.TestCase):
             data["design_choices"] = invalid
             with self.subTest(invalid=invalid), self.assertRaises(DesignError):
                 design_wall_bar(data)
+
+    def test_isometric_client_preview_comes_from_all_21_verified_panels(self):
+        model = self.model()
+        cad = cad_exchange(model)
+        sheet = wall_bar_isometric_svg(model)
+        root = ElementTree.fromstring(sheet)
+        self.assertEqual(root.attrib["viewBox"], "0 0 1460 960")
+        ns = "{http://www.w3.org/2000/svg}"
+        faces = [e for e in root.iter(ns+"polygon")
+                 if e.get("data-piece-id") is not None]
+        self.assertEqual(len(faces), 63)
+        self.assertEqual({e.attrib["data-piece-id"] for e in faces},
+                         {b["piece_id"] for b in cad["boxes"]})
+        self.assertIn(cad["geometry_sha256"], sheet)
+        self.assertIn("El extremo CORTO va al muro", sheet)
+        self.assertIn("600 mm libres", sheet)
+        self.assertIn("NO tablero", sheet)
+        for did in ("D1", "D2", "D3"):
+            self.assertIn(did, sheet)
+        self.assertNotIn("data-hardware-id", sheet)
+        self.assertFalse(model["fabrication_ready"])
+
+    def test_isometric_choices_change_notes_not_the_cad_or_parts(self):
+        baseline = self.model()
+        same_cad = cad_exchange(baseline)
+        altered = spec()
+        altered["design_choices"] = {
+            "wall_support_presentation": "wood_cleat",
+            "top_edge_presentation": "false_thickness_pending",
+        }
+        chosen = design_wall_bar(altered)
+        sheet = wall_bar_isometric_svg(chosen)
+        ElementTree.fromstring(sheet)
+        self.assertIn("Listón bajo cubierta (no modelado)", sheet)
+        self.assertIn("Falso espesor: pendiente de medidas", sheet)
+        self.assertEqual(cad_exchange(chosen), same_cad)
+        self.assertEqual(len(chosen["parts"]), 21)
+        self.assertFalse(chosen["drilling_ready"])
+        self.assertFalse(chosen["cutting_ready"])
 
     def test_no_mutation(self):
         request = spec()
