@@ -1,6 +1,12 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
 
+## NOTAS DE ACABADO REAL EN LA ISOMÉTRICA (26-oct-2026)
+
+La isométrica `wall_bar_isometric_svg` deriva ahora el estado de presentación directamente de las piezas `model["parts"]`, sin almacenar otro catálogo de acabados: `MDP_15` nominal, color/acabado visual **NO definido**, 4/4 caras visibles (cubierta + 3 frentes) con veta `UNCONFIRMED`, y `opening_system=handle` en D1/D2/D3 como **intención de tirador SIN modelo/SKU**. Si cambia el `opening_system` fuente a `pending`, la isométrica no afirma tirador seleccionado. Colores del dibujo siguen meramente ilustrativos; sin tiradores físicos agregados, sin agujeros ni montajes ficticios.
+
+**Este checkpoint no exige que el propietario elija acabado antes de seguir diseñando**. En revisión visual, las preguntas relevantes son color de MDP, dirección de veta y aspecto/modelo de tirador; hasta recibir decisiones, no alterar ficha de corte ni generar herrajes. Mantener 21 piezas, orientación A, montajes al instalador, `main` protegido, PR #21 en draft.
+
 ## VISUALIZACIÓN V0.18 — VISTA DE CLIENTE FIEL AL CAD (26-oct-2026)
 
 El nuevo generador `wall_bar_isometric_svg(model)` está en `carpinova_agent/wall_bar_sheets.py`, reusa **exclusivamente** `validate_exchange(cad_exchange(model))` y las coordenadas selladas de las 21 piezas, con test de 63 caras proyectadas y 21 IDs únicos. Se genera en el MISMO workflow FreeCAD, archivo `wall-bar-A-isometric.svg`, junto a `wall-bar-cad.json`, planta `wall-bar-A-orientation.svg`, frentes y `.FCStd`. Cámara de presentación: vista desde frente/costado de la barra, extremo corto de 460 mm en el muro contextual y tres frentes D1/D2/D3 al lado largo. **No es un escritorio.**

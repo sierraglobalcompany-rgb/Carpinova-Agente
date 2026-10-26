@@ -358,6 +358,25 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
              "false_thickness_pending": "Falso espesor: pendiente de medidas",
              "undecided": "Aspecto de canto: por definir"}
     choices = rv.get("design_choices", {})
+    # Review only what the EXISTING model actually records. Colors and
+    # physical handles have not been selected, despite illustrated pigments.
+    source_parts = {p["piece_id"]: p for p in model["parts"]}
+    if set(source_parts) != {b["piece_id"] for b in boxes}:
+        raise DesignError("Piezas del modelo y CAD no concuerdan.")
+    visible_source = [p for p in model["parts"] if
+                      p["piece_id"] == "BAR-COVER-TOP"
+                      or p["role"] == "drawer_facade"]
+    if len(visible_source) != 4:
+        raise DesignError("Acabado visible no corresponde a cubierta y tres frentes.")
+    unconfirmed_grain = sum(p["grain_axis"] == "UNCONFIRMED"
+                            for p in visible_source)
+    drawers = [p for p in visible_source if p["role"] == "drawer_facade"]
+    opening_intents = {p.get("opening_system", "pending") for p in drawers}
+    opening_label = ("Tirador indicado; SKU pendiente"
+                     if opening_intents == {"handle"}
+                     else "Apertura sin herraje verificado")
+    grain_label = f"Veta: {unconfirmed_grain}/4 caras sin confirmar"
+    finish_label = "Color/acabado visual: NO definido"
     support = choices.get("wall_support_presentation", "installer_defined")
     edge = choices.get("top_edge_presentation", "actual_15mm")
     if support not in names or edge not in edges:
@@ -407,15 +426,21 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         f'Cajonera: últimos {w-free} mm</text>',
         '<text x="1070" y="578" font-size="15" fill="#53697e">'
         f'Cubierta MDP de {rv["top_y_range_mm"][1]-rv["top_y_range_mm"][0]} mm</text>',
-        '<text x="1070" y="647" font-size="17" font-weight="bold" '
-        'fill="#243c53">Preferencias (solo notas)</text>',
-        '<text x="1070" y="679" font-size="14" fill="#53697e">'
+        '<text x="1070" y="637" font-size="17" font-weight="bold" '
+        'fill="#243c53">Presentación y acabados</text>',
+        '<text x="1070" y="661" font-size="14" fill="#53697e">'
         f'{escape(names[support])}</text>',
-        '<text x="1070" y="711" font-size="14" fill="#53697e">'
+        '<text x="1070" y="684" font-size="14" fill="#53697e">'
         f'{escape(edges[edge])}</text>',
-        '<text x="1070" y="741" font-size="14" fill="#53697e">'
+        '<text x="1070" y="708" font-size="14" fill="#53697e">'
+        f'{escape(finish_label)}</text>',
+        '<text x="1070" y="730" font-size="14" fill="#53697e">'
+        f'{escape(grain_label)}</text>',
+        '<text x="1070" y="752" font-size="14" fill="#53697e">'
+        f'{escape(opening_label)}</text>',
+        '<text x="1070" y="778" font-size="14" fill="#53697e">'
         f'Patas {foot} mm NO modeladas</text>',
-        '<text x="1070" y="785" font-size="14" font-weight="bold" '
+        '<text x="1070" y="807" font-size="14" font-weight="bold" '
         'fill="#9a3d32">Anclajes: responsabilidad instalador</text>',
     ]
     # A dashed existing-wall REFERENCE, not a left-hand wooden panel.

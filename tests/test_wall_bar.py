@@ -311,6 +311,23 @@ class WallBarTests(unittest.TestCase):
         self.assertFalse(chosen["drilling_ready"])
         self.assertFalse(chosen["cutting_ready"])
 
+    def test_isometric_never_invents_selected_finishes_or_handle_sku(self):
+        model = self.model()
+        drawing = wall_bar_isometric_svg(model)
+        self.assertIn("Color/acabado visual: NO definido", drawing)
+        self.assertIn("Veta: 4/4 caras sin confirmar", drawing)
+        self.assertIn("Tirador indicado; SKU pendiente", drawing)
+        self.assertNotIn("Tirador instalado", drawing)
+        self.assertEqual(len(model["parts"]), 21)
+        self.assertFalse(model["purchase_ready"])
+        changed = copy.deepcopy(model)
+        for part in changed["parts"]:
+            if part["role"] == "drawer_facade":
+                part["opening_system"] = "pending"
+        without_intent = wall_bar_isometric_svg(changed)
+        self.assertIn("Apertura sin herraje verificado", without_intent)
+        self.assertNotIn("Tirador indicado; SKU pendiente", without_intent)
+
     def test_no_mutation(self):
         request = spec()
         before = copy.deepcopy(request)
