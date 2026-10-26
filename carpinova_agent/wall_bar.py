@@ -22,6 +22,7 @@ def _positive(spec: Mapping[str, Any], name: str) -> int:
 WALL_SUPPORT_CHOICES = frozenset(("installer_defined", "wood_cleat",
                                    "metal_l_brackets", "metal_support", "other_pending"))
 TOP_EDGE_CHOICES = frozenset(("actual_15mm", "false_thickness_pending", "undecided"))
+AESTHETIC_PRESENTATION_CHOICES = frozenset(("undecided", "bicolor_modern_preliminary"))
 
 
 def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -35,15 +36,19 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise DesignError("wall_bar: contrato exacto requerido.")
     choices = spec.get("design_choices", {})
     if (type(choices) is not dict
-            or set(choices) - {"wall_support_presentation", "top_edge_presentation"}):
+            or set(choices) - {"wall_support_presentation", "top_edge_presentation",
+                               "aesthetic_presentation"}):
         raise DesignError("wall_bar.design_choices: opciones desconocidas.")
     wall_presentation = choices.get("wall_support_presentation", "installer_defined")
     edge_presentation = choices.get("top_edge_presentation", "actual_15mm")
+    aesthetic_presentation = choices.get("aesthetic_presentation", "undecided")
     if (type(wall_presentation) is not str
             or wall_presentation not in WALL_SUPPORT_CHOICES
             or type(edge_presentation) is not str
-            or edge_presentation not in TOP_EDGE_CHOICES):
-        raise DesignError("Opciones de presentación mural/canto no reconocidas.")
+            or edge_presentation not in TOP_EDGE_CHOICES
+            or type(aesthetic_presentation) is not str
+            or aesthetic_presentation not in AESTHETIC_PRESENTATION_CHOICES):
+        raise DesignError("Opciones de presentación no reconocidas.")
     w = _positive(spec, "overall_width_mm")
     h = _positive(spec, "overall_height_mm")
     d = _positive(spec, "overall_depth_mm")
@@ -153,6 +158,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "design_choices": {
             "wall_support_presentation": wall_presentation,
             "top_edge_presentation": edge_presentation,
+            "aesthetic_presentation": aesthetic_presentation,
+            "aesthetic_is_illustrative_only": True,
             "wall_attachment_by_installer": True,
             "site_wall_material_required_for_design": False,
             "support_parts_modeled": False,

@@ -248,6 +248,8 @@ class WallBarTests(unittest.TestCase):
         fields = {q["field"] for q in result["questions"]}
         self.assertIn("module_spec.design_choices.wall_support_presentation", fields)
         self.assertIn("module_spec.design_choices.top_edge_presentation", fields)
+        self.assertEqual(result["modular"]["wall_bar_review"]["design_choices"][
+            "aesthetic_presentation"], "bicolor_modern_preliminary")
         self.assertFalse(result["fabrication_ready"])
         self.assertEqual(len(result["modular"]["parts"]), 21)
         selected = spec()
@@ -322,10 +324,14 @@ class WallBarTests(unittest.TestCase):
         self.assertFalse(chosen["cutting_ready"])
 
     def test_isometric_never_invents_selected_finishes_or_handle_sku(self):
-        model = self.model()
+        undecided = spec()
+        undecided.pop("design_choices", None)
+        model = design_wall_bar(undecided)
         drawing = wall_bar_isometric_svg(model)
-        self.assertIn("Color/acabado visual: NO definido", drawing)
-        self.assertIn("Veta: 4/4 caras sin confirmar", drawing)
+        self.assertEqual(model["wall_bar_review"]["design_choices"][
+            "aesthetic_presentation"], "undecided")
+        self.assertIn("Apariencia por definir", drawing)
+        self.assertIn("Veta productiva sin confirmar", drawing)
         self.assertIn("Tirador indicado; SKU pendiente", drawing)
         self.assertNotIn("Tirador instalado", drawing)
         self.assertEqual(len(model["parts"]), 21)
@@ -337,6 +343,80 @@ class WallBarTests(unittest.TestCase):
         without_intent = wall_bar_isometric_svg(changed)
         self.assertIn("Apertura sin herraje verificado", without_intent)
         self.assertNotIn("Tirador indicado; SKU pendiente", without_intent)
+
+    def test_aesthetic_presentation_defaults_undecided_and_fails_closed(self):
+        undecided = spec()
+        undecided.pop("design_choices", None)
+        self.assertEqual(
+            design_wall_bar(undecided)["wall_bar_review"]["design_choices"][
+                "aesthetic_presentation"], "undecided")
+        invalid = spec()
+        invalid["design_choices"]["aesthetic_presentation"] = "oak_selected"
+        with self.assertRaises(DesignError):
+            design_wall_bar(invalid)
+
+    def test_bicolor_preview_preserves_cad_and_has_five_ids_seven_faces(self):
+        proposal = design_wall_bar(spec())
+        undecided_spec = spec()
+        undecided_spec["design_choices"]["aesthetic_presentation"] = "undecided"
+        undecided = design_wall_bar(undecided_spec)
+        cad = validate_exchange(cad_exchange(proposal))
+        self.assertEqual(cad_exchange(proposal), cad_exchange(undecided))
+        self.assertEqual(cad["geometry_sha256"],
+                         "a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b")
+        self.assertEqual(cad["bounds_xyz_mm"], [900, 900, 460])
+        self.assertEqual(len(cad["boxes"]), 21)
+        self.assertEqual(len({b["piece_id"] for b in cad["boxes"]}), 21)
+        self.assertEqual(proposal["piece_count"], 21)
+        self.assertEqual(proposal["status"], "DRAFT_NOT_FOR_CUTTING")
+        design_choices = proposal["wall_bar_review"]["design_choices"]
+        self.assertEqual(design_choices["aesthetic_presentation"],
+                         "bicolor_modern_preliminary")
+        self.assertTrue(design_choices["aesthetic_is_illustrative_only"])
+        cover = next(p for p in proposal["parts"]
+                     if p["piece_id"] == "BAR-COVER-TOP")
+        self.assertEqual(cover["grain_axis"], "UNCONFIRMED")
+        for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
+            self.assertIs(proposal[flag], False)
+
+        drawing = wall_bar_isometric_svg(proposal)
+        root = ElementTree.fromstring(drawing)
+        ns = "{http://www.w3.org/2000/svg}"
+        faces = [e for e in root.iter(ns + "polygon")
+                 if e.get("data-piece-id") is not None]
+        self.assertEqual(len(faces), 7)
+        expected_ids = {"BAR-COVER-TOP", "CAJONERA_DERECHA-RIGHT_SIDE"}
+        expected_ids.update(b["piece_id"] for b in cad["boxes"]
+                            if b["role"] == "drawer_facade")
+        self.assertEqual(len(expected_ids), 5)
+        self.assertEqual({e.get("data-piece-id") for e in faces}, expected_ids)
+        fills = {(e.get("data-piece-id"), e.get("data-face")): e.get("fill")
+                 for e in faces}
+        self.assertEqual(fills[("BAR-COVER-TOP", "top")], "#e8d2a8")
+        self.assertEqual(fills[("CAJONERA_DERECHA-RIGHT_SIDE", "right")], "#f2f3f0")
+        for piece_id in expected_ids - {"BAR-COVER-TOP", "CAJONERA_DERECHA-RIGHT_SIDE"}:
+            self.assertEqual(fills[(piece_id, "front")], "#f2f3f0")
+        grain = [e for e in root.iter(ns + "path")
+                 if e.get("data-concept") == "decorative-grain"]
+        self.assertEqual(len(grain), 5)
+        for line in grain:
+            self.assertEqual(line.get("data-axis"), "X")
+            x1, y1, x2, y2 = map(
+                float, line.get("d").replace("M", "").replace("L", "").split())
+            self.assertGreater(x2, x1)
+            self.assertAlmostEqual((y2 - y1) / (x2 - x1), 0.12 / 0.76, places=2)
+        legend = [e for e in root.iter(ns + "g")
+                  if e.get("data-concept") == "handle-legend"]
+        self.assertEqual(len(legend), 1)
+        self.assertFalse(any(e.get("data-hardware-id") for e in root.iter()))
+        self.assertTrue(all(e.get("data-piece-id") is None for e in legend[0].iter()))
+        text = " ".join(root.itertext())
+        self.assertIn("5 IDs CAD · 7 caras exteriores", text)
+        self.assertIn("Bicolor preliminar · no acabado aprobado", text)
+        self.assertIn("Cubierta roble claro · lateral/frentes blanco mate", text)
+        self.assertIn("Tirador recto negro · concepto", text)
+        self.assertIn("Sin herraje, SKU, cantidad, posición ni taladros", text)
+        self.assertIn(cad["geometry_sha256"], text)
 
     def test_no_mutation(self):
         request = spec()

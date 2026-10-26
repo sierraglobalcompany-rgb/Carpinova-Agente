@@ -1,5 +1,11 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## V0.20 — PRESENTACIÓN BICOLOR PRELIMINAR (26-oct-2026)
+
+Revisión probada localmente y publicada en la rama del PR #21 `feature/wall-bar-freecad-v10@4572a3ad6cfd28620ba5ee32dc6e06715f3029f4` y `main@a5cdb7fce3728513ffb9fe8833af3503125740e9`. El boceto propuesto muestra cubierta roble claro con veta decorativa paralela a X, y lateral derecho/frentes D1–D3 blanco mate. Tirador recto negro aparece únicamente como símbolo de leyenda. La dirección estética preliminar fue elegida por el usuario. Los colores y la veta dibujados son ilustrativos; no seleccionan acabado comercial ni veta productiva y no representan tiradores, SKU, cantidad, posición, perforaciones o instalación.
+
+La opción opcional `design_choices.aesthetic_presentation` admite `undecided` (default sin elección) y `bicolor_modern_preliminary`. La entrada de ejemplo solicita expresamente la segunda solo para revisar esta alternativa. La auditoría visible se deriva del CAD existente: 5 IDs (cubierta, lateral derecho, tres frentes) y 7 caras exteriores. La presentación no modifica F1/F7C ni CADExchange: referencia `a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b`, 21 piezas, 900×900×460 mm. V0.20 permanece en revisión dentro del PR #21 Draft, sin merge, y no constituye aprobación de acabado comercial o fabricación. Las cuatro banderas siguen `false`.
+
 
 ## CORRECCIÓN VISUAL DE OCLUSIÓN — ISOMÉTRICA V0.19 (26-oct-2026)
 

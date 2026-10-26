@@ -10,6 +10,9 @@
     "top_thickness_mm": 15,
     "wall_side": "left",
     "drawer_opening_face": "long_side_front",
+    "design_choices": {
+      "aesthetic_presentation": "bicolor_modern_preliminary"
+    },
     "cabinet_module": {
       "module_id": "CAJONERA_DERECHA",
       "width_mm": 300,

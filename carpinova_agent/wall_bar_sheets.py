@@ -11,6 +11,7 @@ from typing import Any
 
 from .cad_exchange import cad_exchange, validate_exchange
 from .core import DesignError
+from .wall_bar import AESTHETIC_PRESENTATION_CHOICES
 
 
 def part_schedule(model: dict[str, Any]) -> list[dict[str, Any]]:
@@ -358,25 +359,37 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
              "false_thickness_pending": "Falso espesor: pendiente de medidas",
              "undecided": "Aspecto de canto: por definir"}
     choices = rv.get("design_choices", {})
-    # Review only what the EXISTING model actually records. Colors and
-    # physical handles have not been selected, despite illustrated pigments.
+    aesthetic = choices.get("aesthetic_presentation", "undecided")
+    if (type(aesthetic) is not str
+            or aesthetic not in AESTHETIC_PRESENTATION_CHOICES):
+        raise DesignError("Opción estética no soportada por la vista.")
+    # Review only the CAD-backed exterior IDs. This includes the right side,
+    # which was previously omitted from the visible-surface summary.
     source_parts = {p["piece_id"]: p for p in model["parts"]}
     if set(source_parts) != {b["piece_id"] for b in boxes}:
         raise DesignError("Piezas del modelo y CAD no concuerdan.")
     visible_source = [p for p in model["parts"] if
                       p["piece_id"] == "BAR-COVER-TOP"
-                      or p["role"] == "drawer_facade"]
-    if len(visible_source) != 4:
-        raise DesignError("Acabado visible no corresponde a cubierta y tres frentes.")
-    unconfirmed_grain = sum(p["grain_axis"] == "UNCONFIRMED"
-                            for p in visible_source)
+                      or p["role"] in ("right_side", "drawer_facade")]
+    visible_ids = {p["piece_id"] for p in visible_source}
+    cad_visible_ids = {b["piece_id"] for b in boxes if
+                       b["piece_id"] == "BAR-COVER-TOP"
+                       or b["role"] in ("right_side", "drawer_facade")}
+    if len(visible_source) != 5 or visible_ids != cad_visible_ids:
+        raise DesignError("Superficies visibles no corresponden a 5 IDs CAD.")
     drawers = [p for p in visible_source if p["role"] == "drawer_facade"]
     opening_intents = {p.get("opening_system", "pending") for p in drawers}
     opening_label = ("Tirador indicado; SKU pendiente"
                      if opening_intents == {"handle"}
                      else "Apertura sin herraje verificado")
-    grain_label = f"Veta: {unconfirmed_grain}/4 caras sin confirmar"
-    finish_label = "Color/acabado visual: NO definido"
+    if aesthetic == "bicolor_modern_preliminary":
+        finish_label = "Bicolor preliminar · no acabado aprobado"
+        color_label = "Cubierta roble claro · lateral/frentes blanco mate"
+        grain_label = "Veta X decorativa; veta productiva sin confirmar"
+    else:
+        finish_label = "Apariencia por definir · colores no seleccionados"
+        grain_label = "Veta productiva sin confirmar"
+    surface_label = "Superficies: 5 IDs CAD · 7 caras exteriores"
     support = choices.get("wall_support_presentation", "installer_defined")
     edge = choices.get("top_edge_presentation", "actual_15mm")
     if support not in names or edge not in edges:
@@ -430,19 +443,46 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         f'Cubierta MDP de {rv["top_y_range_mm"][1]-rv["top_y_range_mm"][0]} mm</text>',
         '<text x="1070" y="637" font-size="17" font-weight="bold" '
         'fill="#243c53">Presentación y acabados</text>',
-        '<text x="1070" y="661" font-size="14" fill="#53697e">'
+        '<text x="1070" y="658" font-size="13" fill="#53697e">'
         f'{escape(names[support])}</text>',
-        '<text x="1070" y="684" font-size="14" fill="#53697e">'
+        '<text x="1070" y="678" font-size="13" fill="#53697e">'
         f'{escape(edges[edge])}</text>',
-        '<text x="1070" y="708" font-size="14" fill="#53697e">'
+        '<text x="1070" y="698" font-size="13" fill="#53697e">'
         f'{escape(finish_label)}</text>',
-        '<text x="1070" y="730" font-size="14" fill="#53697e">'
-        f'{escape(grain_label)}</text>',
-        '<text x="1070" y="752" font-size="14" fill="#53697e">'
-        f'{escape(opening_label)}</text>',
-        '<text x="1070" y="778" font-size="14" fill="#53697e">'
+    ]
+    if aesthetic == "bicolor_modern_preliminary":
+        lines.extend([
+            '<text x="1070" y="716" font-size="12" fill="#53697e">'
+            f'{escape(color_label)}</text>',
+            '<text x="1070" y="735" font-size="12" fill="#53697e">'
+            f'{escape(grain_label)}</text>',
+            '<text x="1070" y="754" font-size="12" fill="#53697e">'
+            f'{escape(surface_label)}</text>',
+            '<g data-concept="handle-legend">',
+            '<path d="M1072 774H1108" stroke="#161616" stroke-width="4" '
+            'stroke-linecap="round"/>',
+            '<text x="1118" y="779" font-size="13" fill="#273e56">'
+            'Tirador recto negro · concepto</text>',
+            '<text x="1070" y="797" font-size="11" fill="#53697e">'
+            'Sin herraje, SKU, cantidad, posición ni taladros</text>',
+            '</g>',
+        ])
+        foot_y, anchor_y = 816, 835
+    else:
+        lines.extend([
+            '<text x="1070" y="718" font-size="13" fill="#53697e">'
+            f'{escape(grain_label)}</text>',
+            '<text x="1070" y="738" font-size="13" fill="#53697e">'
+            f'{escape(surface_label)}</text>',
+        ])
+        lines.append(
+            '<text x="1070" y="760" font-size="13" fill="#53697e">'
+            f'{escape(opening_label)}</text>')
+        foot_y, anchor_y = 786, 808
+    lines += [
+        f'<text x="1070" y="{foot_y}" font-size="13" fill="#53697e">'
         f'Patas {foot} mm NO modeladas</text>',
-        '<text x="1070" y="807" font-size="14" font-weight="bold" '
+        f'<text x="1070" y="{anchor_y}" font-size="13" font-weight="bold" '
         'fill="#9a3d32">Anclajes: responsabilidad instalador</text>',
     ]
     # A dashed existing-wall REFERENCE, not a left-hand wooden panel.
@@ -456,6 +496,8 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
     # Drawing all box faces exposes interior drawer parts THROUGH carcass.
     # External faces come from CADExchange boxes; no geometry is invented.
     external_faces = []
+    oak_top, oak_front, oak_side = "#e8d2a8", "#d8bd8e", "#c5a472"
+    white_matte = "#f2f3f0"
     for b in boxes:
         x,y,z = b["origin_xyz_mm"]
         dx,dy,dz = b["size_xyz_mm"]
@@ -464,30 +506,49 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         is_front = b["role"] == "drawer_facade"
         is_right = b["role"] == "right_side"
         if is_cover:
+            if aesthetic == "bicolor_modern_preliminary":
+                cover_top, cover_front, cover_side = oak_top, oak_front, oak_side
+            else:
+                cover_top, cover_front, cover_side = "#f7ecd8", "#d8c3a5", "#b49e80"
             surfaces = (
-                ("top", [(x,yy,z),(xx,yy,z),(xx,yy,zz),(x,yy,zz)], "#f7ecd8"),
-                ("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], "#d8c3a5"),
-                ("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], "#b49e80"),
+                ("top", [(x,yy,z),(xx,yy,z),(xx,yy,zz),(x,yy,zz)], cover_top),
+                ("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], cover_front),
+                ("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], cover_side),
             )
             layer = 2
         elif is_front:
-            surfaces = (("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], "#bcdce8"),)
+            fill = white_matte if aesthetic == "bicolor_modern_preliminary" else "#bcdce8"
+            surfaces = (("front", [(x,y,z),(xx,y,z),(xx,yy,z),(x,yy,z)], fill),)
             layer = 1
         elif is_right:
-            surfaces = (("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], "#d8c3a5"),)
+            fill = white_matte if aesthetic == "bicolor_modern_preliminary" else "#d8c3a5"
+            surfaces = (("right", [(xx,y,z),(xx,yy,z),(xx,yy,zz),(xx,y,zz)], fill),)
             layer = 0
         else:
             continue  # Internal panels remain in 21-piece CAD, not exterior view.
         for face_name, face_poly, color in surfaces:
             external_faces.append(
                 (layer, b["piece_id"], face_name, points(face_poly), color))
-    if len(external_faces) != 7:
+    if (len(external_faces) != 7
+            or {face[1] for face in external_faces} != visible_ids):
         raise DesignError("Exterior no corresponde a cubierta, lateral y tres frentes.")
     for _,pid,name,poly,color in sorted(external_faces):
         lines.append(
             f'<polygon data-piece-id="{escape(pid)}" data-face="{name}" '
             f'points="{poly}" fill="{color}" stroke="#4f6576" '
             'stroke-width="1.05" stroke-linejoin="round"/>')
+    if aesthetic == "bicolor_modern_preliminary":
+        cover = next(b for b in boxes if b["piece_id"] == "BAR-COVER-TOP")
+        x, y, z = cover["origin_xyz_mm"]
+        dx, dy, dz = cover["size_xyz_mm"]
+        for ratio in (0.14, 0.32, 0.50, 0.68, 0.86):
+            start = project(x + dx * 0.035, y + dy, z + dz * ratio)
+            end = project(x + dx * 0.965, y + dy, z + dz * ratio)
+            lines.append(
+                f'<path data-concept="decorative-grain" data-axis="X" '
+                f'd="M{start[0]:.2f} {start[1]:.2f} '
+                f'L{end[0]:.2f} {end[1]:.2f}" fill="none" '
+                'stroke="#9a7448" stroke-width="1.8" opacity="0.62"/>')
     for did in ("D1","D2","D3"):
         front=next(b for b in boxes if b["piece_id"].endswith(f"{did}-DRAWER_FACADE"))
         x,y,z=front["origin_xyz_mm"]
@@ -513,8 +574,10 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
         '<text x="62" y="882" fill="#9c4b21" font-size="16" '
         'font-weight="bold">BORRADOR · 21 PIEZAS CAD · NO CORTAR NI FABRICAR</text>',
         '<text x="62" y="907" fill="#6e655d" font-size="13">'
-        'Colores para distinguir caras, NO acabados. Sin anclajes, '
-        'correderas, listones, cenefas, tiradores ni patas inventadas.</text>',
+        (('Bicolor preliminar elegido; SKU y veta productiva pendientes. '
+          if aesthetic == "bicolor_modern_preliminary"
+          else 'Colores/veta ilustrativos; aún sin selección estética. ')
+         + 'Sin herrajes, anclajes ni perforaciones físicas.</text>'),
         f'<text x="48" y="947" fill="#758494" font-size="11">'
         f'CAD SHA-256: {escape(cad["geometry_sha256"])}</text>',
         '</g></svg>',
