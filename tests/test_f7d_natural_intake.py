@@ -37,6 +37,88 @@ class NaturalRequestPreviewTests(unittest.TestCase):
         for flag in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
             self.assertFalse(r[flag])
 
+    def test_explicit_dimensions_make_partial_preview_without_technical_assumptions(self):
+        from carpinova_agent.natural_intake import extract_explicit_dimensions
+        text = "Quiero un gabinete, ancho 80 cm, alto 72 cm, fondo 55 cm."
+        data = extract_explicit_dimensions(text)
+        self.assertEqual(data["dimensions_mm"], {
+            "width_mm": 800, "height_mm": 720, "depth_mm": 550,
+        })
+        self.assertEqual({e["field"] for e in data["source_provenance"]},
+                         {"width_mm", "height_mm", "depth_mm"})
+        for item in data["source_provenance"]:
+            self.assertEqual(text[item["start"]:item["end"]], item["literal"])
+            self.assertEqual(item["source"], "user_literal")
+        r = preview_natural_request(text)
+        self.assertEqual(r["status"], "NEEDS_USER_CONFIRMATION")
+        project = r["proposed_request"]["project"]
+        self.assertEqual(project["project_type"], "gabinete")
+        self.assertEqual(project["width_mm"], 800)
+        self.assertEqual(project["height_mm"], 720)
+        self.assertEqual(project["depth_mm"], 550)
+        self.assertNotIn("panel_thickness_mm", project)
+        self.assertNotIn("construction", project)
+        self.assertEqual(r["executed_tools"], [])
+        self.assertTrue(r["requires_user_confirmation"])
+        self.assertFalse(any(r[key] for key in
+                         ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready")))
+
+    def test_reverse_format_and_comma_are_literally_converted(self):
+        r = preview_natural_request(
+            "Gabinete de 60,5 cm de ancho, 720 mm de alto y 55 cm de profundidad")
+        self.assertEqual(r["proposed_request"]["project"], {
+            "project_type": "gabinete",
+            "width_mm": 605, "height_mm": 720, "depth_mm": 550,
+        })
+
+    def test_ambiguous_dimensions_fail_closed_without_guessing(self):
+        from carpinova_agent.natural_intake import extract_explicit_dimensions
+        for utterance in (
+            "Gabinete 80 x 72 x 55 cm",
+            "Gabinete ancho 80 alto 72 fondo 55",
+            "Gabinete ancho 30 pulgadas alto 20 pulgadas",
+        ):
+            with self.subTest(text=utterance):
+                result = preview_natural_request(utterance)
+                self.assertEqual(result["status"], "NEEDS_STRUCTURED_PROPOSAL")
+                self.assertIsNone(result["proposed_request"])
+        q = extract_explicit_dimensions("Gabinete ancho 80 cm, ancho 90 cm, alto 70 cm")
+        self.assertIn("width_mm", q["ambiguous_fields"])
+        self.assertNotIn("width_mm", q["dimensions_mm"])
+        self.assertEqual(q["dimensions_mm"], {"height_mm": 700})
+        r = preview_natural_request("Gabinete ancho 80 cm o 90 cm")
+        self.assertIn("width_mm", r["ambiguous_fields"])
+        self.assertIsNone(r["proposed_request"])
+
+    def test_component_vs_whole_type_remains_reviewable_not_geometry(self):
+        text = "Un gabinete de 80 cm de ancho con 3 cajones, alto 72 cm"
+        result = preview_natural_request(text)
+        self.assertNotIn("project_type", result["proposed_request"]["project"])
+        self.assertEqual(result["proposed_request"]["project"]["width_mm"], 800)
+        self.assertEqual(result["proposed_request"]["project"]["height_mm"], 720)
+        with patch("carpinova_agent.maestro.design_modular_run",
+                   side_effect=AssertionError("Geometry cannot execute")):
+            self.assertEqual(preview_natural_request(text)["executed_tools"], [])
+
+    def test_existing_explicit_candidate_does_not_get_overwritten_by_extractor(self):
+        r = preview_natural_request("Gabinete ancho 81 cm", CABINET)
+        self.assertEqual(r["proposed_request"], CABINET)
+        self.assertEqual(r["status"], "NEEDS_USER_CONFIRMATION")
+
+    def test_cli_plain_utterance_with_dimensions_previews_but_never_executes(self):
+        from carpinova_agent.maestro_cli import main
+        with patch("sys.argv", [
+            "maestro_cli", "--utterance", "Gabinete ancho 80 cm, alto 72 cm, fondo 55 cm"
+        ]):
+            with patch("carpinova_agent.maestro_cli.consult_maestro") as engine:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.assertEqual(main(), 0)
+                result = json.loads(out.getvalue())
+                self.assertEqual(result["status"], "NEEDS_USER_CONFIRMATION")
+                self.assertEqual(result["proposed_request"]["project"]["width_mm"], 800)
+                engine.assert_not_called()
+
     def test_proposal_is_a_preview_with_exact_original_values(self):
         r = preview_natural_request("Gabinete de 60 cm de ancho", CABINET)
         self.assertEqual(r["status"], "NEEDS_USER_CONFIRMATION")
