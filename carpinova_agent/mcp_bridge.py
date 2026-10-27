@@ -28,6 +28,9 @@ _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
     "cad-exchange.json", "manifest.json",
     "lamina/three-views.svg", "lamina/render-manifest.json",
+    "CN-BAR-001-referencias.csv", "CN-BAR-001-cajon-A.svg",
+    "CN-BAR-001-cajon-B.svg", "CN-BAR-001-cajon-C.svg",
+    "CN-BAR-001-guia-de-armado-REVISION.md",
 ))
 _IMAGE_FILES = frozenset(("lamina/three-views.png", "native/presentation.png"))
 _FABRICATION = {
