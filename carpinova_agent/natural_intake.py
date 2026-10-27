@@ -119,6 +119,12 @@ def _explicit_project_type(utterance: str) -> str | None:
         if re.search(r"(?<!\w)" + re.escape(_fold(alias)) + r"(?!\w)", normalized)
         for canonical in [TYPES[_fold(alias)]]
     }
+    # A drawer mentioned inside a cabinet is a component, not the furniture
+    # type. Otherwise "mueble con un cajón" becomes a single drawer project.
+    if "drawer" in kinds and re.search(
+        r"(?<!\w)(?:cajonera|mueble|gabinete)(?!\w)", normalized
+    ):
+        kinds.discard("drawer")
     if len(kinds) != 1:
         return None
     # Preserve the original Spanish term supported by F3; no type invention.
@@ -245,7 +251,7 @@ def _illustrative_drawer_layout_option(
     # "3 gavetas y un cajón" does not mean three total drawers. Accept
     # exactly one explicitly counted group; any second drawer noun declines.
     drawer_nouns = list(re.finditer(
-        r"(?<!\w)(?:cajones?|gavetas?)(?!\w)", normalized
+        r"(?<!\w)(?:cajon(?:es)?|gavetas?)(?!\w)", normalized
     ))
     if len(drawer_nouns) != 1:
         return None
