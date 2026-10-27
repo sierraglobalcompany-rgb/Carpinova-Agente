@@ -402,11 +402,21 @@ def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str
     steps = [
         "Identificar cada pieza con su código de la tabla y su ID CAD.",
         "Revisar el encaje nominal de la carcasa antes de definir uniones.",
-        "Revisar cada cajón en su hoja individual y sus luces laterales.",
-        "Elegir herrajes comerciales por medidas y capacidad verificadas.",
-        "Validar cantos terminados, tornillería, cargas y estabilidad.",
-        "El instalador comprueba apoyos y anclajes conforme a la obra.",
     ]
+    if sheet_groups:
+        steps.extend([
+            "Revisar cada cajón en su hoja individual y sus luces laterales.",
+            "Elegir correderas por longitud, holgura y carga documentada.",
+        ])
+    else:
+        steps.extend([
+            "Revisar los frentes y puertas únicamente si existen en el CAD.",
+            "Definir las uniones según el material y el sistema constructivo.",
+        ])
+    steps.extend([
+        "Validar cantos terminados, fijaciones, cargas y estabilidad.",
+        "El instalador verifica apoyos y anclajes cuando correspondan.",
+    ])
     manual = [
         '<text x="50" y="187" font-size="23" font-weight="bold" '
         'fill="#183247">SECUENCIA PRELIMINAR DE REVISIÓN</text>',
