@@ -281,7 +281,7 @@ def _illustrative_drawer_layout_option(
             "sin cajas de cajón ni frentes fabricables."
         ),
         "proposed_request": {"action": "modular", "module_spec": module_spec},
-        "confirmed_user_values": {**{k: project[k] for k in keys},
+        "explicit_user_values_to_confirm": {**{k: project[k] for k in keys},
                                   "drawer_count": count},
         "suggested_fields": {
             "panel_thickness_mm": 18,
