@@ -116,6 +116,21 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
                 svg.append(f'<text x="{left+width/2:.2f}" '
                            f'y="{top+height/2:.2f}" text-anchor="middle" '
                            f'font-size="18" font-weight="bold">{letter}05</text>')
+        # Visual cross-references for ALL five real boxes, not only the floor.
+        # Leaders and labels are annotations; they never change CAD geometry.
+        callouts = (
+            (letter + "01", 195, 145, 235, 150),
+            (letter + "02", 42, 347, 128, 347),
+            (letter + "03", 400, 347, 355, 347),
+            (letter + "04", 224, 557, 235, 530),
+        )
+        for ref, tx, ty, px, py in callouts:
+            svg.extend((
+                f'<path d="M{tx+20},{ty+4} L{px},{py}" fill="none" '
+                'stroke="#5c7690" stroke-width="1.3"/>',
+                f'<text x="{tx}" y="{ty}" font-size="17" '
+                f'font-weight="bold" fill="#183247">{ref}</text>',
+            ))
         for index, row in enumerate(subset):
             y = 212 + 67*index
             svg.extend((
@@ -252,9 +267,39 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         'El apoyo mural y su seguridad los verifica el instalador en obra.</text>',
     ))
     guide_svg = title_svg("GUIA PRELIMINAR · SIN MECANIZADOS", manual)
+    def labeled_overview(svg: str, *, elevation: bool) -> str:
+        # D1-D3 stay canonical CAD IDs. A/B/C are stable CLIENT references,
+        # not replacements for geometry or data-model IDs.
+        for letter, did in DRAWERS:
+            old = f'>{did}</text>'
+            if svg.count(old) != 1:
+                raise DesignError("Vista general sin cajón identificable: " + did)
+            svg = svg.replace(old, f'>{letter}</text>', 1)
+        if not svg.endswith("</g></svg>\\n"):
+            raise DesignError("Cierre inesperado de vista general.")
+        if elevation:
+            note = (
+                '<text x="752" y="934" font-size="19" font-weight="bold" '
+                'fill="#183247">HOJAS DEL MANUAL</text>'
+                '<text x="752" y="970" font-size="16" fill="#183247">'
+                'A = superior (CAD D1)</text>'
+                '<text x="752" y="1002" font-size="16" fill="#183247">'
+                'B = intermedio (CAD D2)</text>'
+                '<text x="752" y="1034" font-size="16" fill="#183247">'
+                'C = inferior (CAD D3)</text>'
+                '<text x="752" y="1074" font-size="15" fill="#183247">'
+                'E01 cubierta; E02-E06 carcasa</text>'
+            )
+        else:
+            note = (
+                '<text x="55" y="104" font-size="15" fill="white">'
+                'HOJAS A/B/C = superior/intermedio/inferior · E01 cubierta</text>'
+            )
+        return svg.replace("</g></svg>\\n", note + "</g></svg>\\n", 1)
+
     pages = [
-        wall_bar_isometric_svg(model),
-        wall_bar_orientation_svg(model),
+        labeled_overview(wall_bar_isometric_svg(model), elevation=False),
+        labeled_overview(wall_bar_orientation_svg(model), elevation=True),
         *(files[f"CN-BAR-001-cajon-{letter}.svg"] for letter in "ABC"),
         bom_svg,
         guide_svg,
