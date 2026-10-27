@@ -1,5 +1,18 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## ACTIVO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
+
+**Motivo/decisión del propietario:** el agente debe partir de una descripción y medidas normales del mueble, producir una propuesta revisable y luego planos/despiece/manual, sin cuestionarios de herrajes o carga. Mantener KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong. No reabrir análisis D3/correderas sin defecto real o cambio de cliente.
+
+**Cambio implementado en F7D, pendiente de cierre CI del HEAD exacto:** `carpinova_agent/natural_intake.py` incorpora `extract_explicit_dimensions()`, que lee *solo* medidas etiquetadas literalmente como ancho/anchura, alto/altura, fondo/profundidad, con **unidad explícita mm o cm**, admite coma decimal cuando produce milímetros enteros y conserva fragmento literal, offset, valor y fuente `user_literal`. El `preview_natural_request(texto)` **sin candidato externo** puede construir automáticamente un JSON Maestro **parcial para revisión**, sin invocar geometría, redes, herrajes ni herramientas. Requiere confirmación humana; si el texto enumera dimensiones sin etiquetas, omite unidades, alterna valores o contiene medida atribuible a subpieza (cajón/puerta/etc.), no inventa ese dato: lo omite e informa ambigüedad. Nunca asume espesor, construcción, fondo, tornillos, riel o carga. Evita interpretar «mueble con 3 cajones» como «un cajón» automáticamente.
+
+**Compatibilidad:** un candidato JSON externo explícito tiene prioridad y NO se reescribe por el extractor; `--utterance` en el CLI sigue siendo previsualización sin ejecutar Maestro, CAD, 3D ni PDF. El caso de ejemplo «Gabinete ancho 80 cm, alto 72 cm, fondo 55 cm» muestra 800×720×550 mm como **propuesta del usuario**; **no constituye diseño completo ni autorización**. F3 todavía exige otros campos para computar geometría, y F6/F7C todavía precisan `module_spec` estructurado para generar el PDF automático con `incluir_planos=True`.
+
+**Gates:** pruebas nuevas de datos exactos, formato inverso, coma decimal, conflicto, unidad ausente, subpieza, candidato externo, ausencia de ejecución y cuatro banderas FALSE. 21 piezas de barra, 28 piezas de cajonera y motor CAD deben quedar intactos. No merge, cortes, perforaciones, compras ni fabricación.
+
+**Único NEXT útil:** confirmar CI exacto del nuevo HEAD; si todo PASS, cerrar este subalcance y avanzar hacia una capa mínima de propuestas F3/F6 con defaults **explícitamente ilustrativos** únicamente después de escoger la política de supuestos, sin inferir datos de producción.
+
+
 ## ACTIVO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
 
 **Objetivo del propietario:** minimizar preguntas humanas y lograr un recorrido directo: descripción y medidas, propuesta de diseño, corrección del usuario, planos generales y por cajón, referencias y manual. Sin consultas sobre contenido/peso de cajones como prerrequisito ni selección automática de rieles, marca o montaje en pared. Continuar con las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
