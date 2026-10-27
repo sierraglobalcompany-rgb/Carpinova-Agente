@@ -164,3 +164,105 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         "de taller liberado.\n"
     )
     return result
+
+
+def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
+    """Exactly seven review pages: CAD views, A/B/C, BOM and assembly notes.
+
+    Reuses the existing SVG projections and five archived review artifacts.
+    Never adds physical panels or selects hardware.
+    """
+    from .wall_bar_sheets import wall_bar_isometric_svg, wall_bar_orientation_svg
+
+    files = review_files(model)
+    rows = reference_rows(model)
+    cad = validate_exchange(cad_exchange(model))
+    if cad["bounds_xyz_mm"] != [900, 900, 460]:
+        raise DesignError("Paquete CN-BAR-001 no coincide con dimensiones CAD.")
+
+    def title_svg(label: str, body: list[str]) -> str:
+        out = [
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1600" '
+            'height="1130" viewBox="0 0 1600 1130">',
+            '<rect width="1600" height="1130" fill="#ffffff"/>',
+            '<rect width="1600" height="130" fill="#183247"/>',
+            '<g font-family="Arial,sans-serif">',
+            f'<text x="55" y="60" fill="white" font-size="37" '
+            f'font-weight="bold">{escape(label)}</text>',
+            '<text x="55" y="99" fill="#e5ecf0" font-size="20">'
+            'CN-BAR-001 · REVISION NOMINAL · NO FABRICAR</text>',
+            *body,
+            f'<text x="55" y="1092" font-size="15" fill="#617688">'
+            f'21 IDs CAD · SHA-256: {escape(cad["geometry_sha256"])}</text>',
+            '</g></svg>',
+        ]
+        svg = "\n".join(out) + "\n"
+        ElementTree.fromstring(svg)
+        return svg
+
+    bom = [
+        '<text x="57" y="173" font-size="23" font-weight="bold" '
+        'fill="#183247">REFERENCIA / PIEZA / MEDIDA NOMINAL</text>',
+        '<text x="57" y="207" font-size="18" fill="#9e2733">'
+        'Los tamaños indicados NO incorporan descuentos verificados de cantos.</text>',
+    ]
+    for index, row in enumerate(rows):
+        col = index // 11
+        line = index % 11
+        x = 55 + col * 770
+        y = 250 + 73 * line
+        size = (f'{row["cara_a_mm"]} × {row["cara_b_mm"]} '
+                f'× {row["espesor_mm"]} mm')
+        bom.extend((
+            f'<rect x="{x}" y="{y-26}" width="742" height="64" rx="6" '
+            'fill="#f4f8fa" stroke="#d1dfe6"/>',
+            f'<text x="{x+12}" y="{y}" font-size="20" font-weight="bold" '
+            f'fill="#183247">{escape(row["referencia"])} · '
+            f'{escape(row["descripcion"])}</text>',
+            f'<text x="{x+600}" y="{y}" font-size="18" text-anchor="end" '
+            f'fill="#0c5777">{escape(size)}</text>',
+            f'<text x="{x+12}" y="{y+24}" font-size="14" '
+            f'fill="#617688">{escape(row["id_cad"])}</text>',
+        ))
+    bom_svg = title_svg("DESPIECE GENERAL · 21 PIEZAS", bom)
+    guidance = files["CN-BAR-001-guia-de-armado-REVISION.md"]
+    steps = [line.split(". ", 1)[1] for line in guidance.splitlines()
+             if len(line) > 3 and line[0] in "123456" and line[1:3] == ". "]
+    if len(steps) != 6:
+        raise DesignError("La guía de armado no conserva sus seis pasos.")
+    manual = [
+        '<text x="58" y="186" font-size="24" fill="#183247" '
+        'font-weight="bold">ORDEN DE PRESENTACION Y REVISION</text>',
+    ]
+    for index, step in enumerate(steps):
+        y = 230 + 116 * index
+        manual.extend((
+            f'<rect x="58" y="{y-26}" width="1480" height="87" rx="9" '
+            'fill="#f4f8fa" stroke="#d1dfe6"/>',
+            f'<text x="83" y="{y+10}" font-size="28" font-weight="bold" '
+            f'fill="#0c5777">{index+1:02d}</text>',
+            f'<text x="159" y="{y+10}" font-size="20" fill="#183247">'
+            f'{escape(step)}</text>',
+        ))
+    manual.extend((
+        '<text x="62" y="985" font-size="20" font-weight="bold" '
+        'fill="#9e2733">PENDIENTE: fijaciones, apoyo, cargas, cantos '
+        'terminados y patrón de perforación.</text>',
+        '<text x="62" y="1022" font-size="18" fill="#617688">'
+        'El apoyo mural y su seguridad los verifica el instalador en obra.</text>',
+    ))
+    guide_svg = title_svg("GUIA PRELIMINAR · SIN MECANIZADOS", manual)
+    pages = [
+        wall_bar_isometric_svg(model),
+        wall_bar_orientation_svg(model),
+        *(files[f"CN-BAR-001-cajon-{letter}.svg"] for letter in "ABC"),
+        bom_svg,
+        guide_svg,
+    ]
+    if len(pages) != 7:
+        raise DesignError("Paquete incompleto: se requieren siete hojas.")
+    for svg in pages:
+        ElementTree.fromstring(svg)
+        if cad["geometry_sha256"] not in svg:
+            raise DesignError("Hoja sin referencia geométrica CAD.")
+    return pages
