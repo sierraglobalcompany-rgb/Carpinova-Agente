@@ -173,6 +173,84 @@ class NaturalRequestPreviewTests(unittest.TestCase):
         self.assertNotIn("illustrative_option", r)
         self.assertEqual(r["proposed_request"], CABINET)
 
+    def test_drawer_layout_is_one_reviewable_f1_candidate_not_real_cad(self):
+        from carpinova_agent.maestro import consult_maestro
+        description = ("Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm "
+                       "con cuatro cajones")
+        with patch("carpinova_agent.maestro.propose_drawer_layout",
+                   side_effect=AssertionError("No engine during preview")):
+            preview = preview_natural_request(description)
+        self.assertEqual(preview["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertNotIn("panel_thickness_mm", preview["proposed_request"]["project"])
+        option = preview["illustrative_drawer_layout_option"]
+        self.assertEqual(option["status"], "OPTIONAL_DRAWER_LAYOUT_REQUIRES_APPROVAL")
+        self.assertEqual(option["confirmed_user_values"], {
+            "width_mm": 500, "height_mm": 800, "depth_mm": 500,
+            "drawer_count": 4,
+        })
+        self.assertEqual(option["suggestion_source"],
+                         "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED")
+        spec = option["proposed_request"]["module_spec"]
+        self.assertEqual(spec["drawer_weights"], [1, 1, 1, 1])
+        self.assertEqual(spec["panel_thickness_mm"], 18)
+        self.assertEqual(spec["vertical_gap_mm"], 28)
+        self.assertEqual(option["parts"], [])
+        self.assertEqual(option["piece_count"], 0)
+        self.assertFalse(option["can_generate_f7c"])
+        self.assertEqual(preview["executed_tools"], [])
+        self.assertTrue(option["requires_user_confirmation"])
+        self.assertTrue(all(option[k] is False for k in (
+            "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"
+        )))
+        # Simulate the SECOND, explicit approval path. Reuse F1 through Maestro.
+        reviewed = consult_maestro(option["proposed_request"])
+        layout = reviewed["modular"]
+        self.assertEqual(layout["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertEqual(layout["piece_count"], 0)
+        self.assertEqual(len(layout["opening_plan"]), 4)
+        self.assertIn("sketch_svg", layout)
+        self.assertEqual(sum(x["opening_height_mm"]
+                             for x in layout["opening_plan"]) + 3*28, 764)
+        self.assertFalse(reviewed["fabrication_ready"])
+
+    def test_drawer_layout_supports_one_to_four_clear_explicit_counts(self):
+        examples = (("1", 1), ("dos", 2), ("3", 3), ("cuatro", 4))
+        for literal, n in examples:
+            with self.subTest(literal=literal):
+                text = (f"Mueble ancho 70 cm alto 95 cm fondo 50 cm "
+                        f"con {literal} cajones")
+                option = preview_natural_request(text)["illustrative_drawer_layout_option"]
+                self.assertEqual(option["confirmed_user_values"]["drawer_count"], n)
+                self.assertEqual(option["proposed_request"]["module_spec"]["drawer_weights"],
+                                 [1] * n)
+
+    def test_drawer_layout_does_not_invent_unequal_special_or_unclear_layouts(self):
+        examples = (
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con 4 cajones, uno grande abajo",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm y tres cajones pequeños",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con puertas y 3 cajones",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con 4 cajones y patas",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con 4 cajones de MDP 15 mm",
+            "Cajonera ancho 50 cm, alto 80 cm con 4 cajones",
+            "Cajonera ancho 50 cm, alto 15 cm, fondo 50 cm con 4 cajones",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con 5 cajones",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con 4 cajones o 3 cajones",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con tres gavetas y un cajón",
+        )
+        for utterance in examples:
+            with self.subTest(utterance=utterance):
+                result = preview_natural_request(utterance)
+                self.assertNotIn("illustrative_drawer_layout_option", result)
+                self.assertEqual(result["executed_tools"], [])
+
+    def test_external_candidate_never_gets_drawer_layout_assumptions(self):
+        r = preview_natural_request(
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones",
+            CABINET,
+        )
+        self.assertNotIn("illustrative_drawer_layout_option", r)
+        self.assertEqual(r["proposed_request"], CABINET)
+
     def test_existing_explicit_candidate_does_not_get_overwritten_by_extractor(self):
         r = preview_natural_request("Gabinete ancho 81 cm", CABINET)
         self.assertEqual(r["proposed_request"], CABINET)
