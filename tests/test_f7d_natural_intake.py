@@ -184,7 +184,7 @@ class NaturalRequestPreviewTests(unittest.TestCase):
         self.assertNotIn("panel_thickness_mm", preview["proposed_request"]["project"])
         option = preview["illustrative_drawer_layout_option"]
         self.assertEqual(option["status"], "OPTIONAL_DRAWER_LAYOUT_REQUIRES_APPROVAL")
-        self.assertEqual(option["confirmed_user_values"], {
+        self.assertEqual(option["explicit_user_values_to_confirm"], {
             "width_mm": 500, "height_mm": 800, "depth_mm": 500,
             "drawer_count": 4,
         })
@@ -220,7 +220,7 @@ class NaturalRequestPreviewTests(unittest.TestCase):
                 text = (f"Mueble ancho 70 cm alto 95 cm fondo 50 cm "
                         f"con {literal} cajones")
                 option = preview_natural_request(text)["illustrative_drawer_layout_option"]
-                self.assertEqual(option["confirmed_user_values"]["drawer_count"], n)
+                self.assertEqual(option["explicit_user_values_to_confirm"]["drawer_count"], n)
                 self.assertEqual(option["proposed_request"]["module_spec"]["drawer_weights"],
                                  [1] * n)
 
