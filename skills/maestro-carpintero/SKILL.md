@@ -19,6 +19,16 @@ Cada vez que una persona quiera aprender a fabricar un mueble, consultar el libr
 - CLI: `python -m carpinova_agent.maestro_cli --input examples/maestro-combined.json --bundle-dir /ruta/a/knowledge-1.2.0`; para pregunta textual `--question "bisagras"`.
 - `python -m carpinova_agent.dialogue`: entrevista interactiva básica de terminal; no es un chat de IA libre.
 
+## Regla operativa de simplificación y entregables (27-oct-2026)
+
+- **Dibujo antes de cuestionarios.** Con medidas exteriores, disposición y orientación suficientes, proponer una sola alternativa; no preguntar por peso de cada cajón, marca de corredera, anclaje al muro, falso espesor, veta o acabado antes de mostrar el boceto. Dejar pendientes técnicos visibles.
+- **Herrajes por categoría, no por negociación infinita.** Los rieles se indican por longitud, sistema lateral y categoría de carga *por verificar* (básica/media/pesada); una marca/SKU es una opción si está documentada, nunca un reemplazo automático ni una dimensión inferida. La carga real del cajón completo no se certifica con el límite del riel.
+- **Revisión única por mueble.** Tras la corrección visual del cliente, generar paquete coherente: vista general con IDs, hoja separada para cada cajón, despiece consolidado, notas de herraje y guía preliminar de armado. No abrir microauditorías por cada tornillo ni llamar a Codex sin tarea local irreducible.
+- **Referencias estables.** Para CN-BAR-001: E01–E06 estructura; A01–A05 cajón superior (CAD D1); B01–B05 intermedio (D2); C01–C05 inferior (D3). Cada código conserva su `piece_id` CAD, sin recalcular geometría en el renderer.
+- **Seguridad proporcional.** El borrador y la guía *de revisión* pueden entregarse sin saber la marca del herraje. Corte, mecanizado, compra y fabricación siguen bloqueados hasta verificación de material, cantos terminados, uniones, soportes y cargas. El anclaje mural lo verifica el instalador.
+- **Alcance implementado:** el generador `wall_bar_delivery.review_files` emite CSV referenciado, tres SVG individuales y guía Markdown; se incluyen en el borrador MCP de esta barra y el CI. El PDF A3 de siete páginas creado en chat fue un prototipo externo: **la producción automática del PDF multipágina y un manual de taller completo todavía NO existen dentro del agente**.
+- **Seis leyes:** KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente, antiping-pong. No crear otro motor ni cambiar discretamente el despiece de 21 piezas.
+
 ## Reglas de decisión
 1. Consulta conceptual del libro → buscar evidencia con `action=knowledge`, citar página PDF/impresa, estado de verificación y versión. Distinguir documento histórico de norma o ficha técnica actual.
 2. Quiere diseñar mueble → `action=project` para gabinete/caja F1, o `action=modular` con `module_spec` para módulos F6/F7C. Preguntar máximo tres faltantes relevantes por ronda. Si aporta un dato explícito, nunca sobrescribirlo.
