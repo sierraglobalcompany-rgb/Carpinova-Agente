@@ -189,6 +189,103 @@ def _illustrative_open_cabinet_option(
     }
 
 
+# F7C review-layout contract. Every internal value below is an explicitly
+# unconfirmed visual convention, not a customer dimension or hardware choice.
+_DRAWER_COUNT = re.compile(
+    r"(?<!\w)(?P<count>[1-4]|uno|una|dos|tres|cuatro)\s+"
+    r"(?:cajones|gavetas)(?!\w)", re.IGNORECASE,
+)
+_DRAWER_NUMBER_WORDS = {
+    "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
+}
+_DRAWER_LAYOUT_EXCLUSIONS = (
+    "grande", "grandes", "pequeño", "pequenos", "pequena",
+    "pequeñas", "arriba", "abajo", "superior", "inferior",
+    "distintos", "diferentes", "desiguales", "alto diferente",
+    "puertas", "puerta", "patas", "zocalo", "banqueo",
+    "suspendido", "empotrado", "mural", "riel", "rieles",
+    "corredera", "bisagra", "tablero", "espesor", "mdf", "mdp",
+    "melamina", "entrepaño", "repisa", "estante", "modulos",
+    "módulos", "izquierda", "derecha", "dividido", "dividida",
+)
+
+
+def _illustrative_drawer_layout_option(
+    utterance: str, request: dict[str, Any], conflicts: list[str],
+) -> dict[str, Any] | None:
+    """A single F1-compatible *unexecuted* proposal for equal drawer openings.
+
+    No F1/F7C geometry call occurs here. Approval is required before routing
+    the exact request through existing Maestro's modular action.
+    """
+    if conflicts or request.get("action") != "project":
+        return None
+    project = request.get("project")
+    if type(project) is not dict:
+        return None
+    keys = ("width_mm", "height_mm", "depth_mm")
+    if not set(keys).issubset(project):
+        return None
+    if set(project) - {*keys, "project_type"}:
+        return None
+    normalized = _fold(utterance)
+    if not re.search(r"(?<!\w)(?:cajonera|mueble|gabinete)(?!\w)", normalized):
+        return None
+    matches = list(_DRAWER_COUNT.finditer(normalized))
+    if len(matches) != 1:
+        return None
+    if any(re.search(r"(?<!\w)" + re.escape(_fold(word)) + r"(?!\w)", normalized)
+           for word in _DRAWER_LAYOUT_EXCLUSIONS):
+        return None
+    amount = matches[0].group("count")
+    count = int(amount) if amount.isdecimal() else _DRAWER_NUMBER_WORDS[amount]
+    if any(type(project[k]) is not int for k in keys):
+        return None
+    w, h, d = (project[k] for k in keys)
+    # Avoid a cosmetic "layout" consisting of unusably tiny nominal openings.
+    if min(w, d) <= 36 or h < (36 + (count-1)*28 + count*60):
+        return None
+    module_spec = {
+        "type": "drawer_layout_proposal",
+        **{k: project[k] for k in keys},
+        "panel_thickness_mm": 18,
+        "construction": "top_bottom_full",
+        "vertical_gap_mm": 28 if count > 1 else 0,
+        "drawer_weights": [1] * count,
+    }
+    return {
+        "status": "OPTIONAL_DRAWER_LAYOUT_REQUIRES_APPROVAL",
+        "description": (
+            f"Esquema de {count} aberturas iguales, "
+            "sin cajas de cajón ni frentes fabricables."
+        ),
+        "proposed_request": {"action": "modular", "module_spec": module_spec},
+        "confirmed_user_values": {**{k: project[k] for k in keys},
+                                  "drawer_count": count},
+        "suggested_fields": {
+            "panel_thickness_mm": 18,
+            "construction": "top_bottom_full",
+            "vertical_gap_mm": module_spec["vertical_gap_mm"],
+            "drawer_weights": list(module_spec["drawer_weights"]),
+        },
+        "suggestion_source": "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED",
+        "assumptions": [
+            "Alturas iguales, solo para iniciar una conversación visual.",
+            "Espesor de 18 mm y franjas de 28 mm ilustrativos, no seleccionados.",
+            "La profundidad se interpreta como carcasa; fachada pendiente.",
+            "Las franjas entre aberturas NO son tableros ni travesaños.",
+            "No se eligen rieles, tiradores, caras, fondos, uniones ni apoyos.",
+        ],
+        "source_engine_after_confirmation": "F1_CORE_CABINET",
+        "can_generate_f7c": False,
+        "parts": [],
+        "piece_count": 0,
+        "requires_user_confirmation": True,
+        "fabrication_ready": False, "cutting_ready": False,
+        "drilling_ready": False, "purchase_ready": False,
+    }
+
+
 def preview_natural_request(
     utterance: str,
     proposed_request: dict[str, Any] | None = None,
@@ -242,6 +339,11 @@ def preview_natural_request(
         )
         if option is not None:
             result["illustrative_option"] = option
+        drawer_option = _illustrative_drawer_layout_option(
+            utterance, proposed_request, evidence["ambiguous_fields"]
+        )
+        if drawer_option is not None:
+            result["illustrative_drawer_layout_option"] = drawer_option
 
     if type(proposed_request) is not dict:
         raise MaestroError("La propuesta F7D debe ser un objeto JSON Maestro.")
