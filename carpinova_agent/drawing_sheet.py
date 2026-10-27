@@ -164,7 +164,7 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
             pages = []
             for index, page_svg in enumerate(booklet_svgs, start=1):
                 data = resvg_py.svg_to_bytes(svg_string=page_svg, width=2300)
-                if not data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+                if not data.startswith(b"\x89PNG\r\n\x1a\n"):
                     raise DesignError("Una página de la cartilla no es PNG.")
                 with Image.open(BytesIO(data)) as src:
                     img = src.convert("RGB")
