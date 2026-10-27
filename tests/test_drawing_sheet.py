@@ -142,6 +142,18 @@ class SheetTests(unittest.TestCase):
                 for ref in "ABCD":
                     self.assertTrue(any(f"CAJÓN {ref} · 6 PIEZAS" in sheet
                                         for sheet in svgs))
+                for letter, drawing in zip("ABCD", svgs[1:5]):
+                    root = ElementTree.fromstring(drawing)
+                    callouts = [n for n in root.iter()
+                                if n.get("data-visible-part-id") is not None]
+                    leaders = [n for n in root.iter()
+                               if n.get("data-leader-id") is not None]
+                    self.assertEqual(len(callouts), 6)
+                    self.assertEqual(len(leaders), 6)
+                    self.assertEqual({n.get("data-visible-part-id") for n in callouts},
+                                     {n.get("data-leader-id") for n in leaders})
+                    self.assertEqual({n.text for n in callouts},
+                                     {f"{letter}{idx:02d}" for idx in range(1,7)})
                 for sheet in svgs:
                     ElementTree.fromstring(sheet)
                     self.assertIn(cad["geometry_sha256"], sheet)
