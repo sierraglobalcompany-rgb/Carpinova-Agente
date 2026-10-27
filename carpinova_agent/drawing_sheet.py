@@ -122,6 +122,14 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     except (PilotError, DesignError) as exc:
         raise DesignError("Paquete de revisión inconsistente con Maestro.") from exc
     svg = three_views_svg(cad)
+    # Only the named wall-bar model has the 7-page supplementary booklet.
+    # Read the already-verified Maestro snapshot, never recompute geometry.
+    answer = json.loads((folder / "maestro-review.json").read_text(encoding="utf-8"))
+    model = answer["modular"]
+    booklet_svgs = []
+    if model.get("wall_bar_review"):
+        from .wall_bar_delivery import review_booklet_svgs
+        booklet_svgs = review_booklet_svgs(model)
     try:
         import resvg_py
         from PIL import Image
@@ -148,15 +156,46 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
             raise DesignError("Conversión de imagen inválida.")
         (stage / "three-views.png").write_bytes(png)
         (stage / "three-views.pdf").write_bytes(pdf)
+        booklet = None
+        if booklet_svgs:
+            from PIL import ImageDraw
+            # Reuse the SAME optional resvg_py + Pillow stack as three-views.
+            # Rasterized A3-landscape review pages; source SVGs are CAD-derived.
+            pages = []
+            for index, page_svg in enumerate(booklet_svgs, start=1):
+                data = resvg_py.svg_to_bytes(svg_string=page_svg, width=2300)
+                if not data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+                    raise DesignError("Una página de la cartilla no es PNG.")
+                with Image.open(BytesIO(data)) as src:
+                    img = src.convert("RGB")
+                    img.thumbnail((2350, 1560), Image.Resampling.LANCZOS)
+                    page = Image.new("RGB", (2500, 1768), "white")
+                    page.paste(img, ((2500 - img.width) // 2, 60 +
+                                     (1560 - img.height) // 2))
+                    draw = ImageDraw.Draw(page)
+                    draw.text((100, 1690),
+                              f"CN-BAR-001 | HOJA {index:02d}/07 | NO FABRICAR",
+                              fill="#9e2733")
+                    pages.append(page)
+            with BytesIO() as stream:
+                pages[0].save(stream, format="PDF", resolution=150.0,
+                              save_all=True, append_images=pages[1:])
+                booklet = stream.getvalue()
+            if not booklet.startswith(b"%PDF-"):
+                raise DesignError("No se generó la cartilla PDF.")
+            (stage / "CN-BAR-001-planos-REVISION.pdf").write_bytes(booklet)
         render_manifest = {
             "status": "DRAFT_NOT_FOR_CUTTING",
             "source": "CANONICAL_CAD_EXCHANGE",
             "geometry_sha256": cad["geometry_sha256"],
             "piece_count": len(cad["boxes"]),
-            "files": list(_SHEET_FILES),
+            "files": list(_SHEET_FILES) + (
+                ["CN-BAR-001-planos-REVISION.pdf"] if booklet is not None else []),
             "svg_sha256": hashlib.sha256(svg.encode("utf-8")).hexdigest(),
             "png_sha256": hashlib.sha256(png).hexdigest(),
             "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
+            **({"booklet_pdf_sha256": hashlib.sha256(booklet).hexdigest(),
+                "booklet_pages": 7} if booklet is not None else {}),
             **{key: False for key in _RELEASE_FLAGS},
         }
         (stage / "render-manifest.json").write_text(
