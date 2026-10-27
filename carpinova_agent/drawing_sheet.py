@@ -130,6 +130,10 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     if model.get("wall_bar_review"):
         from .wall_bar_delivery import review_booklet_svgs
         booklet_svgs = review_booklet_svgs(model)
+        booklet_name = "CN-BAR-001-planos-REVISION.pdf"
+    else:
+        booklet_svgs = generic_booklet_svgs(model, cad)
+        booklet_name = "CARPINOVA-planos-REVISION.pdf"
     try:
         import resvg_py
         from PIL import Image
@@ -174,7 +178,7 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
                                      (1560 - img.height) // 2))
                     draw = ImageDraw.Draw(page)
                     draw.text((100, 1690),
-                              f"CN-BAR-001 | HOJA {index:02d}/07 | NO FABRICAR",
+                              f"CARPINOVA | HOJA {index:02d}/{len(booklet_svgs):02d} | NO FABRICAR",
                               fill="#9e2733")
                     pages.append(page)
             with BytesIO() as stream:
@@ -183,19 +187,19 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
                 booklet = stream.getvalue()
             if not booklet.startswith(b"%PDF-"):
                 raise DesignError("No se generó la cartilla PDF.")
-            (stage / "CN-BAR-001-planos-REVISION.pdf").write_bytes(booklet)
+            (stage / booklet_name).write_bytes(booklet)
         render_manifest = {
             "status": "DRAFT_NOT_FOR_CUTTING",
             "source": "CANONICAL_CAD_EXCHANGE",
             "geometry_sha256": cad["geometry_sha256"],
             "piece_count": len(cad["boxes"]),
             "files": list(_SHEET_FILES) + (
-                ["CN-BAR-001-planos-REVISION.pdf"] if booklet is not None else []),
+                [booklet_name] if booklet is not None else []),
             "svg_sha256": hashlib.sha256(svg.encode("utf-8")).hexdigest(),
             "png_sha256": hashlib.sha256(png).hexdigest(),
             "pdf_sha256": hashlib.sha256(pdf).hexdigest(),
             **({"booklet_pdf_sha256": hashlib.sha256(booklet).hexdigest(),
-                "booklet_pages": 7} if booklet is not None else {}),
+                "booklet_pages": len(booklet_svgs)} if booklet is not None else {}),
             **{key: False for key in _RELEASE_FLAGS},
         }
         (stage / "render-manifest.json").write_text(
