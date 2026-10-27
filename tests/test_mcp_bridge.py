@@ -134,6 +134,59 @@ class McpBridgeContractTests(unittest.TestCase):
                     carpinova_renderizar_lamina("lamina_001")
 
 
+    def test_one_call_generates_verified_draft_and_booklet_without_native_cad(self):
+        try:
+            import resvg_py
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Optional rendering unavailable")
+        from carpinova_agent.pilot_cli import verify_pilot_bundle
+        from hashlib import sha256
+        import re
+        for fixture, count, pages in (
+            ("pilot-open-kitchen-800.json", 4, 3),
+            ("wall-bar-900-review.json", 21, 7),
+            ("four-drawer-500x500x800-INSET-UNCONFIRMED.json", 28, 8),
+        ):
+            with self.subTest(fixture=fixture), TemporaryDirectory() as root:
+                raw = (ROOT / "examples" / fixture).read_text(encoding="utf-8")
+                with patch.dict(os.environ, {
+                    "CARPINOVA_OUTPUT_ROOT": root,
+                    "CARPINOVA_NATIVE_EXECUTION_ENABLED": "0",
+                }):
+                    with patch("carpinova_agent.mcp_bridge.export_native_project",
+                               side_effect=AssertionError("Native CAD never runs")):
+                        result = carpinova_generar_borrador(
+                            raw, "one_call", incluir_planos=True)
+                    self.assertEqual(result["status"], "DRAFT_NOT_FOR_CUTTING")
+                    self.assertEqual(result["piece_count"], count)
+                    self.assertEqual(
+                        len(re.findall(rb"/Type\s*/Page\b",
+                                       Path(result["booklet_pdf"]).read_bytes())), pages)
+                    cad = verify_pilot_bundle(Path(root) / "one_call")
+                    manifest = json.loads((Path(root) / "one_call" / "lamina" /
+                                           "render-manifest.json").read_text(encoding="utf-8"))
+                    self.assertEqual(len(cad["boxes"]), count)
+                    self.assertEqual(result["geometry_sha256"], cad["geometry_sha256"])
+                    self.assertEqual(manifest["geometry_sha256"],
+                                     result["geometry_sha256"])
+                    self.assertEqual(sha256(Path(result["booklet_pdf"]).read_bytes()).hexdigest(),
+                                     manifest["booklet_pdf_sha256"])
+                    for flag in ("fabrication_ready", "cutting_ready",
+                                 "drilling_ready", "purchase_ready"):
+                        self.assertIs(result[flag], False)
+                    with self.assertRaisesRegex(PilotError, "existente"):
+                        carpinova_generar_borrador(raw, "one_call", incluir_planos=True)
+
+    def test_one_call_rejects_non_boolean_flag_before_any_output(self):
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                for bad in ("true", 1, None, [], {}):
+                    with self.subTest(bad=bad), self.assertRaisesRegex(
+                            PilotError, "booleano"):
+                        carpinova_generar_borrador(REQUEST, "invalid", incluir_planos=bad)
+                self.assertFalse((Path(root) / "invalid").exists())
+
     def test_mcp_read_review_png_returns_real_image_content(self):
         try:
             from mcp.server.fastmcp import Image as MCPImage
