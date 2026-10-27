@@ -355,6 +355,33 @@ def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str
                 f'data-piece-id="{escape(part["piece_id"], quote=True)}">'
                 f'<title>{escape(code)}</title></rect>'
             )
+        # Visible client references: all CAD pieces, never only SVG <title>.
+        # Callouts link each reference to its original X/Z rectangle.
+        positions = {
+            "drawer_facade": (160, 302),
+            "drawer_front_wall": (720, 302),
+            "drawer_side_left": (74, 510),
+            "drawer_side_right": (818, 510),
+            "drawer_rear_wall": (155, 900),
+            "drawer_bottom": (500, 695),
+        }
+        for code, part in entries:
+            b = boxes[part["piece_id"]]
+            px, _, pz = b["origin_xyz_mm"]
+            dx, _, dz = b["size_xyz_mm"]
+            tx = 100 + (px + dx / 2 - xmin) * scale
+            ty = 335 + (pz + dz / 2 - zmin) * scale
+            cx, cy = positions[part["role"]]
+            body.extend((
+                f'<path data-leader-id="{escape(part["piece_id"], quote=True)}" '
+                f'd="M{cx:.2f} {cy:.2f} L{tx:.2f} {ty:.2f}" fill="none" '
+                'stroke="#5d7889" stroke-width="1.2" stroke-dasharray="5 4"/>',
+                f'<rect x="{cx-23}" y="{cy-15}" width="48" height="28" '
+                'rx="6" fill="#fff" stroke="#215370" stroke-width="1.5"/>',
+                f'<text data-visible-part-id="{escape(part["piece_id"], quote=True)}" '
+                f'x="{cx+1}" y="{cy+5}" text-anchor="middle" '
+                f'font-size="18" font-weight="bold" fill="#17435f">{code}</text>',
+            ))
         for j, (code, part) in enumerate(entries):
             by = 335 + j * 100
             fx = part["nominal_face_x_mm"]
