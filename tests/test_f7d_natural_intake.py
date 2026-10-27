@@ -243,6 +243,93 @@ class NaturalRequestPreviewTests(unittest.TestCase):
                 self.assertNotIn("illustrative_drawer_layout_option", result)
                 self.assertEqual(result["executed_tools"], [])
 
+    def test_drawer_concept_svg_is_opt_in_and_matches_f1_not_cad(self):
+        import xml.etree.ElementTree as ET
+        from carpinova_agent.maestro import consult_maestro
+        text = "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con cuatro cajones"
+        original = preview_natural_request(text)
+        self.assertNotIn("concept_preview", original["illustrative_drawer_layout_option"])
+        with patch("carpinova_agent.maestro.design_modular_run",
+                   side_effect=AssertionError("No F7C parts allowed")):
+            preview = preview_natural_request(text, include_concept_sketch=True)
+        option = preview["illustrative_drawer_layout_option"]
+        concept = option["concept_preview"]
+        ET.fromstring(concept["sketch_svg"])
+        self.assertEqual(concept["source_engine"], "F1_CORE_CABINET_REVIEW_ONLY")
+        self.assertEqual(concept["piece_count"], 0)
+        self.assertTrue(concept["not_fabrication_geometry"])
+        self.assertEqual([x["ref"] for x in concept["opening_refs_top_to_bottom"]],
+                         ["A", "B", "C", "D"])
+        self.assertEqual([x["cad_review_id"] for x in
+                          concept["opening_refs_top_to_bottom"]],
+                         ["D4", "D3", "D2", "D1"])
+        self.assertEqual(
+            [x["opening_height_mm"] for x in concept["opening_refs_top_to_bottom"]],
+            [170, 170, 170, 170],
+        )
+        authoritative = consult_maestro(option["proposed_request"])["modular"]
+        self.assertEqual(concept["sketch_svg"], authoritative["sketch_svg"])
+        self.assertEqual(concept["opening_plan_bottom_to_top"],
+                         authoritative["opening_plan"])
+        self.assertEqual(option["parts"], [])
+        self.assertEqual(option["piece_count"], 0)
+        self.assertEqual(preview["executed_tools"], [])
+        for key in ("fabrication_ready", "cutting_ready",
+                    "drilling_ready", "purchase_ready"):
+            self.assertFalse(preview[key])
+            self.assertFalse(option[key])
+
+    def test_drawer_concept_svg_rejects_external_proposals_and_invalid_flag(self):
+        text = "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        with self.assertRaisesRegex(MaestroError, "booleano"):
+            preview_natural_request(text, include_concept_sketch=1)
+        with self.assertRaisesRegex(MaestroError, "candidatos externos"):
+            preview_natural_request(text, CABINET, include_concept_sketch=True)
+
+    def test_cli_drawer_preview_svg_same_command_no_cad_or_overwrite(self):
+        import xml.etree.ElementTree as ET
+        from carpinova_agent.maestro_cli import main
+        text = "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "cajonera.svg"
+            with patch("sys.argv", [
+                "maestro_cli", "--utterance", text, "--sketch", str(target)
+            ]), patch("carpinova_agent.maestro_cli.consult_maestro",
+                      side_effect=AssertionError("Do not execute Maestro")):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.assertEqual(main(), 0)
+            self.assertTrue(target.is_file())
+            svg = target.read_text(encoding="utf-8")
+            ET.fromstring(svg)
+            self.assertIn("NO", svg.upper())
+            result = json.loads(out.getvalue())
+            self.assertNotIn("sketch_svg",
+                             result["illustrative_drawer_layout_option"]["concept_preview"])
+            self.assertEqual(
+                result["illustrative_drawer_layout_option"]["concept_preview"]["sketch_file"],
+                str(target),
+            )
+            original = target.read_bytes()
+            with patch("sys.argv", [
+                "maestro_cli", "--utterance", text, "--sketch", str(target)
+            ]), patch("sys.stderr", io.StringIO()):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(), 2)
+            self.assertEqual(original, target.read_bytes())
+
+    def test_cli_sketch_refuses_complex_requests_without_file(self):
+        from carpinova_agent.maestro_cli import main
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "blocked.svg"
+            with patch("sys.argv", [
+                "maestro_cli", "--utterance",
+                "Cajonera 50 cm ancho 80 cm alto 50 cm fondo, 3 pequeños y uno grande",
+                "--sketch", str(target)
+            ]), patch("sys.stderr", io.StringIO()), redirect_stdout(io.StringIO()):
+                self.assertEqual(main(), 2)
+            self.assertFalse(target.exists())
+
     def test_external_candidate_never_gets_drawer_layout_assumptions(self):
         r = preview_natural_request(
             "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones",
