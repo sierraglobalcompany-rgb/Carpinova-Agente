@@ -93,12 +93,23 @@ class NaturalRequestPreviewTests(unittest.TestCase):
     def test_component_vs_whole_type_remains_reviewable_not_geometry(self):
         text = "Un gabinete de 80 cm de ancho con 3 cajones, alto 72 cm"
         result = preview_natural_request(text)
-        self.assertNotIn("project_type", result["proposed_request"]["project"])
+        self.assertEqual(result["proposed_request"]["project"]["project_type"],
+                         "gabinete")
         self.assertEqual(result["proposed_request"]["project"]["width_mm"], 800)
         self.assertEqual(result["proposed_request"]["project"]["height_mm"], 720)
         with patch("carpinova_agent.maestro.design_modular_run",
                    side_effect=AssertionError("Geometry cannot execute")):
             self.assertEqual(preview_natural_request(text)["executed_tools"], [])
+
+    def test_drawer_subpart_measure_does_not_become_furniture_depth(self):
+        r = preview_natural_request(
+            "Gabinete de 80 cm de ancho, con un cajón de 30 cm de fondo")
+        self.assertEqual(r["proposed_request"]["project"]["width_mm"], 800)
+        self.assertNotIn("depth_mm", r["proposed_request"]["project"])
+        self.assertIn("depth_mm", r["ambiguous_fields"])
+        other = preview_natural_request(
+            "Mueble con 3 cajones, ancho 80 cm, alto 72 cm")
+        self.assertNotIn("project_type", other["proposed_request"]["project"])
 
     def test_existing_explicit_candidate_does_not_get_overwritten_by_extractor(self):
         r = preview_natural_request("Gabinete ancho 81 cm", CABINET)
