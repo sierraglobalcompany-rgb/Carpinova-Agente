@@ -470,5 +470,21 @@ class WallBarTests(unittest.TestCase):
         self.assertFalse(model["purchase_ready"])
 
 
+    def test_review_booklet_has_seven_traceable_svg_pages(self):
+        from carpinova_agent.wall_bar_delivery import review_booklet_svgs
+        from xml.etree import ElementTree
+        model = self.model()
+        pages = review_booklet_svgs(model)
+        self.assertEqual(len(pages), 7)
+        sha = cad_exchange(model)["geometry_sha256"]
+        for page in pages:
+            ElementTree.fromstring(page)
+            self.assertIn(sha, page)
+        self.assertIn("E06", pages[5])
+        self.assertIn("C05", pages[5])
+        self.assertIn("NO FABRICAR", pages[6])
+        self.assertFalse(model["fabrication_ready"])
+
+
 if __name__ == "__main__":
     unittest.main()
