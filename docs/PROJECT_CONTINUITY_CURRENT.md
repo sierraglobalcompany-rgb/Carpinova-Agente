@@ -1,5 +1,18 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## ACTIVO — PRESET ILUSTRATIVO SOLO PARA GABINETE SENCILLO (27-oct-2026, PR #21 Draft)
+
+**Rectificación KISS del usuario:** una solicitud sencilla debe producir propuesta visual corregible sin obligar a elegir marca de corredera, carga de cajón ni todas las uniones antes del primer boceto. Mantener las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente, antiping-pong.
+
+**F7D ampliado:** `preview_natural_request(texto)` conserva `proposed_request` con solo valores textuales explícitos y procedencia `user_literal`. Si hay exactamente *un gabinete* con ancho/alto/fondo inequívocos, sin materiales, puertas, cajones, patas ni condiciones especiales mencionadas, añade `illustrative_option` separado: **cuatro tableros, 15 mm y laterales completos**, marcado `OPTIONAL_VISUAL_PRESET_REQUIRES_APPROVAL` con ambos parámetros señalados como `ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED`. No altera el `proposed_request` extraído; el usuario puede aceptar o corregir ese único ejemplo. El paso F3 real exige una operación posterior explícita usando el candidato aceptado. El ejemplo nunca se ejecuta dentro de F7D y jamás habilita corte, taladros, compra ni fabricación. **No generalizarlo** a cajoneras, armarios, cocinas complejas ni a datos físicos seleccionados.
+
+**Casos donde deliberadamente NO aparece:** sin cualquiera de las tres medidas; medidas o unidades ambiguas; dimensiones incompatibles con 15 mm; espesor, material, cajón, puerta, bisagra, corredera, zócalo, patas, instalación mural/empotrada o varios muebles mencionados. Estas solicitudes siguen pendientes de propuesta de distribución sin fingir geometría resuelta.
+
+**Evidencia:** tests verifican que los 15 mm sean supuestos visuales identificados, `proposed_request` permanezca literal, se pueda ejecutar F3 solamente tras seleccionar el candidato, no se ejecute geometría en el preview, se conserve 4× `false`, no se suplanten candidatos externos, y se omita el preset en muebles complejos. Python geometry sobre commit de código `1bd31a82a22a06101669cb497170e92e6b107c49`: **641 pruebas, 633 pass, 8 skipped y 0 fallidas**; resto de CI debe comprobarse para el HEAD final. El checkpoint anterior `9de77031` tenía 5/6 PASS y el workflow MCP nativo **CANCELLED**, por lo que **no** declarar 6/6 en ese SHA.
+
+**Próxima prioridad de producto:** conectar una propuesta de distribución simple para muebles con cajones a partir de restricciones explícitas y una sola revisión, reutilizando F1/F7C, sin autoelegir herrajes ni añadir paneles invisibles. *Aún no está implementado*. PR #21 sigue Draft; main, 21 piezas V0.20 y 28 piezas de casos genéricos protegidos.
+
+
 ## ACTIVO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
 
 **Motivo/decisión del propietario:** el agente debe partir de una descripción y medidas normales del mueble, producir una propuesta revisable y luego planos/despiece/manual, sin cuestionarios de herrajes o carga. Mantener KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong. No reabrir análisis D3/correderas sin defecto real o cambio de cliente.
