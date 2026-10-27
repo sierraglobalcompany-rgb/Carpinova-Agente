@@ -87,5 +87,32 @@ class SheetTests(unittest.TestCase):
             self.assertFalse((destination / "lamina").exists())
 
 
+    def test_wall_bar_booklet_pdf_is_integrity_bound_and_seven_pages(self):
+        try:
+            import resvg_py
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PDF conversion optional dependencies unavailable")
+        from hashlib import sha256
+        request = json.loads((ROOT / "examples" /
+                              "wall-bar-900-review.json").read_text(encoding="utf-8"))
+        with TemporaryDirectory() as td:
+            output = Path(td) / "barra"
+            source = write_pilot_bundle(request, output)
+            manifest = create_render_bundle(output)
+            self.assertEqual(manifest["piece_count"], 21)
+            self.assertEqual(manifest["geometry_sha256"], source["geometry_sha256"])
+            self.assertEqual(manifest["booklet_pages"], 7)
+            self.assertEqual(len(manifest["files"]), 5)
+            pdf_path = output / "lamina" / "CN-BAR-001-planos-REVISION.pdf"
+            pdf = pdf_path.read_bytes()
+            self.assertTrue(pdf.startswith(b"%PDF-"))
+            self.assertEqual(sha256(pdf).hexdigest(),
+                             manifest["booklet_pdf_sha256"])
+            for flag in ("fabrication_ready", "cutting_ready",
+                         "drilling_ready", "purchase_ready"):
+                self.assertFalse(manifest[flag])
+
+
 if __name__ == "__main__":
     unittest.main()
