@@ -111,6 +111,68 @@ class NaturalRequestPreviewTests(unittest.TestCase):
             "Mueble con 3 cajones, ancho 80 cm, alto 72 cm")
         self.assertNotIn("project_type", other["proposed_request"]["project"])
 
+    def test_clear_cabinet_offers_single_explicitly_illustrative_choice(self):
+        text = "Quiero un gabinete ancho 80 cm, alto 72 cm y fondo 55 cm"
+        with patch("carpinova_agent.maestro.design_modular_run",
+                   side_effect=AssertionError("No geometry before confirmation")):
+            r = preview_natural_request(text)
+        self.assertEqual(r["status"], "NEEDS_USER_CONFIRMATION")
+        self.assertNotIn("panel_thickness_mm", r["proposed_request"]["project"])
+        option = r["illustrative_option"]
+        self.assertEqual(option["status"], "OPTIONAL_VISUAL_PRESET_REQUIRES_APPROVAL")
+        candidate = option["proposed_request"]
+        self.assertEqual(candidate["project"], {
+            "project_type": "gabinete",
+            "width_mm": 800,
+            "height_mm": 720,
+            "depth_mm": 550,
+            "panel_thickness_mm": 15,
+            "construction": "sides_full",
+        })
+        self.assertEqual(option["suggested_fields"]["panel_thickness_mm"]["source"],
+                         "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED")
+        self.assertEqual(option["suggested_fields"]["construction"]["source"],
+                         "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED")
+        self.assertEqual(r["executed_tools"], [])
+        self.assertTrue(option["requires_user_confirmation"])
+        self.assertTrue(all(option[k] is False for k in (
+            "fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"
+        )))
+
+        # A deliberate, separate accepted F3 candidate uses ONLY the existing
+        # deterministic engine; it is still explicitly not fabrication-ready.
+        from carpinova_agent.maestro import consult_maestro
+        actual = consult_maestro(candidate)
+        self.assertEqual(actual["project"]["phase"], "GEOMETRY_DRAFT")
+        design = actual["project"]["design"]
+        self.assertEqual(design["dimensions"]["external_width_mm"], 800)
+        self.assertEqual(design["dimensions"]["external_height_mm"], 720)
+        self.assertEqual(len(design["parts"]), 2)
+        self.assertFalse(actual["fabrication_ready"])
+        self.assertFalse(actual["cutting_ready"])
+
+    def test_visual_preset_is_withheld_for_complicated_or_underspecified_cabinets(self):
+        for text in (
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm con 3 cajones",
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm con dos puertas",
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm en MDP 18mm",
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm suspendido",
+            "Gabinete ancho 80 cm, alto 72 cm",
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm o 60 cm",
+            "Gabinete ancho 2 cm, alto 72 cm y fondo 55 cm",
+        ):
+            with self.subTest(text=text):
+                preview = preview_natural_request(text)
+                self.assertNotIn("illustrative_option", preview)
+                self.assertEqual(preview["executed_tools"], [])
+
+    def test_external_cabinet_candidate_is_not_auto_enriched_with_defaults(self):
+        r = preview_natural_request(
+            "Gabinete ancho 80 cm, alto 72 cm y fondo 55 cm", CABINET
+        )
+        self.assertNotIn("illustrative_option", r)
+        self.assertEqual(r["proposed_request"], CABINET)
+
     def test_existing_explicit_candidate_does_not_get_overwritten_by_extractor(self):
         r = preview_natural_request("Gabinete ancho 81 cm", CABINET)
         self.assertEqual(r["proposed_request"], CABINET)
