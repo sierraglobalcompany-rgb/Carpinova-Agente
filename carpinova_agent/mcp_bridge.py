@@ -147,6 +147,9 @@ def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
         "image_preview_svg": str(folder / "lamina" / "three-views.svg"),
         "image_preview_png": str(folder / "lamina" / "three-views.png"),
         "printable_pdf": str(folder / "lamina" / "three-views.pdf"),
+        **({"booklet_pdf": str(folder / "lamina" /
+                              "CN-BAR-001-planos-REVISION.pdf")}
+           if "CN-BAR-001-planos-REVISION.pdf" in manifest["files"] else {}),
         **_FABRICATION,
     }
 
