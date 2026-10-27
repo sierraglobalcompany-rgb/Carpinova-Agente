@@ -288,5 +288,43 @@ class McpBridgeContractTests(unittest.TestCase):
                     carpinova_exportar_3d("safe", "AUTORIZO_EXPORTAR_BORRADOR_3D")
                 self.assertFalse((Path(root) / "safe" / "native").exists())
 
+    def test_wall_bar_review_pack_is_readable_and_tamper_protected(self):
+        from carpinova_agent.pilot_cli import verify_pilot_bundle
+        from xml.etree import ElementTree
+        request = (ROOT / "examples" / "wall-bar-900-review.json").read_text(
+            encoding="utf-8")
+        with TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
+                response = carpinova_generar_borrador(request, "barra001")
+                self.assertEqual(response["piece_count"], 21)
+                self.assertEqual(len(response["files"]), 10)
+                for letter in "ABC":
+                    filename = f"CN-BAR-001-cajon-{letter}.svg"
+                    delivered = carpinova_leer_entregable("barra001", filename)
+                    drawing = ElementTree.fromstring(delivered["contenido"])
+                    self.assertEqual(len([
+                        node for node in drawing.iter()
+                        if node.get("data-piece-id") is not None
+                    ]), 5)
+                schedule = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-referencias.csv")
+                self.assertIn("E01", schedule["contenido"])
+                self.assertIn("C05", schedule["contenido"])
+                guide = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-guia-de-armado-REVISION.md")
+                self.assertIn("NO FABRICAR", guide["contenido"])
+                folder = Path(root) / "barra001"
+                original = verify_pilot_bundle(folder)
+                path = folder / "CN-BAR-001-cajon-C.svg"
+                path.write_text(path.read_text(encoding="utf-8") + "ALTERADO",
+                                encoding="utf-8")
+                with self.assertRaisesRegex(PilotError, "distinto del CAD"):
+                    verify_pilot_bundle(folder)
+                self.assertEqual(len(original["boxes"]), 21)
+                for flag in ("fabrication_ready", "cutting_ready",
+                             "drilling_ready", "purchase_ready"):
+                    self.assertFalse(response[flag])
+
+
 if __name__ == "__main__":
     unittest.main()
