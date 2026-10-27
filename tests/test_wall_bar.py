@@ -242,25 +242,20 @@ class WallBarTests(unittest.TestCase):
                         "selected_elements_require_dimensions_and_owner_approval"
                     ], wall != "installer_defined" or edge == "false_thickness_pending")
 
-    def test_maestro_offers_independent_optional_questions(self):
-        result = consult_maestro({"action": "modular", "module_spec": spec()},
-                                 max_questions=6)
-        fields = {q["field"] for q in result["questions"]}
-        self.assertIn("module_spec.design_choices.wall_support_presentation", fields)
-        self.assertIn("module_spec.design_choices.top_edge_presentation", fields)
-        self.assertEqual(result["modular"]["wall_bar_review"]["design_choices"][
-            "aesthetic_presentation"], "bicolor_modern_preliminary")
-        self.assertFalse(result["fabrication_ready"])
-        self.assertEqual(len(result["modular"]["parts"]), 21)
-        selected = spec()
-        selected["design_choices"] = {
-            "wall_support_presentation": "installer_defined",
-            "top_edge_presentation": "actual_15mm",
-        }
-        resolved = consult_maestro({"action": "modular", "module_spec": selected},
-                                   max_questions=6)
-        self.assertFalse(any("design_choices" in q["field"]
-                             for q in resolved["questions"]))
+    def test_maestro_uses_safe_defaults_without_optional_question_loop(self):
+        draft = consult_maestro({"action": "modular", "module_spec": spec()},
+                               max_questions=6)
+        fields = {q["field"] for q in draft["questions"]}
+        self.assertFalse(any("design_choices" in field or field.endswith(".finish")
+                             for field in fields))
+        choices = draft["modular"]["wall_bar_review"]["design_choices"]
+        self.assertEqual(choices["wall_support_presentation"], "installer_defined")
+        self.assertEqual(choices["top_edge_presentation"], "actual_15mm")
+        self.assertEqual(choices["aesthetic_presentation"], "bicolor_modern_preliminary")
+        self.assertEqual(len(draft["modular"]["parts"]), 21)
+        for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
+                    "purchase_ready"):
+            self.assertFalse(draft[key])
 
     def test_mounting_options_fail_closed_on_bad_input(self):
         for invalid in (
@@ -445,6 +440,34 @@ class WallBarTests(unittest.TestCase):
                 request["extra_phantom_left_panel"] = True
             with self.subTest(scenario=scenario), self.assertRaises(DesignError):
                 design_wall_bar(request)
+
+
+    def test_review_package_gives_three_drawer_sheets_21_traceable_codes(self):
+        from carpinova_agent.wall_bar_delivery import reference_rows, review_files
+        from xml.etree import ElementTree
+        model = self.model()
+        rows = reference_rows(model)
+        files = review_files(model)
+        self.assertEqual(len(rows), 21)
+        self.assertEqual(len({r["referencia"] for r in rows}), 21)
+        self.assertEqual(len({r["id_cad"] for r in rows}), 21)
+        self.assertEqual(len(files), 5)
+        self.assertIn("E01", files["CN-BAR-001-referencias.csv"])
+        self.assertIn("C05", files["CN-BAR-001-referencias.csv"])
+        for letter in "ABC":
+            sheet = files[f"CN-BAR-001-cajon-{letter}.svg"]
+            root = ElementTree.fromstring(sheet)
+            self.assertEqual(
+                len([item for item in root.iter()
+                     if item.get("data-piece-id") is not None]), 5)
+            self.assertIn("NO CORTAR", sheet)
+            self.assertIn(cad_exchange(model)["geometry_sha256"], sheet)
+        self.assertIn("instalador", files["CN-BAR-001-guia-de-armado-REVISION.md"])
+        self.assertEqual(len(model["parts"]), 21)
+        self.assertFalse(model["fabrication_ready"])
+        self.assertFalse(model["cutting_ready"])
+        self.assertFalse(model["drilling_ready"])
+        self.assertFalse(model["purchase_ready"])
 
 
 if __name__ == "__main__":
