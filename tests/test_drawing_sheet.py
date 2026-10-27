@@ -123,7 +123,7 @@ class SheetTests(unittest.TestCase):
             from PIL import Image
         except ImportError:
             self.skipTest("PDF converter optional")
-        from pypdf import PdfReader
+        import re
         from carpinova_agent.drawing_sheet import generic_booklet_svgs
         for facade in ("INSET", "OVERLAY"):
             with self.subTest(style=facade), TemporaryDirectory() as td:
@@ -148,7 +148,8 @@ class SheetTests(unittest.TestCase):
                 self.assertEqual(manifest["geometry_sha256"],
                                  source["geometry_sha256"])
                 path = output / "lamina" / "CARPINOVA-planos-REVISION.pdf"
-                self.assertEqual(len(PdfReader(path).pages), 8)
+                self.assertEqual(
+                    len(re.findall(rb"/Type\s*/Page\b", path.read_bytes())), 8)
                 for flag in ("fabrication_ready", "cutting_ready",
                              "drilling_ready", "purchase_ready"):
                     self.assertFalse(manifest[flag])
