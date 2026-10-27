@@ -205,3 +205,228 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
             raise DesignError("Lámina creada por otra operación; no sobrescribir.")
         os.rename(stage, destination)
     return render_manifest
+
+
+def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str]:
+    """Review sheets for F6/F7C modules using existing canonical part data.
+
+    One general CAD view, a separate sheet for each real drawer, a referenced
+    nominal BOM, and a preliminary assembly review. No second geometry engine.
+    """
+    from xml.etree import ElementTree
+
+    cad = validate_exchange(cad)
+    source = {p["piece_id"]: p for p in model["parts"]}
+    boxes = {b["piece_id"]: b for b in cad["boxes"]}
+    if (len(source) != len(model["parts"]) or len(boxes) != len(cad["boxes"])
+            or set(source) != set(boxes)):
+        raise DesignError("Referencias del mueble distintas del CAD.")
+
+    def ref_letter(number: int) -> str:
+        result = ""
+        while number:
+            number, index = divmod(number - 1, 26)
+            result = chr(65 + index) + result
+        return result
+
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    frame: list[dict[str, Any]] = []
+    for part in model["parts"]:
+        did = part.get("drawer_id")
+        if part["role"].startswith("drawer_"):
+            if not isinstance(did, str) or not did:
+                raise DesignError("Cajón CAD sin identificador de origen.")
+            groups.setdefault((part["module_id"], did), []).append(part)
+        else:
+            frame.append(part)
+    for key, parts in groups.items():
+        fronts = [p for p in parts if p["role"] == "drawer_facade"]
+        if len(fronts) != 1 or len(parts) not in (5, 6):
+            raise DesignError("Cajón incompleto o sin frente: " + str(key))
+    ordered_groups = sorted(
+        groups,
+        key=lambda key: (
+            -max(boxes[p["piece_id"]]["origin_xyz_mm"][1] +
+                 boxes[p["piece_id"]]["size_xyz_mm"][1]
+                 for p in groups[key] if p["role"] == "drawer_facade"),
+            key[0], key[1],
+        ),
+    )
+    order = ("drawer_facade", "drawer_front_wall", "drawer_side_left",
+             "drawer_side_right", "drawer_rear_wall", "drawer_bottom")
+    references: list[tuple[str, dict[str, Any]]] = []
+    for number, part in enumerate(sorted(frame, key=lambda p: (
+            p["module_id"], p["role"], p["piece_id"])), start=1):
+        references.append((f"E{number:02d}", part))
+    sheet_groups = []
+    for idx, key in enumerate(ordered_groups, start=1):
+        letter = ref_letter(idx)
+        parts = sorted(groups[key], key=lambda p: (
+            order.index(p["role"]), p["piece_id"]))
+        entries = [(f"{letter}{j:02d}", p) for j, p in enumerate(parts, 1)]
+        references.extend(entries)
+        sheet_groups.append((letter, key, entries))
+    if len(references) != len(boxes):
+        raise DesignError("Despiece de revisión no cubre las piezas CAD.")
+
+    digest = cad["geometry_sha256"]
+
+    def sheet(title: str, body: list[str]) -> str:
+        result = "\n".join([
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1600" '
+            'height="1130" viewBox="0 0 1600 1130">',
+            '<rect width="1600" height="1130" fill="#fff"/>',
+            '<rect width="1600" height="126" fill="#183247"/>',
+            '<g font-family="Arial,sans-serif">',
+            f'<text x="50" y="60" fill="white" font-size="34" '
+            f'font-weight="bold">{escape(title)}</text>',
+            '<text x="50" y="100" fill="#dbe8f0" font-size="18">'
+            'CARPINOVA · BORRADOR NOMINAL · NO FABRICAR</text>',
+            *body,
+            f'<text x="50" y="1095" fill="#52677a" font-size="15">'
+            f'Piezas reales {len(boxes)} · CAD SHA-256: {escape(digest)}</text>',
+            '</g></svg>',
+        ]) + "\n"
+        ElementTree.fromstring(result)
+        return result
+
+    # Reuse the existing general three-view renderer; overlay only client
+    # references for real drawer facades at their CAD-backed XY positions.
+    overview = three_views_svg(cad)
+    w, h, _ = cad["bounds_xyz_mm"]
+    scale = min((536 - 76) / w, (460 - 76 - 30) / h)
+    left = 36 + (536 - w * scale) / 2
+    top = 128 + 37 + (460 - 76 - 30 - h * scale) / 2
+    markers = []
+    for letter, key, entries in sheet_groups:
+        front = next(p for _, p in entries if p["role"] == "drawer_facade")
+        b = boxes[front["piece_id"]]
+        x, y, _ = b["origin_xyz_mm"]
+        dx, dy, _ = b["size_xyz_mm"]
+        xx = left + (x + dx / 2) * scale
+        yy = top + (h - y - dy / 2) * scale
+        markers.append(
+            f'<circle cx="{xx:.2f}" cy="{yy:.2f}" r="13" '
+            'fill="#fff" stroke="#175579" stroke-width="2"/>'
+            f'<text x="{xx:.2f}" y="{yy+5:.2f}" text-anchor="middle" '
+            f'font-family="Arial" font-size="16" fill="#175579">'
+            f'{escape(letter)}</text>'
+        )
+    if not overview.endswith("</svg>\n"):
+        raise DesignError("Vista general de CAD sin cierre esperado.")
+    overview = overview.replace("</svg>\n", "".join(markers) + "</svg>\n")
+
+    pages = [overview]
+    for letter, (module_id, drawer_id), entries in sheet_groups:
+        body = [
+            f'<text x="54" y="178" font-size="24" font-weight="bold" '
+            f'fill="#183247">Módulo {escape(module_id)} · ID CAD {escape(drawer_id)}</text>',
+            '<text x="54" y="214" font-size="18" fill="#9e2733">'
+            'Las uniones, rieles y medidas de corte terminadas NO están aprobadas.</text>',
+            '<rect x="50" y="250" width="850" height="680" rx="8" '
+            'fill="#f6f9fb" stroke="#cad8e2"/>',
+            '<text x="64" y="283" font-size="21" fill="#183247">'
+            'PLANTA · piezas reales (X/Z)</text>',
+            '<text x="963" y="280" font-size="23" font-weight="bold" '
+            'fill="#183247">DESPIECE DEL CAJÓN</text>',
+        ]
+        coords = [boxes[p["piece_id"]] for _, p in entries]
+        xmin = min(b["origin_xyz_mm"][0] for b in coords)
+        zmin = min(b["origin_xyz_mm"][2] for b in coords)
+        xmax = max(b["origin_xyz_mm"][0] + b["size_xyz_mm"][0] for b in coords)
+        zmax = max(b["origin_xyz_mm"][2] + b["size_xyz_mm"][2] for b in coords)
+        scale = min(720 / (xmax - xmin), 555 / (zmax - zmin))
+        for code, part in sorted(entries, key=lambda pair: (
+                pair[1]["role"] == "drawer_facade", pair[0])):
+            b = boxes[part["piece_id"]]
+            px, _, pz = b["origin_xyz_mm"]
+            dx, _, dz = b["size_xyz_mm"]
+            xx = 100 + (px - xmin) * scale
+            yy = 335 + (pz - zmin) * scale
+            body.append(
+                f'<rect x="{xx:.2f}" y="{yy:.2f}" '
+                f'width="{dx*scale:.2f}" height="{dz*scale:.2f}" '
+                'fill="#d8e9f3" fill-opacity=".6" '
+                'stroke="#36536a" stroke-width="1.7" '
+                f'data-piece-id="{escape(part["piece_id"], quote=True)}">'
+                f'<title>{escape(code)}</title></rect>'
+            )
+        for j, (code, part) in enumerate(entries):
+            by = 335 + j * 100
+            fx = part["nominal_face_x_mm"]
+            fy = part["nominal_face_y_mm"]
+            thick = part["thickness_mm"]
+            body.extend((
+                f'<text x="965" y="{by}" font-size="21" font-weight="bold" '
+                f'fill="#17435f">{escape(code)}</text>',
+                f'<text x="1040" y="{by}" font-size="18" fill="#183247">'
+                f'{escape(part["role"])}</text>',
+                f'<text x="1040" y="{by+30}" font-size="17" fill="#53697e">'
+                f'{fx} × {fy} × {thick} mm</text>',
+                f'<text x="1040" y="{by+53}" font-size="12" fill="#53697e">'
+                f'{escape(part["piece_id"])}</text>',
+            ))
+        pages.append(sheet(f"CAJÓN {letter} · {len(entries)} PIEZAS", body))
+    per_page = 18
+    for start in range(0, len(references), per_page):
+        subset = references[start:start + per_page]
+        body = [
+            '<text x="50" y="182" font-size="21" fill="#183247">'
+            'REF. / ROL / MEDIDA NOMINAL / ID CAD</text>',
+            '<text x="50" y="218" font-size="17" fill="#9e2733">'
+            'Sin descuentos de canto, mecanizados o patrón de perforaciones.</text>',
+        ]
+        for i, (code, part) in enumerate(subset):
+            col = i // 9
+            row = i % 9
+            x = 50 + col * 770
+            y = 255 + row * 88
+            size = (f'{part["nominal_face_x_mm"]} × '
+                    f'{part["nominal_face_y_mm"]} × {part["thickness_mm"]} mm')
+            body.extend((
+                f'<rect x="{x}" y="{y-23}" width="742" height="76" '
+                'fill="#f4f8fb" stroke="#cbd8e2"/>',
+                f'<text x="{x+12}" y="{y+3}" font-size="18" '
+                f'font-weight="bold" fill="#17435f">{escape(code)} · '
+                f'{escape(part["role"])}</text>',
+                f'<text x="{x+720}" y="{y+3}" font-size="16" '
+                f'text-anchor="end" fill="#17435f">{size}</text>',
+                f'<text x="{x+12}" y="{y+28}" font-size="14" '
+                f'fill="#53697e">{escape(part["piece_id"])}</text>',
+            ))
+        pages.append(sheet("DESPIECE GENERAL · REFERENCIAS", body))
+    steps = [
+        "Identificar cada pieza con su código de la tabla y su ID CAD.",
+        "Revisar el encaje nominal de la carcasa antes de definir uniones.",
+        "Revisar cada cajón en su hoja individual y sus luces laterales.",
+        "Elegir herrajes comerciales por medidas y capacidad verificadas.",
+        "Validar cantos terminados, tornillería, cargas y estabilidad.",
+        "El instalador comprueba apoyos y anclajes conforme a la obra.",
+    ]
+    manual = [
+        '<text x="50" y="187" font-size="23" font-weight="bold" '
+        'fill="#183247">SECUENCIA PRELIMINAR DE REVISIÓN</text>',
+    ]
+    for i, step in enumerate(steps):
+        y = 254 + i * 116
+        manual.extend((
+            f'<rect x="50" y="{y-27}" width="1470" height="85" '
+            'rx="8" fill="#f4f8fb" stroke="#cbd8e2"/>',
+            f'<text x="70" y="{y+12}" font-size="29" font-weight="bold" '
+            f'fill="#17435f">{i+1:02d}</text>',
+            f'<text x="155" y="{y+12}" font-size="22" fill="#183247">'
+            f'{escape(step)}</text>',
+        ))
+    manual.append(
+        '<text x="52" y="1015" font-size="20" fill="#9e2733">'
+        'NO es un manual de taller liberado: faltan ensambles, perforaciones '
+        'y resistencia documentada.</text>'
+    )
+    pages.append(sheet("GUÍA DE ARMADO · SOLO REVISIÓN", manual))
+    if len(pages) > 32:
+        raise DesignError("Paquete demasiado grande: dividir en módulos.")
+    for page in pages:
+        ElementTree.fromstring(page)
+        if digest not in page:
+            raise DesignError("Página sin trazabilidad geométrica.")
+    return pages
