@@ -55,7 +55,10 @@ class SheetTests(unittest.TestCase):
             original = write_pilot_bundle(REQUEST, destination)
             sheet = create_render_bundle(destination)
             self.assertEqual(sheet["geometry_sha256"], original["geometry_sha256"])
-            self.assertEqual(len(sheet["files"]), 4)
+            self.assertEqual(len(sheet["files"]), 5)
+            self.assertEqual(sheet["booklet_pages"], 3)
+            self.assertTrue((destination / "lamina" /
+                             "CARPINOVA-planos-REVISION.pdf").is_file())
             for key in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
                 self.assertFalse(sheet[key])
             self.assertTrue((destination / "lamina" / "three-views.png").read_bytes().startswith(
@@ -112,6 +115,43 @@ class SheetTests(unittest.TestCase):
             for flag in ("fabrication_ready", "cutting_ready",
                          "drilling_ready", "purchase_ready"):
                 self.assertFalse(manifest[flag])
+
+
+    def test_generic_four_drawers_inset_overlay_have_unique_sheets(self):
+        try:
+            import resvg_py
+            from PIL import Image
+        except ImportError:
+            self.skipTest("PDF converter optional")
+        from pypdf import PdfReader
+        from carpinova_agent.drawing_sheet import generic_booklet_svgs
+        for facade in ("INSET", "OVERLAY"):
+            with self.subTest(style=facade), TemporaryDirectory() as td:
+                request = json.loads((ROOT / "examples" /
+                    f"four-drawer-500x500x800-{facade}-UNCONFIRMED.json"
+                ).read_text(encoding="utf-8"))
+                output = Path(td) / "furniture"
+                source = write_pilot_bundle(request, output)
+                model = consult_maestro(request)["modular"]
+                cad = cad_exchange(model)
+                svgs = generic_booklet_svgs(model, cad)
+                self.assertEqual(len(svgs), 8)
+                for ref in "ABCD":
+                    self.assertTrue(any(f"CAJÓN {ref} · 6 PIEZAS" in sheet
+                                        for sheet in svgs))
+                for sheet in svgs:
+                    ElementTree.fromstring(sheet)
+                    self.assertIn(cad["geometry_sha256"], sheet)
+                manifest = create_render_bundle(output)
+                self.assertEqual(manifest["booklet_pages"], 8)
+                self.assertEqual(manifest["piece_count"], 28)
+                self.assertEqual(manifest["geometry_sha256"],
+                                 source["geometry_sha256"])
+                path = output / "lamina" / "CARPINOVA-planos-REVISION.pdf"
+                self.assertEqual(len(PdfReader(path).pages), 8)
+                for flag in ("fabrication_ready", "cutting_ready",
+                             "drilling_ready", "purchase_ready"):
+                    self.assertFalse(manifest[flag])
 
 
 if __name__ == "__main__":
