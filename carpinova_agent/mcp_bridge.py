@@ -108,17 +108,34 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
     return consult_maestro(request, bundle_dir=bundle_path)
 
 
-def carpinova_generar_borrador(solicitud_json: str, proyecto: str) -> dict[str, Any]:
-    """Produce a five-file NOMINAL review from explicit modular input only.
+def carpinova_generar_borrador(
+    solicitud_json: str, proyecto: str, incluir_planos: bool = False,
+) -> dict[str, Any]:
+    """One-call optional nominal review + PDF; existing two-step flow unchanged.
 
-    No arbitrary output path from the client is honored. Never overwrite.
+    Requires explicit structured Maestro JSON. Never interprets prose as
+    cutting instructions, runs native CAD, purchases or overwrites a project.
     """
     request = _request(solicitud_json)
     name = _project_id(proyecto)
+    if type(incluir_planos) is not bool:
+        raise PilotError("incluir_planos debe ser booleano.")
     root = _output_root()
     destination = root / name
+    if destination.exists() or destination.is_symlink():
+        raise PilotError("Salida existente: no sobrescribir proyecto.")
+    if incluir_planos:
+        # Avoid creating a valid draft with an unrenderable package merely
+        # because optional render dependencies are absent on this host.
+        try:
+            import resvg_py  # noqa: F401
+            from PIL import Image  # noqa: F401
+        except ImportError as exc:
+            raise PilotError(
+                "Para generar planos instalar resvg_py==0.5.0 y Pillow==13.0.0."
+            ) from exc
     manifest = write_pilot_bundle(request, destination)
-    return {
+    result = {
         "status": "DRAFT_NOT_FOR_CUTTING",
         "proyecto": name,
         "review_directory": str(destination),
@@ -127,6 +144,21 @@ def carpinova_generar_borrador(solicitud_json: str, proyecto: str) -> dict[str, 
         "files": manifest["files"],
         **_FABRICATION,
     }
+    if incluir_planos:
+        # One existing provenance gate and one existing renderer; do not
+        # introduce a parallel generation engine or synthetic geometry.
+        rendered = carpinova_renderizar_lamina(name)
+        if (rendered["geometry_sha256"] != manifest["geometry_sha256"]
+                or rendered["piece_count"] != manifest["piece_count"]):
+            raise PilotError("PDF y borrador no corresponden al mismo CAD.")
+        result.update({
+            "image_preview_png": rendered["image_preview_png"],
+            "printable_pdf": rendered["printable_pdf"],
+            "render_files": rendered["files"],
+        })
+        if "booklet_pdf" in rendered:
+            result["booklet_pdf"] = rendered["booklet_pdf"]
+    return result
 
 
 def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
