@@ -24,6 +24,8 @@ class SheetTests(unittest.TestCase):
     def test_exact_same_geometry_sha_and_external_dimensions(self):
         model = consult_maestro(REQUEST)["modular"]
         cad = cad_exchange(model)
+        from carpinova_agent.drawing_sheet import generic_booklet_svgs
+        self.assertNotIn("cajón", generic_booklet_svgs(model, cad)[-1].lower())
         sheet = three_views_svg(cad)
         ElementTree.fromstring(sheet)
         self.assertIn(cad["geometry_sha256"], sheet)
@@ -136,6 +138,7 @@ class SheetTests(unittest.TestCase):
                 cad = cad_exchange(model)
                 svgs = generic_booklet_svgs(model, cad)
                 self.assertEqual(len(svgs), 8)
+                self.assertIn("correderas", svgs[-1])
                 for ref in "ABCD":
                     self.assertTrue(any(f"CAJÓN {ref} · 6 PIEZAS" in sheet
                                         for sheet in svgs))
