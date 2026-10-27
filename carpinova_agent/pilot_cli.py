@@ -180,7 +180,8 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
                 or path.stat().st_size > 1048576):
             raise PilotError("Entregable de barra ausente o alterado: " + filename)
         try:
-            observed = path.read_text(encoding="utf-8")
+            # Preserve CRLF in CSV: pathlib.read_text() normalizes newlines.
+            observed = path.read_bytes().decode("utf-8")
         except UnicodeError as exc:
             raise PilotError("Entregable de barra no es UTF-8: " + filename) from exc
         if observed != expected:
