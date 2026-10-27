@@ -50,8 +50,16 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
     if type(utterance) is not str or not utterance.strip() or len(utterance) > MAX_UTTERANCE_CHARS:
         raise MaestroError("Las medidas requieren texto de 1 a 2000 caracteres.")
     hits: dict[str, list[tuple[int, int, str, int]]] = {}
+    # A common phrase "ancho 70 cm alto 95 cm" contains an overlapping
+    # reverse span ("70 cm alto"). A single literal cannot be two dimensions.
+    forward_spans = [m.span() for m in _DIM_FIRST.finditer(utterance)]
     for regex in (_DIM_FIRST, _DIM_REVERSE):
         for match in regex.finditer(utterance):
+            if regex is _DIM_REVERSE and any(
+                a < match.end() and match.start() < b
+                for a, b in forward_spans
+            ):
+                continue
             field = _MEASURE_FIELDS[_fold(match.group("label"))]
             try:
                 qty = Decimal(match.group("amount").replace(",", "."))
@@ -233,6 +241,13 @@ def _illustrative_drawer_layout_option(
         return None
     matches = list(_DRAWER_COUNT.finditer(normalized))
     if len(matches) != 1:
+        return None
+    # "3 gavetas y un cajón" does not mean three total drawers. Accept
+    # exactly one explicitly counted group; any second drawer noun declines.
+    drawer_nouns = list(re.finditer(
+        r"(?<!\w)(?:cajones?|gavetas?)(?!\w)", normalized
+    ))
+    if len(drawer_nouns) != 1:
         return None
     if any(re.search(r"(?<!\w)" + re.escape(_fold(word)) + r"(?!\w)", normalized)
            for word in _DRAWER_LAYOUT_EXCLUSIONS):
