@@ -8,6 +8,9 @@ on:
       - 'carpinova_agent/cad_exchange.py'
       - 'carpinova_agent/wall_bar_sheets.py'
       - 'carpinova_agent/wall_bar_delivery.py'
+      - 'carpinova_agent/drawing_sheet.py'
+      - 'carpinova_agent/pilot_cli.py'
+      - 'tests/test_drawing_sheet.py'
       - 'examples/wall-bar-900-review.json'
       - 'tests/test_wall_bar.py'
       - '.github/workflows/wall-bar-native.yml'
@@ -60,6 +63,31 @@ jobs:
           for name, body in review_files(model).items():
             (out/name).write_text(body, encoding="utf-8")
           print("WALL_BAR_CAD_MATCH",cad["geometry_sha256"])
+          PY
+      - name: Produce and verify inspectable seven-page review PDF
+        run: |
+          python -m pip install --disable-pip-version-check resvg_py==0.5.0 Pillow==13.0.0 pypdf==5.7.0
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          from pypdf import PdfReader
+          from carpinova_agent.pilot_cli import write_pilot_bundle,verify_pilot_bundle
+          from carpinova_agent.drawing_sheet import create_render_bundle
+          root=Path(os.environ["RUNNER_TEMP"])
+          source=json.loads(Path("examples/wall-bar-900-review.json").read_text())
+          folder=root/"CN-BAR-001-REVISION"
+          original=write_pilot_bundle(source,folder)
+          pdf_manifest=create_render_bundle(folder)
+          checked=verify_pilot_bundle(folder)
+          path=folder/"lamina"/"CN-BAR-001-planos-REVISION.pdf"
+          data=path.read_bytes()
+          assert len(PdfReader(path).pages)==7
+          assert hashlib.sha256(data).hexdigest()==pdf_manifest["booklet_pdf_sha256"]
+          assert original["geometry_sha256"]==pdf_manifest["geometry_sha256"]==checked["geometry_sha256"]
+          assert original["piece_count"]==pdf_manifest["piece_count"]==21
+          assert all(pdf_manifest[f] is False for f in
+            ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+          print("WALL_BAR_PDF_SEVEN_PAGES_PASS",pdf_manifest["geometry_sha256"])
           PY
       - name: Install FreeCAD only on ephemeral CI runner
         run: |
@@ -119,3 +147,5 @@ jobs:
             ${{ runner.temp }}/CN-BAR-001-guia-de-armado-REVISION.md
             ${{ runner.temp }}/wall-bar-native.FCStd
             ${{ runner.temp }}/wall-bar-native.log
+            ${{ runner.temp }}/CN-BAR-001-REVISION/lamina/CN-BAR-001-planos-REVISION.pdf
+            ${{ runner.temp }}/CN-BAR-001-REVISION/lamina/render-manifest.json
