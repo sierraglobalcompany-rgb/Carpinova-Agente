@@ -271,45 +271,22 @@ def consult_maestro(
                                 ),
                                 "unit": "construction_choice",
                             })
-            for module in modules:
-                if module.get("finish") is None:
-                    module_id = module["module_id"]
-                    result["questions"].append({
-                        "field": f"module_spec.modules.{module_id}.finish",
-                        "question": (
-                            f"¿Qué veta y cantos lleva cada una de las "
-                            f"cuatro piezas de {module_id}?"
-                        ),
-                        "unit": "per_panel",
-                    })
-            if spec.get("type") == "wall_bar":
-                # Optional presentation only. Never infer a mounting method,
-                # add physical panels, or block design for unknown wall type.
-                choices = spec.get("design_choices", {})
-                if "wall_support_presentation" not in choices:
-                    result["questions"].append({
-                        "field": "module_spec.design_choices.wall_support_presentation",
-                        "question": (
-                            "¿Cómo deseas representar el apoyo mural? "
-                            "installer_defined (decide el instalador, predeterminado), "
-                            "wood_cleat (listón bajo cubierta), "
-                            "metal_l_brackets (escuadras L), "
-                            "metal_support (soporte metálico), u other_pending. "
-                            "No se añaden piezas sin dimensiones y aprobación."
-                        ),
-                        "unit": "optional_design_choice",
-                    })
-                if "top_edge_presentation" not in choices:
-                    result["questions"].append({
-                        "field": "module_spec.design_choices.top_edge_presentation",
-                        "question": (
-                            "¿Mantener el canto visible real de 15 mm (actual_15mm), "
-                            "dar apariencia de mayor espesor con cenefa decorativa "
-                            "(false_thickness_pending), o dejar undecided? "
-                            "La cenefa no certifica refuerzo estructural."
-                        ),
-                        "unit": "optional_design_choice",
-                    })
+            # The wall-bar draft already has safe presentation defaults.
+            # Do not request mounting type, false-thickness or grain/cants
+            # from an ordinary client before showing the review drawings.
+            # These remain optional choices, not implicit manufacturing data.
+            if spec.get("type") != "wall_bar":
+                for module in modules:
+                    if module.get("finish") is None:
+                        module_id = module["module_id"]
+                        result["questions"].append({
+                            "field": f"module_spec.modules.{module_id}.finish",
+                            "question": (
+                                f"¿Qué veta y cantos lleva cada una de las "
+                                f"cuatro piezas de {module_id}?"
+                            ),
+                            "unit": "per_panel",
+                        })
         result["questions"] = result["questions"][:max_questions]
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
