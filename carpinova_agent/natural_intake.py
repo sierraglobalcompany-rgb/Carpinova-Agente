@@ -7,13 +7,104 @@ it before submitting an independently confirmed JSON to consult_maestro.
 from __future__ import annotations
 
 import json
+import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
+
+from .intake import ALIASES, TYPES, _fold
 
 from .maestro import MaestroError, _normalize_request
 
 
 MAX_UTTERANCE_CHARS = 2000
 MAX_CANDIDATE_UTF8_BYTES = 65536
+
+
+_DIM_LABEL = r"(?:ancho|anchura|alto|altura|fondo|profundidad)"
+_DIM_NUMBER = r"\d{1,5}(?:[.,]\d{1,2})?"
+_DIM_UNIT = r"(?:mm|cm|mil[ií]metros?|cent[ií]metros?)"
+_DIM_FIRST = re.compile(
+    rf"(?<!\w)(?P<label>{_DIM_LABEL})\s*"
+    rf"(?:exterior(?:es)?|total(?:es)?)?\s*(?:de|es|mide|:|=)?\s*"
+    rf"(?P<amount>{_DIM_NUMBER})\s*(?P<unit>{_DIM_UNIT})(?!\w)",
+    re.IGNORECASE,
+)
+_DIM_REVERSE = re.compile(
+    rf"(?<![\w.])(?P<amount>{_DIM_NUMBER})\s*(?P<unit>{_DIM_UNIT})"
+    rf"\s*(?:de|del|de la)?\s*(?P<label>{_DIM_LABEL})(?!\w)",
+    re.IGNORECASE,
+)
+_MEASURE_FIELDS = {
+    "ancho": "width_mm", "anchura": "width_mm",
+    "alto": "height_mm", "altura": "height_mm",
+    "fondo": "depth_mm", "profundidad": "depth_mm",
+}
+
+
+def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
+    """Conservative offline text evidence; never a production dimension.
+
+    Only individually labelled measures with explicit mm/cm are accepted.
+    The human must verify that each label refers to the *whole* furniture.
+    """
+    if type(utterance) is not str or not utterance.strip() or len(utterance) > MAX_UTTERANCE_CHARS:
+        raise MaestroError("Las medidas requieren texto de 1 a 2000 caracteres.")
+    hits: dict[str, list[tuple[int, int, str, int]]] = {}
+    for regex in (_DIM_FIRST, _DIM_REVERSE):
+        for match in regex.finditer(utterance):
+            field = _MEASURE_FIELDS[_fold(match.group("label"))]
+            try:
+                qty = Decimal(match.group("amount").replace(",", "."))
+                unit = _fold(match.group("unit"))
+                multiplier = 10 if unit.startswith(("cm", "centimet")) else 1
+                millimetres = qty * multiplier
+            except InvalidOperation:
+                continue
+            if millimetres != millimetres.to_integral_value() or not 1 <= millimetres <= 100000:
+                continue
+            hits.setdefault(field, []).append(
+                (match.start(), match.end(), match.group(0), int(millimetres))
+            )
+    dimensions: dict[str, int] = {}
+    evidence: list[dict[str, Any]] = []
+    conflicts: list[str] = []
+    for field in ("width_mm", "height_mm", "depth_mm"):
+        candidates = hits.get(field, [])
+        if not candidates:
+            continue
+        # Alternative readings like "80 cm de ancho o 90 cm" require review.
+        alternatives = any(
+            re.match(r"\s*(?:o|u)\s+\d", utterance[end:end+15], re.IGNORECASE)
+            for _, end, _, _ in candidates
+        )
+        vals = {val for _, _, _, val in candidates}
+        if len(vals) != 1 or alternatives:
+            conflicts.append(field)
+            continue
+        start, end, literal, value = sorted(candidates)[0]
+        dimensions[field] = value
+        evidence.append({"field": field, "literal": literal, "value_mm": value,
+                         "start": start, "end": end, "source": "user_literal"})
+    return {"dimensions_mm": dimensions, "source_provenance": evidence,
+            "ambiguous_fields": conflicts}
+
+
+def _explicit_project_type(utterance: str) -> str | None:
+    """Only one distinct F3 furniture category, never a guessed cabinet type."""
+    normalized = _fold(utterance)
+    kinds = {
+        canonical for alias, canonical in ALIASES.items()
+        if re.search(r"(?<!\w)" + re.escape(_fold(alias)) + r"(?!\w)", normalized)
+        for canonical in [TYPES[_fold(alias)]]
+    }
+    if len(kinds) != 1:
+        return None
+    # Preserve the original Spanish term supported by F3; no type invention.
+    for alias, canonical in ALIASES.items():
+        if canonical in kinds and re.search(
+                r"(?<!\w)" + re.escape(_fold(alias)) + r"(?!\w)", normalized):
+            return alias
+    return None
 
 
 def preview_natural_request(
@@ -51,7 +142,20 @@ def preview_natural_request(
         ),
     }
     if proposed_request is None:
-        return result
+        evidence = extract_explicit_dimensions(utterance)
+        result["explicit_measurements"] = evidence["dimensions_mm"]
+        result["source_provenance"] = evidence["source_provenance"]
+        result["ambiguous_fields"] = evidence["ambiguous_fields"]
+        if not evidence["dimensions_mm"]:
+            return result
+        # User must still confirm which dimension is exterior. No material,
+        # joints, slides, or missing dimensions are inferred or fabricated.
+        project = dict(evidence["dimensions_mm"])
+        kind = _explicit_project_type(utterance)
+        if kind is not None:
+            project["project_type"] = kind
+        proposed_request = {"action": "project", "project": project}
+
     if type(proposed_request) is not dict:
         raise MaestroError("La propuesta F7D debe ser un objeto JSON Maestro.")
     # Delegate the routing/allowed fields/required fields to the existing
@@ -72,9 +176,9 @@ def preview_natural_request(
     result["proposed_request"] = restored
     result["status"] = "NEEDS_USER_CONFIRMATION"
     result["next_step"] = (
-        "Mostrar texto original y TODOS los campos de la propuesta al usuario. "
-        "Solo tras confirmación explícita del usuario, enviar exactamente el "
-        "JSON aprobado a consult_maestro; repetir validaciones allí. "
-        "No ejecutar por la sola presencia de esta previsualización."
+        "Mostrar el texto original, cotas reconocidas y propuesta revisable. "
+        "Confirmar que cada medida corresponde al mueble completo. "
+        "Después, ejecutar Maestro con el mismo JSON y preguntar solo "
+        "por datos indispensables; sin autorizar fabricar ni cortar."
     )
     return result
