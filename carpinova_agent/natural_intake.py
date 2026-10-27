@@ -74,8 +74,8 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
         for start, _, _, _ in candidates:
             prefix = _fold(utterance[max(0, start - 50):start])
             if any(re.search(
-                    r"(?<!\\w)" + re.escape(_fold(noun))
-                    + r"(?:\\s+\\w+){0,2}\\s+(?:de|del)\\s*$", prefix
+                    r"(?<!\w)" + re.escape(_fold(noun))
+                    + r"(?:\s+\w+){0,2}\s+(?:de|del)\s*$", prefix
                 ) for noun in subparts):
                 part_scoped.add(field)
     dimensions: dict[str, int] = {}
