@@ -1,5 +1,16 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## ACTIVO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
+
+**Rectificación ordenada por el propietario:** CarpiNova debe producir diseño, correcciones, plano general, plano por cada cajón, despiece y manual sin preguntas reiteradas de herrajes o carga. Se deben ofrecer rieles convencionales por categoría con longitud/capacidad identificables; no elegir marcas ni preguntar qué contiene cada cajón para dibujar. Aplicar las seis leyes KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
+
+**Alcance implementado en el PR Draft** (pendiente de CI exacto de los cambios): `carpinova_agent/wall_bar_delivery.py` produce 3 hojas individuales SVG A/B/C, referencias CSV E01–E06/A01–C05 con equivalencia exacta a `piece_id` del CAD original de 21 paneles y guía preliminar Markdown. `pilot_cli` añade estos cinco archivos **solo** cuando hay `wall_bar_review`, mantiene cinco para proyectos genéricos, registra 10 nombres en el manifiesto y verifica su contenido contra el Maestro en lectura; MCP permite leerlos con nombres enumerados; el workflow Wall Bar añade estos mismos archivos al artifact. Maestro deja de preguntar las opciones visuales opcionales de soporte, canto falso y acabado en el primer boceto de esta barra; conserva valores predeterminados seguros. Se agregaron tests de referencias y manipulación.
+
+**No confundir:** el PDF A3 de siete páginas y su CSV, generados en el chat el 27-oct-2026, son **prototipo externo** y no fueron integrados como PDF automático al agente. Los diez archivos conectados en repo son `maestro-review.json`, `front-review.svg`, `parts-review.csv`, `cad-exchange.json`, `manifest.json` y cinco adicionales de la barra. Las hojas SVG individuales son de **revisión nominal**, no planos de corte ni despieces terminados. Manual de taller liberado, uniones, cantos descontados, taladros, riel exacto, patas reales, resistencia y validación mural permanecen pendientes. Bandera cuádruple `false`; **no merge ni compra/corte/fabricación**.
+
+**NEXT único:** verificar CI exacto del HEAD, reparar solo defectos confirmados, después integrar PDF multipágina usando el renderizador ya existente, sin introducir arquitectura paralela ni más preguntas al usuario.
+
+
 ## V0.20 — PRESENTACIÓN BICOLOR PRELIMINAR (26-oct-2026)
 
 Revisión probada localmente y publicada en la rama del PR #21 `feature/wall-bar-freecad-v10@4572a3ad6cfd28620ba5ee32dc6e06715f3029f4` y `main@a5cdb7fce3728513ffb9fe8833af3503125740e9`. El boceto propuesto muestra cubierta roble claro con veta decorativa paralela a X, y lateral derecho/frentes D1–D3 blanco mate. Tirador recto negro aparece únicamente como símbolo de leyenda. La dirección estética preliminar fue elegida por el usuario. Los colores y la veta dibujados son ilustrativos; no seleccionan acabado comercial ni veta productiva y no representan tiradores, SKU, cantidad, posición, perforaciones o instalación.
