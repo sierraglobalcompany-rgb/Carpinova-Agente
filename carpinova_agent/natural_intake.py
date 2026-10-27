@@ -65,6 +65,19 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
             hits.setdefault(field, []).append(
                 (match.start(), match.end(), match.group(0), int(millimetres))
             )
+    # A depth quoted for a door/drawer is not automatically cabinet depth.
+    subparts = ("cajón", "cajon", "cajones", "gaveta", "gavetas",
+                "puerta", "puertas", "repisa", "repisas",
+                "estante", "estantes", "entrepaño", "entrepano")
+    part_scoped: set[str] = set()
+    for field, candidates in hits.items():
+        for start, _, _, _ in candidates:
+            prefix = _fold(utterance[max(0, start - 50):start])
+            if any(re.search(
+                    r"(?<!\\w)" + re.escape(_fold(noun))
+                    + r"(?:\\s+\\w+){0,2}\\s+(?:de|del)\\s*$", prefix
+                ) for noun in subparts):
+                part_scoped.add(field)
     dimensions: dict[str, int] = {}
     evidence: list[dict[str, Any]] = []
     conflicts: list[str] = []
@@ -78,7 +91,7 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
             for _, end, _, _ in candidates
         )
         vals = {val for _, _, _, val in candidates}
-        if len(vals) != 1 or alternatives:
+        if len(vals) != 1 or alternatives or field in part_scoped:
             conflicts.append(field)
             continue
         start, end, literal, value = sorted(candidates)[0]
@@ -94,6 +107,7 @@ def _explicit_project_type(utterance: str) -> str | None:
     normalized = _fold(utterance)
     kinds = {
         canonical for alias, canonical in ALIASES.items()
+        if not (canonical == "drawer" and _fold(alias) == "cajones")
         if re.search(r"(?<!\w)" + re.escape(_fold(alias)) + r"(?!\w)", normalized)
         for canonical in [TYPES[_fold(alias)]]
     }
