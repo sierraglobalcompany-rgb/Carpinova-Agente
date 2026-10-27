@@ -1,5 +1,18 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## ACTIVO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
+
+**Objetivo del propietario:** minimizar preguntas humanas y lograr un recorrido directo: descripción y medidas, propuesta de diseño, corrección del usuario, planos generales y por cajón, referencias y manual. Sin consultas sobre contenido/peso de cajones como prerrequisito ni selección automática de rieles, marca o montaje en pared. Continuar con las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
+
+**GitHub verificado previo:** PR #21 a HEAD `b28ceb232a14db725fb6a1f3bf113b8476a06a75` obtuvo **6/6 workflows PASS**, 21 piezas barra y PDFs de cajonera de 28 piezas (INSET/OVERLAY) comprobados; PR todavía Draft y sin merge. Este capítulo describe **cambios posteriores en la misma rama**, no un cierre de CI automático.
+
+**Cambio de flujo implementado, pendiente de verificación del HEAD actual:** se amplió la herramienta existente `carpinova_generar_borrador(solicitud_json, proyecto, incluir_planos=False)`. Con `incluir_planos=True`, y exclusivamente con solicitud Maestro modular JSON explícita, valida entrada, protege el directorio nuevo sin sobrescrituras, verifica disponibilidad de `resvg_py/Pillow`, ejecuta el **mismo** `write_pilot_bundle` y `carpinova_renderizar_lamina`, comprueba identidad de CAD por SHA y devuelve `booklet_pdf`, `image_preview_png`, `render_files` y borrador. **No usa ni desbloquea FreeCAD/Blender ni ejecuta fabricación**. El valor por defecto conserva íntegro el flujo anterior de dos llamadas; no crea un nuevo motor, intérprete, arquitectura ni herramienta MCP paralela. Nuevos tests focales comprueban 4, 21, 28 piezas, número de páginas, hashes, ausencia de ejecución nativa, bloqueo cuádruple, duplicados y flags inválidos.
+
+**Limitación honesta fundamental:** F7D de lenguaje natural **solo identifica intención y prepara propuesta a confirmar**; aún NO convierte libremente cualquier descripción+medidas en un `module_spec` completo y verificado. El nuevo flujo de una llamada comienza **después** de contar con el JSON modular válido. No afirmar que el cliente puede entregar cualquier texto libre y recibir planos automáticamente sin revisión. La confirmación de propuesta natural y la autorización de fabricación son gates separados. Sin corte, compra, taladros, merge ni intervención en `main`.
+
+**NEXT real:** verificar los seis checks del HEAD nuevo, corregir solo fallas demostradas, e investigar la ingesta mínima de datos explícitos (medidas/ubicación/cajones) desde lenguaje natural, con origen visible y **sin inventar datos faltantes**. Mantener los entregables globales y de cajón ya aprobados, evitar estudio repetido de herrajes.
+
+
 ## ACTIVO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
 
 **Rectificación ordenada por el propietario:** CarpiNova debe producir diseño, correcciones, plano general, plano por cada cajón, despiece y manual sin preguntas reiteradas de herrajes o carga. Se deben ofrecer rieles convencionales por categoría con longitud/capacidad identificables; no elegir marcas ni preguntar qué contiene cada cajón para dibujar. Aplicar las seis leyes KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
