@@ -275,7 +275,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             if svg.count(old) != 1:
                 raise DesignError("Vista general sin cajón identificable: " + did)
             svg = svg.replace(old, f'>{letter}</text>', 1)
-        if not svg.endswith("</g></svg>\\n"):
+        if not svg.endswith("</g></svg>\n"):
             raise DesignError("Cierre inesperado de vista general.")
         if elevation:
             note = (
@@ -295,7 +295,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
                 '<text x="55" y="104" font-size="15" fill="white">'
                 'HOJAS A/B/C = superior/intermedio/inferior · E01 cubierta</text>'
             )
-        return svg.replace("</g></svg>\\n", note + "</g></svg>\\n", 1)
+        return svg.replace("</g></svg>\n", note + "</g></svg>\n", 1)
 
     pages = [
         labeled_overview(wall_bar_isometric_svg(model), elevation=False),
