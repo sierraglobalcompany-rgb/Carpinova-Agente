@@ -310,6 +310,8 @@ def _illustrative_drawer_layout_option(
 def preview_natural_request(
     utterance: str,
     proposed_request: dict[str, Any] | None = None,
+    *,
+    include_concept_sketch: bool = False,
 ) -> dict[str, Any]:
     """Stage, never execute, an untrusted conversational interpretation.
 
@@ -318,6 +320,13 @@ def preview_natural_request(
     accepted as technical facts until the user confirms and a separate
     Maestro call validates them through its existing deterministic engines.
     """
+    if type(include_concept_sketch) is not bool:
+        raise MaestroError("include_concept_sketch debe ser booleano.")
+    if include_concept_sketch and proposed_request is not None:
+        raise MaestroError(
+            "El croquis de texto directo no acepta candidatos externos; "
+            "revisar el JSON mediante Maestro tras confirmación."
+        )
     if type(utterance) is not str or not utterance.strip():
         raise MaestroError("F7D requiere texto del usuario no vacío.")
     if len(utterance) > MAX_UTTERANCE_CHARS:
@@ -364,6 +373,43 @@ def preview_natural_request(
             utterance, proposed_request, evidence["ambiguous_fields"]
         )
         if drawer_option is not None:
+            if include_concept_sketch:
+                # Explicit viewing request: reuse the SAME deterministic F1
+                # opening calculation and F7C review sketch, not F7C parts.
+                # This does NOT approve the staged request, execute CAD, or
+                # authorize any fabricable output.
+                from .drawer_modules import propose_drawer_layout
+                from .core import DesignError
+                try:
+                    plan = propose_drawer_layout(
+                        drawer_option["proposed_request"]["module_spec"]
+                    )
+                except DesignError as exc:
+                    raise MaestroError(
+                        "No se puede dibujar este boceto nominal: " + str(exc)
+                    ) from exc
+                if (plan.get("status") != "NEEDS_USER_CONFIRMATION"
+                        or plan.get("piece_count") != 0
+                        or plan.get("parts") != []
+                        or any(plan.get(key) is not False for key in (
+                            "fabrication_ready", "cutting_ready",
+                            "drilling_ready", "purchase_ready"
+                        ))):
+                    raise MaestroError("El boceto F1 no mantiene los bloqueos.")
+                drawer_option["concept_preview"] = {
+                    "source_engine": "F1_CORE_CABINET_REVIEW_ONLY",
+                    "sketch_svg": plan["sketch_svg"],
+                    "sketch_text": plan["sketch_text"],
+                    "opening_plan_bottom_to_top": plan["opening_plan"],
+                    "opening_refs_top_to_bottom": [
+                        {"ref": chr(65 + i),
+                         "cad_review_id": opening["drawer_id"],
+                         "opening_height_mm": opening["opening_height_mm"]}
+                        for i, opening in enumerate(reversed(plan["opening_plan"]))
+                    ],
+                    "piece_count": 0,
+                    "not_fabrication_geometry": True,
+                }
             result["illustrative_drawer_layout_option"] = drawer_option
 
     if type(proposed_request) is not dict:
