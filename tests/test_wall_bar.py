@@ -461,6 +461,8 @@ class WallBarTests(unittest.TestCase):
                 len([item for item in root.iter()
                      if item.get("data-piece-id") is not None]), 5)
             self.assertIn("NO CORTAR", sheet)
+            for n in ("01", "02", "03", "04", "05"):
+                self.assertIn(letter + n, sheet)
             self.assertIn(cad_exchange(model)["geometry_sha256"], sheet)
         self.assertIn("instalador", files["CN-BAR-001-guia-de-armado-REVISION.md"])
         self.assertEqual(len(model["parts"]), 21)
@@ -481,6 +483,13 @@ class WallBarTests(unittest.TestCase):
             ElementTree.fromstring(page)
             self.assertIn(sha, page)
         self.assertIn("E06", pages[5])
+        self.assertIn("A = superior (CAD D1)", pages[1])
+        self.assertIn("B = intermedio (CAD D2)", pages[1])
+        self.assertIn("C = inferior (CAD D3)", pages[1])
+        self.assertIn("E01 cubierta", pages[0])
+        for letter in "ABC":
+            self.assertIn(f'>{letter}</text>', pages[0])
+            self.assertIn(f'>{letter}</text>', pages[1])
         self.assertIn("C05", pages[5])
         self.assertIn("NO FABRICAR", pages[6])
         self.assertFalse(model["fabrication_ready"])
