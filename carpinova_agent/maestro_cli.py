@@ -111,9 +111,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.utterance is not None:
-            if args.sketch is not None or args.csv is not None:
+            if (args.csv is not None or (args.sketch is not None
+                    and (args.candidate is not None or args.interpret_openai
+                         or args.confirm_execute))):
                 raise MaestroError(
-                    "F7D no emite SVG ni CSV: ejecutar exportaciones en una operación aparte."
+                    "F7D solo permite --sketch para cajonera simple extraída "
+                    "del texto directamente, sin candidato, IA remota ni ejecución."
                 )
             if args.bundle_dir is not None and not args.confirm_execute:
                 raise MaestroError(
@@ -131,7 +134,31 @@ def main() -> int:
                     raise MaestroError("Consentimiento y modelo requieren --interpret-openai.")
                 candidate = (_load_untrusted_candidate(args.candidate)
                              if args.candidate is not None else None)
-            preview = preview_natural_request(args.utterance, candidate)
+            preview = preview_natural_request(
+                args.utterance, candidate,
+                include_concept_sketch=args.sketch is not None,
+            )
+            concept_svg = None
+            if args.sketch is not None:
+                option = preview.get("illustrative_drawer_layout_option")
+                concept = option.get("concept_preview") if option else None
+                if not concept:
+                    raise MaestroError(
+                        "Sin croquis seguro: incluir ancho, alto y fondo con "
+                        "unidad y 1 a 4 cajones iguales; sin decisiones especiales."
+                    )
+                if (args.sketch.suffix.lower() != ".svg"
+                        or args.sketch.exists() or args.sketch.is_symlink()
+                        or not args.sketch.parent.is_dir()):
+                    raise MaestroError(
+                        "Croquis: utilizar una ruta SVG nueva y directorio existente."
+                    )
+                if (args.output is not None and
+                        args.sketch.resolve() == args.output.resolve()):
+                    raise MaestroError("JSON y SVG deben tener rutas distintas.")
+                concept_svg = concept.pop("sketch_svg")
+                concept["sketch_file"] = str(args.sketch)
+
             if args.interpret_openai:
                 preview["interpreter"] = {
                     "provider": "OpenAI Responses API",
@@ -159,6 +186,10 @@ def main() -> int:
                 output = json.dumps(response, indent=2, ensure_ascii=False) + "\n"
             else:
                 output = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
+            if concept_svg is not None:
+                # Exclusive creation: do not clobber pre-existing sketches.
+                with args.sketch.open("x", encoding="utf-8") as handle:
+                    handle.write(concept_svg)
             if args.output is not None:
                 args.output.write_text(output, encoding="utf-8")
             else:
