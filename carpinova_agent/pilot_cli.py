@@ -15,6 +15,7 @@ from typing import Any
 
 from .cad_exchange import cad_exchange, validate_exchange
 from .core import DesignError
+from .wall_bar_delivery import review_files
 from .maestro import MaestroError, consult_maestro
 from .modular_outputs import modular_bom_csv, modular_front_svg
 
@@ -59,13 +60,14 @@ def pilot_review(request: dict[str, Any]) -> dict[str, str]:
     observed = {box["piece_id"] for box in exchange["boxes"]}
     if expected != observed or len(expected) != len(model["parts"]):
         raise PilotError("CAD/BOM no coincide con piezas de geometría Maestro.")
+    extras = review_files(model) if model.get("wall_bar_review") else {}
     manifest = {
         "schema_version": "1.0",
         "status": "DRAFT_NOT_FOR_CUTTING",
         "source": "MAESTRO_MODULAR_F1_F7C",
         "piece_count": len(model["parts"]),
         "geometry_sha256": exchange["geometry_sha256"],
-        "files": list(_FILES),
+        "files": list(_FILES) + list(extras),
         "fabrication_ready": False,
         "cutting_ready": False,
         "drilling_ready": False,
@@ -82,6 +84,7 @@ def pilot_review(request: dict[str, Any]) -> dict[str, str]:
         "parts-review.csv": csv_text,
         "cad-exchange.json": json.dumps(exchange, indent=2, ensure_ascii=False) + "\n",
         "manifest.json": json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        **extras,
     }
 
 
@@ -99,8 +102,8 @@ def write_pilot_bundle(request: dict[str, Any], output_dir: Path) -> dict[str, A
     with TemporaryDirectory(prefix=".carpinova-pilot-", dir=parent) as temp:
         staging = Path(temp) / "review"
         staging.mkdir()
-        for name in _FILES:
-            (staging / name).write_bytes(bundle[name].encode("utf-8"))
+        for name, content in bundle.items():
+            (staging / name).write_bytes(content.encode("utf-8"))
         if output_dir.exists() or output_dir.is_symlink():
             raise PilotError("Otra ejecución creó la salida; no se sobrescribe.")
         # Rename a complete directory within the same filesystem.
@@ -150,10 +153,11 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
             or any(answer.get(flag) is not False or model.get(flag) is not False
                    for flag in _BLOCKED_FLAGS)):
         raise PilotError("Fuente Maestro no aprobada como borrador.")
+    expected_extras = review_files(model) if model.get("wall_bar_review") else {}
     if (manifest.get("schema_version") != "1.0"
             or manifest.get("source") != "MAESTRO_MODULAR_F1_F7C"
             or manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
-            or manifest.get("files") != list(_FILES)
+            or manifest.get("files") != list(_FILES) + list(expected_extras)
             or manifest.get("piece_count") != len(model.get("parts", []))
             or any(manifest.get(flag) is not False for flag in _BLOCKED_FLAGS)):
         raise PilotError("Manifiesto no corresponde a la fuente Maestro.")
@@ -170,6 +174,17 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
     ):
         if contents[filename] != expected:
             raise PilotError("Entregable no coincide con Maestro: " + filename)
+    for filename, expected in expected_extras.items():
+        path = folder / filename
+        if (not path.is_file() or path.is_symlink()
+                or path.stat().st_size > 1048576):
+            raise PilotError("Entregable de barra ausente o alterado: " + filename)
+        try:
+            observed = path.read_text(encoding="utf-8")
+        except UnicodeError as exc:
+            raise PilotError("Entregable de barra no es UTF-8: " + filename) from exc
+        if observed != expected:
+            raise PilotError("Entregable de barra distinto del CAD: " + filename)
     return actual_cad
 
 def main(argv: list[str] | None = None) -> int:
