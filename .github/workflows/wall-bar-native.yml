@@ -7,6 +7,7 @@ on:
       - 'carpinova_agent/drawer_modules.py'
       - 'carpinova_agent/cad_exchange.py'
       - 'carpinova_agent/wall_bar_sheets.py'
+      - 'carpinova_agent/wall_bar_delivery.py'
       - 'examples/wall-bar-900-review.json'
       - 'tests/test_wall_bar.py'
       - '.github/workflows/wall-bar-native.yml'
@@ -33,6 +34,7 @@ jobs:
           from carpinova_agent.cad_exchange import cad_exchange,validate_exchange
           from carpinova_agent.wall_bar_sheets import (part_schedule_csv,part_schedule_svg,
                                                         wall_bar_orientation_svg,wall_bar_front_contacts_svg,wall_bar_isometric_svg)
+          from carpinova_agent.wall_bar_delivery import review_files
           spec=json.loads(Path("examples/wall-bar-900-review.json").read_text())["module_spec"]
           model=design_wall_bar(spec)
           cad=validate_exchange(cad_exchange(model))
@@ -55,6 +57,8 @@ jobs:
           (out/"wall-bar-A-orientation.svg").write_text(orientation)
           (out/"wall-bar-front-contacts.svg").write_text(joint_drawing)
           (out/"wall-bar-A-isometric.svg").write_text(isometric)
+          for name, body in review_files(model).items():
+            (out/name).write_text(body, encoding="utf-8")
           print("WALL_BAR_CAD_MATCH",cad["geometry_sha256"])
           PY
       - name: Install FreeCAD only on ephemeral CI runner
@@ -108,5 +112,10 @@ jobs:
             ${{ runner.temp }}/wall-bar-A-orientation.svg
             ${{ runner.temp }}/wall-bar-front-contacts.svg
             ${{ runner.temp }}/wall-bar-A-isometric.svg
+            ${{ runner.temp }}/CN-BAR-001-referencias.csv
+            ${{ runner.temp }}/CN-BAR-001-cajon-A.svg
+            ${{ runner.temp }}/CN-BAR-001-cajon-B.svg
+            ${{ runner.temp }}/CN-BAR-001-cajon-C.svg
+            ${{ runner.temp }}/CN-BAR-001-guia-de-armado-REVISION.md
             ${{ runner.temp }}/wall-bar-native.FCStd
             ${{ runner.temp }}/wall-bar-native.log
