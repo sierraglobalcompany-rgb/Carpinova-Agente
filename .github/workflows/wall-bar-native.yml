@@ -88,6 +88,22 @@ jobs:
           assert all(pdf_manifest[f] is False for f in
             ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
           print("WALL_BAR_PDF_SEVEN_PAGES_PASS",pdf_manifest["geometry_sha256"])
+          for kind in ("INSET","OVERLAY"):
+            fixture=Path(f"examples/four-drawer-500x500x800-{kind}-UNCONFIRMED.json")
+            request=json.loads(fixture.read_text(encoding="utf-8"))
+            out=root/f"QA-FOUR-DRAWERS-{kind}"
+            expected=write_pilot_bundle(request,out)
+            manifest=create_render_bundle(out)
+            validated=verify_pilot_bundle(out)
+            pdf=out/"lamina"/"CARPINOVA-planos-REVISION.pdf"
+            assert len(PdfReader(pdf).pages)==8, f"Wrong pages for {kind}"
+            assert len(validated["boxes"])==28
+            assert (manifest["geometry_sha256"]==expected["geometry_sha256"]
+                    ==validated["geometry_sha256"])
+            assert hashlib.sha256(pdf.read_bytes()).hexdigest()==manifest["booklet_pdf_sha256"]
+            assert all(manifest[f] is False for f in
+              ("fabrication_ready","cutting_ready","drilling_ready","purchase_ready"))
+            print("FOUR_DRAWER_PDF_EIGHT_PAGES_PASS",kind,manifest["geometry_sha256"])
           PY
       - name: Install FreeCAD only on ephemeral CI runner
         run: |
@@ -149,3 +165,7 @@ jobs:
             ${{ runner.temp }}/wall-bar-native.log
             ${{ runner.temp }}/CN-BAR-001-REVISION/lamina/CN-BAR-001-planos-REVISION.pdf
             ${{ runner.temp }}/CN-BAR-001-REVISION/lamina/render-manifest.json
+            ${{ runner.temp }}/QA-FOUR-DRAWERS-INSET/lamina/CARPINOVA-planos-REVISION.pdf
+            ${{ runner.temp }}/QA-FOUR-DRAWERS-INSET/lamina/render-manifest.json
+            ${{ runner.temp }}/QA-FOUR-DRAWERS-OVERLAY/lamina/CARPINOVA-planos-REVISION.pdf
+            ${{ runner.temp }}/QA-FOUR-DRAWERS-OVERLAY/lamina/render-manifest.json
