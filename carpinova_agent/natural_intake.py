@@ -121,6 +121,74 @@ def _explicit_project_type(utterance: str) -> str | None:
     return None
 
 
+# Presentation-only suggestion. Never extrapolate its thickness/structure
+# into manufacturing data or an approved CADExchange.
+_ILLUSTRATIVE_PANEL_MM = 15
+_ILLUSTRATIVE_STRUCTURE = "sides_full"
+_COMPLEXITY_TERMS = (
+    "cajon", "cajones", "gaveta", "gavetas", "puerta", "puertas",
+    "estante", "estantes", "repisa", "repisas", "entrepaño",
+    "cajonera", "modulo", "modulos", "patas", "zocalo",
+    "empotrado", "suspendido", "mural", "bisagra", "riel",
+    "corredera", "melamina", "mdp", "mdf", "espesor",
+    "tablero", "tableros", "dos gabinetes", "varios gabinetes",
+)
+
+
+def _illustrative_open_cabinet_option(
+    utterance: str, request: dict[str, Any], conflicts: list[str],
+) -> dict[str, Any] | None:
+    """One reversible F3 candidate. No geometry run, no inferred hardware."""
+    if conflicts or request.get("action") != "project":
+        return None
+    project = request.get("project")
+    if not isinstance(project, dict) or TYPES.get(_fold(project.get("project_type", ""))) != "cabinet":
+        return None
+    keys = ("width_mm", "height_mm", "depth_mm")
+    if set(project) != {*keys, "project_type"} or any(
+        type(project[k]) is not int or project[k] <= 2 * _ILLUSTRATIVE_PANEL_MM
+        for k in keys
+    ):
+        return None
+    normalized = _fold(utterance)
+    if any(re.search(r"(?<!\w)" + re.escape(_fold(term)) + r"(?!\w)", normalized)
+           for term in _COMPLEXITY_TERMS):
+        return None
+    # Keep all literal exterior dimensions. Offer ONE simple carcass to inspect.
+    candidate = {
+        "action": "project",
+        "project": {
+            **project,
+            "panel_thickness_mm": _ILLUSTRATIVE_PANEL_MM,
+            "construction": _ILLUSTRATIVE_STRUCTURE,
+        },
+    }
+    return {
+        "status": "OPTIONAL_VISUAL_PRESET_REQUIRES_APPROVAL",
+        "description": "Gabinete abierto de cuatro paneles; solo ejemplo visual.",
+        "proposed_request": candidate,
+        "suggested_fields": {
+            "panel_thickness_mm": {
+                "value": _ILLUSTRATIVE_PANEL_MM,
+                "source": "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED",
+            },
+            "construction": {
+                "value": _ILLUSTRATIVE_STRUCTURE,
+                "source": "ASSISTANT_ILLUSTRATIVE_DEFAULT_NOT_USER_SPECIFIED",
+            },
+        },
+        "excludes": [
+            "fondo trasero", "puertas", "cajones", "herrajes",
+            "patas", "cantos terminados", "uniones de taller",
+        ],
+        "requires_user_confirmation": True,
+        "fabrication_ready": False,
+        "cutting_ready": False,
+        "drilling_ready": False,
+        "purchase_ready": False,
+    }
+
+
 def preview_natural_request(
     utterance: str,
     proposed_request: dict[str, Any] | None = None,
@@ -169,6 +237,11 @@ def preview_natural_request(
         if kind is not None:
             project["project_type"] = kind
         proposed_request = {"action": "project", "project": project}
+        option = _illustrative_open_cabinet_option(
+            utterance, proposed_request, evidence["ambiguous_fields"]
+        )
+        if option is not None:
+            result["illustrative_option"] = option
 
     if type(proposed_request) is not dict:
         raise MaestroError("La propuesta F7D debe ser un objeto JSON Maestro.")
