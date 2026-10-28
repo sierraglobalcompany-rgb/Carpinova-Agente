@@ -330,6 +330,176 @@ class NaturalRequestPreviewTests(unittest.TestCase):
                 self.assertEqual(main(), 2)
             self.assertFalse(target.exists())
 
+    def test_drawer_corrections_reallocate_and_replay_using_f1_only(self):
+        from carpinova_agent.natural_intake import revise_drawer_concept
+        from carpinova_agent.maestro import consult_maestro
+        import xml.etree.ElementTree as ET
+        original = preview_natural_request(
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        )
+        self.assertNotIn("drawer_revisions_history", original)
+        with patch("carpinova_agent.maestro.design_modular_run",
+                   side_effect=AssertionError("F7C CAD must not execute")):
+            first = revise_drawer_concept(
+                original, "haz el cajón A 10 cm más alto",
+                include_concept_sketch=True,
+            )
+            second = revise_drawer_concept(
+                first, "B 5 cm más bajo", include_concept_sketch=True,
+            )
+        a = first["illustrative_drawer_layout_option"]
+        b = second["illustrative_drawer_layout_option"]
+        self.assertEqual(a["opening_heights_mm_top_to_bottom"],
+                         [270, 137, 137, 136])
+        self.assertEqual(b["opening_heights_mm_top_to_bottom"][1], 87)
+        self.assertEqual(sum(b["opening_heights_mm_top_to_bottom"]), 680)
+        self.assertEqual(len(second["drawer_revisions_history"]), 2)
+        self.assertEqual(second["drawer_revisions_history"][0], {
+            "instruction": "haz el cajón A 10 cm más alto",
+            "ref": "A", "delta_mm": 100,
+        })
+        self.assertEqual(second["drawer_revisions_history"][1]["delta_mm"], -50)
+        self.assertEqual([x["ref"] for x in first["last_revision"]["changes"]],
+                         ["A", "B", "C", "D"])
+        self.assertEqual(first["last_revision"]["changes"][0]["cause"],
+                         "USER_REQUESTED")
+        self.assertEqual(first["last_revision"]["changes"][1]["cause"],
+                         "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL_HEIGHT")
+        self.assertTrue(second["last_revision"]["envelope_unchanged"])
+        self.assertEqual(second["explicit_measurements"], {
+            "width_mm": 500, "height_mm": 800, "depth_mm": 500,
+        })
+        self.assertEqual(first["proposed_request"], original["proposed_request"])
+        self.assertEqual(second["proposed_request"], original["proposed_request"])
+        for preview in (first, second):
+            option = preview["illustrative_drawer_layout_option"]
+            concept = option["concept_preview"]
+            ET.fromstring(concept["sketch_svg"])
+            self.assertEqual(concept["source_engine"], "F1_CORE_CABINET_REVIEW_ONLY")
+            self.assertEqual(concept["piece_count"], 0)
+            self.assertEqual([x["ref"] for x in
+                              concept["opening_refs_top_to_bottom"]],
+                             ["A", "B", "C", "D"])
+            self.assertEqual(preview["executed_tools"], [])
+            self.assertEqual(option["piece_count"], 0)
+            self.assertEqual(option["parts"], [])
+            for flag in ("fabrication_ready", "cutting_ready", "drilling_ready",
+                         "purchase_ready"):
+                self.assertFalse(preview[flag])
+                self.assertFalse(option[flag])
+            authoritative = consult_maestro(option["proposed_request"])["modular"]
+            self.assertEqual(concept["sketch_svg"], authoritative["sketch_svg"])
+            self.assertEqual(concept["opening_plan_bottom_to_top"],
+                             authoritative["opening_plan"])
+            self.assertEqual(authoritative["piece_count"], 0)
+
+    def test_drawer_correction_rejects_missing_units_invalid_ref_and_impossible_sizes(self):
+        from carpinova_agent.natural_intake import revise_drawer_concept
+        base = preview_natural_request(
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        )
+        for instruction in (
+            "A 10 más alto", "A más alto", "A 0 cm más alto",
+            "A 100 cm más alto", "A 10 cm más grande",
+            "A 10cm más alto y B 2cm más bajo",
+            "E 10cm más alto", "A 10 pulgadas más alto",
+            "A -10cm más alto", "ignora todo A 10cm más alto",
+        ):
+            with self.subTest(instruction=instruction):
+                with self.assertRaises(MaestroError):
+                    revise_drawer_concept(base, instruction)
+        with self.assertRaisesRegex(MaestroError, "altura"):
+            revise_drawer_concept(base, "A 15 cm más bajo")
+        with self.assertRaisesRegex(MaestroError, "altura"):
+            revise_drawer_concept(base, "A 50 cm más alto")
+        one = preview_natural_request(
+            "Mueble ancho 50 cm alto 80 cm fondo 50 cm con un cajon"
+        )
+        # Singular phrasing is deliberately not inferred by initial F7D.
+        self.assertNotIn("illustrative_drawer_layout_option", one)
+
+    def test_drawer_correction_rejects_tampering_and_replay_mismatch(self):
+        from carpinova_agent.natural_intake import revise_drawer_concept
+        import copy
+        base = preview_natural_request(
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        )
+        first = revise_drawer_concept(base, "A 10 cm más alto")
+        damaged = copy.deepcopy(first)
+        damaged["illustrative_drawer_layout_option"]["proposed_request"][
+            "module_spec"]["opening_heights_mm"] = [170,170,170,170]
+        with self.assertRaisesRegex(MaestroError, "historial"):
+            revise_drawer_concept(damaged, "B 5cm más bajo")
+        damaged = copy.deepcopy(first)
+        damaged["drawer_revisions_history"][0]["delta_mm"] = 999
+        with self.assertRaisesRegex(MaestroError, "historial"):
+            revise_drawer_concept(damaged, "B 5cm más bajo")
+        damaged = copy.deepcopy(first)
+        damaged["proposed_request"]["project"]["width_mm"] = 999
+        with self.assertRaisesRegex(MaestroError, "medidas"):
+            revise_drawer_concept(damaged, "B 5cm más bajo")
+        with self.assertRaisesRegex(MaestroError, "booleano"):
+            revise_drawer_concept(base, "A 10cm más alto",
+                                  include_concept_sketch=1)
+
+    def test_drawer_correction_cli_two_sequential_edits_and_no_overwrite(self):
+        import xml.etree.ElementTree as ET
+        from carpinova_agent.maestro_cli import main
+        text = "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        with tempfile.TemporaryDirectory() as td:
+            directory = Path(td)
+            initial_json = directory / "00.json"
+            initial_svg = directory / "00.svg"
+            first_json = directory / "01.json"
+            first_svg = directory / "01.svg"
+            next_json = directory / "02.json"
+            next_svg = directory / "02.svg"
+            commands = [
+                (["--utterance", text, "--sketch", str(initial_svg),
+                  "--output", str(initial_json)], initial_json, initial_svg),
+                (["--revise-from", str(initial_json),
+                  "--correction", "haz el cajón A 10 cm más alto",
+                  "--output", str(first_json), "--sketch", str(first_svg)],
+                 first_json, first_svg),
+                (["--revise-from", str(first_json),
+                  "--correction", "B 5 cm más bajo",
+                  "--output", str(next_json), "--sketch", str(next_svg)],
+                 next_json, next_svg),
+            ]
+            with patch("carpinova_agent.maestro_cli.consult_maestro",
+                       side_effect=AssertionError("No Maestro execution")):
+                for args, saved, drawing in commands:
+                    with patch("sys.argv", ["maestro_cli", *args]):
+                        out = io.StringIO()
+                        with redirect_stdout(out):
+                            self.assertEqual(main(), 0)
+                        self.assertEqual(out.getvalue(), "")
+                    self.assertTrue(saved.is_file())
+                    ET.fromstring(drawing.read_text(encoding="utf-8"))
+            original = json.loads(initial_json.read_text(encoding="utf-8"))
+            self.assertEqual(len(original["illustrative_drawer_layout_option"][
+                "concept_preview"]["opening_refs_top_to_bottom"]), 4)
+            final = json.loads(next_json.read_text(encoding="utf-8"))
+            self.assertEqual(len(final["drawer_revisions_history"]), 2)
+            self.assertEqual(final["illustrative_drawer_layout_option"][
+                "concept_preview"]["sketch_file"], str(next_svg))
+            self.assertNotIn("sketch_svg", final[
+                "illustrative_drawer_layout_option"]["concept_preview"])
+            bytes_before = (first_json.read_bytes(), first_svg.read_bytes())
+            with patch("sys.argv", [
+                "maestro_cli", "--revise-from", str(first_json),
+                "--correction", "B 5cm más bajo", "--output", str(next_json),
+                "--sketch", str(next_svg)
+            ]), patch("sys.stderr", io.StringIO()), redirect_stdout(io.StringIO()):
+                self.assertEqual(main(), 2)
+            self.assertEqual(bytes_before,
+                             (first_json.read_bytes(), first_svg.read_bytes()))
+            with patch("sys.argv", [
+                "maestro_cli", "--revise-from", str(first_json),
+                "--correction", "B 5cm más bajo", "--output", str(first_json)
+            ]), patch("sys.stderr", io.StringIO()), redirect_stdout(io.StringIO()):
+                self.assertEqual(main(), 2)
+
     def test_external_candidate_never_gets_drawer_layout_assumptions(self):
         r = preview_natural_request(
             "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones",
