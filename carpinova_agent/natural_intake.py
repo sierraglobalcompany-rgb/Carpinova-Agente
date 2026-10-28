@@ -561,7 +561,7 @@ def revise_drawer_concept(
             )
             if requested < _MIN_ILLUSTRATIVE_OPENING_MM:
                 raise MaestroError(
-                    "La corrección deja el cajón solicitado demasiado bajo."
+                    "La corrección deja el cajón solicitado con altura insuficiente (60 mm)."
                 )
             if not free and remaining != 0:
                 raise MaestroError(
