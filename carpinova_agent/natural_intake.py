@@ -206,11 +206,12 @@ def _illustrative_open_cabinet_option(
 # F7C review-layout contract. Every internal value below is an explicitly
 # unconfirmed visual convention, not a customer dimension or hardware choice.
 _DRAWER_COUNT = re.compile(
-    r"(?<!\w)(?P<count>[1-4]|uno|una|dos|tres|cuatro)\s+"
-    r"(?:cajones|gavetas)(?!\w)", re.IGNORECASE,
+    r"(?<!\w)(?P<count>[1-4]|un|uno|una|dos|tres|cuatro)\s+"
+    r"(?:cajon(?:es)?|gavetas?)(?!\w)", re.IGNORECASE,
 )
 _DRAWER_NUMBER_WORDS = {
-    "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
+    "un": 1, "uno": 1, "una": 1,
+    "dos": 2, "tres": 3, "cuatro": 4,
 }
 _DRAWER_LAYOUT_EXCLUSIONS = (
     "grande", "grandes", "pequeño", "pequenos", "pequena",
