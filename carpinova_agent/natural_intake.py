@@ -438,3 +438,231 @@ def preview_natural_request(
         "por datos indispensables; sin autorizar fabricar ni cortar."
     )
     return result
+
+
+# A correction is applied only to a previously proposed F7D opening sketch.
+# It is never an authorization to materialize drawer boxes, hardware, or CAD.
+_CORRECTION = re.compile(
+    r"^(?:(?:haz|pon|deja|ajusta|cambia)\s+)?"
+    r"(?:el\s+)?(?:(?:cajon|gaveta)\s+)?"
+    r"(?P<ref>[a-d])\s+"
+    r"(?P<amount>\d{1,4}(?:[.,]\d{1,2})?)\s*"
+    r"(?P<unit>mm|cm|milimetros?|centimetros?)\s+"
+    r"mas\s+(?P<direction>alto|bajo)"
+    r"(?:\s+que\s+(?:antes|ahora))?$",
+    re.IGNORECASE,
+)
+_MAX_REVISIONS = 12
+_MIN_ILLUSTRATIVE_OPENING_MM = 60
+
+
+def _parse_drawer_correction(instruction: str, count: int) -> tuple[str, int]:
+    if (type(instruction) is not str or not instruction.strip()
+            or len(instruction) > 120):
+        raise MaestroError("Corrección: texto breve y explícito requerido.")
+    match = _CORRECTION.fullmatch(_fold(instruction).strip())
+    if not match:
+        raise MaestroError(
+            "Corrección ambigua: usar «haz el cajón A 10 cm más alto» "
+            "o «B 5 cm más bajo», con unidad explícita."
+        )
+    ref = match.group("ref").upper()
+    if not 0 <= ord(ref) - ord("A") < count:
+        raise MaestroError("La referencia no existe en este mueble: " + ref)
+    quantity = Decimal(match.group("amount").replace(",", "."))
+    multiplier = 10 if match.group("unit").startswith(("cm", "centimetro")) else 1
+    mm = quantity * multiplier
+    if mm != mm.to_integral_value() or not 1 <= mm <= 500:
+        raise MaestroError("Corrección: entre 1 y 500 mm enteros.")
+    return ref, int(mm) * (1 if match.group("direction") == "alto" else -1)
+
+
+def revise_drawer_concept(
+    previous_preview: dict[str, Any],
+    correction: str,
+    *,
+    include_concept_sketch: bool = False,
+) -> dict[str, Any]:
+    """Edit a REVIEW opening plan, replaying earlier requests via the same F1.
+
+    The previous JSON is never a geometry authority: rebuild from original
+    utterance and replay a capped, exact, auditable list of human corrections.
+    """
+    from .core import DesignError
+    from .drawer_modules import _apportion_nominal, propose_drawer_layout
+
+    if type(include_concept_sketch) is not bool:
+        raise MaestroError("include_concept_sketch debe ser booleano.")
+    if (type(previous_preview) is not dict
+            or previous_preview.get("status") != "NEEDS_USER_CONFIRMATION"
+            or previous_preview.get("requires_user_confirmation") is not True
+            or previous_preview.get("executed_tools") != []
+            or any(previous_preview.get(key) is not False for key in (
+                "fabrication_ready", "cutting_ready",
+                "drilling_ready", "purchase_ready"
+            ))):
+        raise MaestroError("Estado anterior no es un boceto revisable.")
+    utterance = previous_preview.get("utterance")
+    if type(utterance) is not str:
+        raise MaestroError("Falta la descripción original del mueble.")
+    fresh = preview_natural_request(utterance)
+    base = fresh.get("illustrative_drawer_layout_option")
+    previous = previous_preview.get("illustrative_drawer_layout_option")
+    if not isinstance(base, dict) or not isinstance(previous, dict):
+        raise MaestroError("El origen no es una propuesta simple de cajonera.")
+    if (previous_preview.get("proposed_request") != fresh["proposed_request"]
+            or previous.get("explicit_user_values_to_confirm")
+            != base["explicit_user_values_to_confirm"]
+            or previous.get("suggestion_source") != base["suggestion_source"]):
+        raise MaestroError("Las medidas o el origen del boceto se alteraron.")
+    raw_history = previous_preview.get("drawer_revisions_history", [])
+    if (type(raw_history) is not list or len(raw_history) >= _MAX_REVISIONS
+            or any(type(item) is not dict or set(item) != {
+                "instruction", "ref", "delta_mm"
+            } for item in raw_history)):
+        raise MaestroError("Historial de correcciones inválido o completo.")
+
+    count = base["explicit_user_values_to_confirm"]["drawer_count"]
+    spec = dict(base["proposed_request"]["module_spec"])
+    replay: list[dict[str, Any]] = []
+    last_diff: list[dict[str, Any]] = []
+    for item in [*raw_history, {"instruction": correction}]:
+        instruction = item["instruction"]
+        ref, delta = _parse_drawer_correction(instruction, count)
+        if "ref" in item and (item["ref"] != ref or item["delta_mm"] != delta):
+            raise MaestroError("El historial no coincide con las frases del usuario.")
+        try:
+            original = propose_drawer_layout(spec)
+            # Public references A-D top down; F1 internal D1-D4 bottom up.
+            before = [
+                row["opening_height_mm"]
+                for row in reversed(original["opening_plan"])
+            ]
+            position = ord(ref) - ord("A")
+            if len(before) == 1:
+                raise MaestroError(
+                    "Un solo cajón no puede cambiar su altura sin modificar el mueble."
+                )
+            requested = before[position] + delta
+            others = [i for i in range(count) if i != position]
+            remaining = sum(before) - requested
+            if (requested < _MIN_ILLUSTRATIVE_OPENING_MM
+                    or remaining < _MIN_ILLUSTRATIVE_OPENING_MM * len(others)):
+                raise MaestroError(
+                    "La corrección no deja altura nominal suficiente "
+                    "para todas las aberturas."
+                )
+            redistributed = _apportion_nominal(
+                remaining, [before[i] for i in others]
+            )
+            after = list(before)
+            after[position] = requested
+            for idx, value in zip(others, redistributed):
+                after[idx] = value
+            if min(after) < _MIN_ILLUSTRATIVE_OPENING_MM:
+                raise MaestroError(
+                    "Alguna abertura queda por debajo del mínimo visual de 60 mm."
+                )
+            spec["opening_heights_mm"] = list(reversed(after))
+            verified = propose_drawer_layout(spec)
+        except DesignError as exc:
+            raise MaestroError("Corrección F1 inválida: " + str(exc)) from exc
+        if (verified["external_dimensions_mm"]
+                != original["external_dimensions_mm"] or verified["piece_count"] != 0):
+            raise MaestroError("La corrección alteró la envolvente o fabricó piezas.")
+        last_diff = [
+            {
+                "ref": chr(ord("A") + i),
+                "before_mm": old,
+                "after_mm": new,
+                "delta_mm": new - old,
+                "cause": ("USER_REQUESTED" if i == position
+                          else "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL_HEIGHT"),
+            }
+            for i, (old, new) in enumerate(zip(before, after)) if old != new
+        ]
+        replay.append({"instruction": instruction, "ref": ref, "delta_mm": delta})
+
+    # Reject silently altered opening plans, even if the untrusted JSON
+    # still carries a plausible preview or a modified file path.
+    if previous.get("proposed_request") != {
+        "action": "modular", "module_spec": (
+            spec if not replay[:-1]
+            else _replay_previous_spec(
+                base["proposed_request"]["module_spec"],
+                replay[:-1],
+                propose_drawer_layout,
+                _apportion_nominal,
+            )
+        )
+    }:
+        raise MaestroError("El plan anterior no coincide con su historial.")
+
+    fresh_option = fresh["illustrative_drawer_layout_option"]
+    fresh_option["proposed_request"] = {"action": "modular", "module_spec": spec}
+    fresh_option["revision_geometry_source"] = (
+        "F1_DERIVED_FROM_USER_DELTA_AND_EXPLICIT_REDISTRIBUTION"
+    )
+    fresh_option["opening_heights_mm_top_to_bottom"] = [
+        item["opening_height_mm"] for item in reversed(verified["opening_plan"])
+    ]
+    fresh["drawer_revisions_history"] = replay
+    fresh["last_revision"] = {
+        "instruction": correction,
+        "changes": last_diff,
+        "envelope_unchanged": True,
+        "requires_user_confirmation": True,
+    }
+    if include_concept_sketch:
+        fresh_option["concept_preview"] = {
+            "source_engine": "F1_CORE_CABINET_REVIEW_ONLY",
+            "sketch_svg": verified["sketch_svg"],
+            "sketch_text": verified["sketch_text"],
+            "opening_plan_bottom_to_top": verified["opening_plan"],
+            "opening_refs_top_to_bottom": [
+                {"ref": chr(ord("A") + i),
+                 "cad_review_id": row["drawer_id"],
+                 "opening_height_mm": row["opening_height_mm"]}
+                for i, row in enumerate(reversed(verified["opening_plan"]))
+            ],
+            "piece_count": 0,
+            "not_fabrication_geometry": True,
+        }
+    fresh["next_step"] = (
+        "Revisar el nuevo croquis y todos los deltas A-D; aceptar o corregir. "
+        "No hay autorización para generar piezas, comprar ni fabricar."
+    )
+    return fresh
+
+
+def _replay_previous_spec(
+    original: dict[str, Any],
+    history: list[dict[str, Any]],
+    calculate: Any,
+    apportion: Any,
+) -> dict[str, Any]:
+    """Recompute previous staged heights from instructions, never stored sizes."""
+    spec = dict(original)
+    for item in history:
+        ref, delta = _parse_drawer_correction(
+            item["instruction"], len(spec["drawer_weights"])
+        )
+        plan = calculate(spec)
+        heights = [x["opening_height_mm"]
+                   for x in reversed(plan["opening_plan"])]
+        index = ord(ref) - ord("A")
+        target = heights[index] + delta
+        remaining = sum(heights) - target
+        others = [i for i in range(len(heights)) if i != index]
+        if (target < _MIN_ILLUSTRATIVE_OPENING_MM
+                or remaining < len(others) * _MIN_ILLUSTRATIVE_OPENING_MM):
+            raise MaestroError("Historial con alturas imposibles.")
+        distributed = apportion(remaining, [heights[i] for i in others])
+        heights[index] = target
+        for i, n in zip(others, distributed):
+            heights[i] = n
+        if min(heights) < _MIN_ILLUSTRATIVE_OPENING_MM:
+            raise MaestroError("Historial con abertura inferior a 60 mm.")
+        spec["opening_heights_mm"] = list(reversed(heights))
+        calculate(spec)
+    return spec
