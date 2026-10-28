@@ -526,6 +526,7 @@ def revise_drawer_concept(
     count = base["explicit_user_values_to_confirm"]["drawer_count"]
     spec = dict(base["proposed_request"]["module_spec"])
     replay: list[dict[str, Any]] = []
+    user_fixed: set[int] = set()
     last_diff: list[dict[str, Any]] = []
     for item in [*raw_history, {"instruction": correction}]:
         instruction = item["instruction"]
@@ -546,20 +547,39 @@ def revise_drawer_concept(
                     "Un solo cajón no puede cambiar su altura sin modificar el mueble."
                 )
             requested = before[position] + delta
-            others = [i for i in range(count) if i != position]
-            remaining = sum(before) - requested
-            if (requested < _MIN_ILLUSTRATIVE_OPENING_MM
-                    or remaining < _MIN_ILLUSTRATIVE_OPENING_MM * len(others)):
+            # Preserve already-requested drawer heights on later edits.
+            # The F1 total remains fixed; only unmodified drawers absorb
+            # the new delta. No second geometry or independent rounding path.
+            fixed_others = user_fixed - {position}
+            free = [
+                i for i in range(count)
+                if i != position and i not in fixed_others
+            ]
+            remaining = (
+                sum(before) - requested
+                - sum(before[i] for i in fixed_others)
+            )
+            if requested < _MIN_ILLUSTRATIVE_OPENING_MM:
+                raise MaestroError(
+                    "La corrección deja el cajón solicitado demasiado bajo."
+                )
+            if not free and remaining != 0:
+                raise MaestroError(
+                    "No quedan cajones libres para redistribuir: "
+                    "revisar una corrección anterior o el alto exterior."
+                )
+            if remaining < _MIN_ILLUSTRATIVE_OPENING_MM * len(free):
                 raise MaestroError(
                     "La corrección no deja altura nominal suficiente "
-                    "para todas las aberturas."
+                    "para los cajones sin altura fijada."
                 )
-            redistributed = _apportion_nominal(
-                remaining, [before[i] for i in others]
+            redistributed = (
+                _apportion_nominal(remaining, [before[i] for i in free])
+                if free else []
             )
             after = list(before)
             after[position] = requested
-            for idx, value in zip(others, redistributed):
+            for idx, value in zip(free, redistributed):
                 after[idx] = value
             if min(after) < _MIN_ILLUSTRATIVE_OPENING_MM:
                 raise MaestroError(
@@ -584,6 +604,7 @@ def revise_drawer_concept(
             for i, (old, new) in enumerate(zip(before, after)) if old != new
         ]
         replay.append({"instruction": instruction, "ref": ref, "delta_mm": delta})
+        user_fixed.add(position)
 
     # Reject silently altered opening plans, even if the untrusted JSON
     # still carries a plausible preview or a modified file path.
@@ -604,6 +625,12 @@ def revise_drawer_concept(
     fresh["last_revision"] = {
         "instruction": correction,
         "changes": last_diff,
+        "preserved_user_refs": sorted(
+            chr(ord("A") + i) for i in (user_fixed - {position})
+        ),
+        "all_user_adjusted_refs": sorted(
+            chr(ord("A") + i) for i in user_fixed
+        ),
         "envelope_unchanged": True,
         "requires_user_confirmation": True,
     }
