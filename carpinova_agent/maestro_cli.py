@@ -16,7 +16,9 @@ from hardware import HardwareError
 from knowledge_client import BundleError
 from .core import DesignError
 from .maestro import MaestroError, consult_maestro
-from .natural_intake import MAX_CANDIDATE_UTF8_BYTES, preview_natural_request
+from .natural_intake import (
+    MAX_CANDIDATE_UTF8_BYTES, preview_natural_request, revise_drawer_concept,
+)
 from .llm_adapter import interpret_openai_request
 from .sketch import render_svg
 from .modular_outputs import modular_front_svg, modular_bom_csv
@@ -91,6 +93,10 @@ def main() -> int:
                         help="Consulta libre solo para buscar en el libro")
     inputs.add_argument("--utterance", type=str,
                         help="F7D: texto natural, SOLO previsualización sin ejecutar herramientas")
+    inputs.add_argument("--revise-from", type=Path,
+                        help="JSON de boceto previo para corregir A-D sin repetir medidas")
+    parser.add_argument("--correction", type=str,
+                        help="Ej. «haz el cajón A 10 cm más alto»; solo con --revise-from")
     parser.add_argument("--candidate", type=Path,
                         help="JSON propuesto por intérprete externo; requiere --utterance")
     parser.add_argument("--interpret-openai", action="store_true",
@@ -110,10 +116,59 @@ def main() -> int:
     parser.add_argument("--max-questions", type=int, default=3)
     args = parser.parse_args()
     try:
-        if args.utterance is not None:
-            if args.sketch is not None or args.csv is not None:
+        if args.revise_from is not None:
+            if (args.correction is None or args.csv is not None
+                    or args.candidate is not None
+                    or args.confirm_execute or args.interpret_openai
+                    or args.consent_send_text or args.interpret_model is not None
+                    or args.bundle_dir is not None):
                 raise MaestroError(
-                    "F7D no emite SVG ni CSV: ejecutar exportaciones en una operación aparte."
+                    "Revisión requiere --correction; no admite CSV, "
+                    "candidatos externos, intérprete ni ejecución."
+                )
+            if args.output is not None and (
+                    args.output.resolve() == args.revise_from.resolve()
+                    or args.output.exists() or args.output.is_symlink()):
+                raise MaestroError(
+                    "La revisión no sobrescribe el JSON anterior ni archivos existentes."
+                )
+            if args.sketch is not None and (
+                    args.sketch.suffix.lower() != ".svg"
+                    or args.sketch.exists() or args.sketch.is_symlink()
+                    or not args.sketch.parent.is_dir()
+                    or args.sketch.resolve() == args.revise_from.resolve()
+                    or (args.output is not None
+                        and args.sketch.resolve() == args.output.resolve())):
+                raise MaestroError("Croquis: usar un archivo SVG nuevo y distinto.")
+            snapshot = _load_untrusted_candidate(args.revise_from)
+            revised = revise_drawer_concept(
+                snapshot, args.correction,
+                include_concept_sketch=args.sketch is not None,
+            )
+            drawing = None
+            if args.sketch is not None:
+                concept = revised["illustrative_drawer_layout_option"]["concept_preview"]
+                drawing = concept.pop("sketch_svg")
+                concept["sketch_file"] = str(args.sketch)
+            payload = json.dumps(revised, indent=2, ensure_ascii=False) + "\n"
+            if drawing is not None:
+                with args.sketch.open("x", encoding="utf-8") as fp:
+                    fp.write(drawing)
+            if args.output is not None:
+                with args.output.open("x", encoding="utf-8") as fp:
+                    fp.write(payload)
+            else:
+                sys.stdout.write(payload)
+            return 0
+        if args.correction is not None:
+            raise MaestroError("--correction requiere --revise-from.")
+        if args.utterance is not None:
+            if (args.csv is not None or (args.sketch is not None
+                    and (args.candidate is not None or args.interpret_openai
+                         or args.confirm_execute))):
+                raise MaestroError(
+                    "F7D solo permite --sketch para cajonera simple extraída "
+                    "del texto directamente, sin candidato, IA remota ni ejecución."
                 )
             if args.bundle_dir is not None and not args.confirm_execute:
                 raise MaestroError(
@@ -131,7 +186,31 @@ def main() -> int:
                     raise MaestroError("Consentimiento y modelo requieren --interpret-openai.")
                 candidate = (_load_untrusted_candidate(args.candidate)
                              if args.candidate is not None else None)
-            preview = preview_natural_request(args.utterance, candidate)
+            preview = preview_natural_request(
+                args.utterance, candidate,
+                include_concept_sketch=args.sketch is not None,
+            )
+            concept_svg = None
+            if args.sketch is not None:
+                option = preview.get("illustrative_drawer_layout_option")
+                concept = option.get("concept_preview") if option else None
+                if not concept:
+                    raise MaestroError(
+                        "Sin croquis seguro: incluir ancho, alto y fondo con "
+                        "unidad y 1 a 4 cajones iguales; sin decisiones especiales."
+                    )
+                if (args.sketch.suffix.lower() != ".svg"
+                        or args.sketch.exists() or args.sketch.is_symlink()
+                        or not args.sketch.parent.is_dir()):
+                    raise MaestroError(
+                        "Croquis: utilizar una ruta SVG nueva y directorio existente."
+                    )
+                if (args.output is not None and
+                        args.sketch.resolve() == args.output.resolve()):
+                    raise MaestroError("JSON y SVG deben tener rutas distintas.")
+                concept_svg = concept.pop("sketch_svg")
+                concept["sketch_file"] = str(args.sketch)
+
             if args.interpret_openai:
                 preview["interpreter"] = {
                     "provider": "OpenAI Responses API",
@@ -159,6 +238,10 @@ def main() -> int:
                 output = json.dumps(response, indent=2, ensure_ascii=False) + "\n"
             else:
                 output = json.dumps(preview, indent=2, ensure_ascii=False) + "\n"
+            if concept_svg is not None:
+                # Exclusive creation: do not clobber pre-existing sketches.
+                with args.sketch.open("x", encoding="utf-8") as handle:
+                    handle.write(concept_svg)
             if args.output is not None:
                 args.output.write_text(output, encoding="utf-8")
             else:

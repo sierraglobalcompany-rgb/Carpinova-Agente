@@ -19,6 +19,7 @@ DRAWER_FIELDS = frozenset({
     "slide_clearance_right_mm", "front_setback_mm", "rear_setback_mm",
     "material_id", "bottom_material_id", "facade"
 })
+FRONT_CONSTRUCTIONS = frozenset(("separate", "integrated_overlay"))
 FACADE_REQUIRED = frozenset({
     "style", "material_id", "thickness_mm", "left_clearance_mm",
     "right_clearance_mm", "top_clearance_mm", "bottom_clearance_mm"
@@ -99,7 +100,7 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
             aperture_width: int, aperture_height: int,
             opening_y: int, opening_x: int,
             front_setback: int, carcase_thickness: int,
-            module_height: int) -> tuple[list[dict[str, Any]], list[str]]:
+            module_height: int, structural_front: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
     """Create a *nominal* inset or overlay decorative drawer face.
 
     Both styles use the same F1 opening; unlike an inset front, an overlay
@@ -153,7 +154,10 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
             or x + fx > opening_x + aperture_width + carcase_thickness
             or y < 0 or y + fy > module_height):
         raise DesignError(f"{drawer_id}: frente invade espacio exterior del módulo.")
-    if front_setback <= thick:
+    if structural_front:
+        if style != "overlay" or front_setback != 0:
+            raise DesignError(f"{drawer_id}: frente único exige overlay y retranqueo cero.")
+    elif front_setback <= thick:
         raise DesignError(
             f"{drawer_id}: retranqueo de caja debe superar espesor del frente "
             "para que no ocupen el mismo volumen."
@@ -167,10 +171,12 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
     )
     # Opening mechanism is an *intent*, not a drilled or modeled mechanism.
     face["opening_system"] = opening_system
-    blockers = [
+    blockers = ([f"{module_id}/{drawer_id}: frente exterior estructural, "
+                 "unión a laterales y base PENDIENTE DE VALIDAR."] if structural_front
+                else [
         f"{module_id}/{drawer_id}: frente decorativo sin uniones, tiradores, "
         "cantos finales ni validación de montaje."
-    ]
+    ])
     if opening_system == "pending":
         blockers.append(f"{module_id}/{drawer_id}: decidir tirador, push-to-open, uñero o perfil.")
     elif opening_system == "profile":
@@ -204,8 +210,19 @@ def module_drawers(drawers: Any, *, module_id: str,
     ids: list[str] = []
     openings: list[tuple[int, int]] = []
     for index, request in enumerate(drawers):
-        if type(request) is not dict or set(request) != DRAWER_FIELDS:
+        if (type(request) is not dict
+                or not DRAWER_FIELDS.issubset(request)
+                or set(request) - DRAWER_FIELDS - {"front_construction"}):
             raise DesignError(f"{module_id}.drawers[{index}]: campos faltantes o desconocidos.")
+        front_mode = request.get("front_construction", "separate")
+        if front_mode not in FRONT_CONSTRUCTIONS:
+            raise DesignError(f"{module_id}/{index}: modo de frente inválido.")
+        integrated_front = front_mode == "integrated_overlay"
+        if integrated_front and (request["front_setback_mm"] != 0
+                or request["facade"] == "pending"
+                or not isinstance(request["facade"], dict)
+                or request["facade"].get("style") != "overlay"):
+            raise DesignError(f"{module_id}/{index}: frente único incompatible.")
         drawer_id = _id(request["drawer_id"], "drawer_id")
         if drawer_id in ids:
             raise DesignError(f"{module_id}: drawer_id repetido.")
@@ -260,6 +277,8 @@ def module_drawers(drawers: Any, *, module_id: str,
              "XZ", [x, y, z], result["parts"][2]["calculation"]),
         )
         for role, mat, fx, fy, thick, plane, origin, formula in specs:
+            if integrated_front and role == "drawer_front_wall":
+                continue  # Frente exterior único sustituye a la pared frontal interior.
             all_parts.append(_part(module_id, drawer_id, role, mat,
                                    fx, fy, thick, plane, origin, formula))
         fronts, front_blockers = _facade(
@@ -269,6 +288,7 @@ def module_drawers(drawers: Any, *, module_id: str,
             front_setback=z,
             carcase_thickness=carcase_thickness_mm,
             module_height=clear_height_mm + 2 * carcase_thickness_mm,
+            structural_front=integrated_front,
         )
         all_parts.extend(fronts)
         blockers.extend(front_blockers)

@@ -1,0 +1,142 @@
+{
+  "action": "modular",
+  "module_spec": {
+    "type": "wall_bar",
+    "overall_width_mm": 900,
+    "overall_height_mm": 900,
+    "overall_depth_mm": 460,
+    "free_span_mm": 600,
+    "feet_height_mm": 40,
+    "top_thickness_mm": 15,
+    "wall_side": "left",
+    "drawer_opening_face": "long_side_front",
+    "design_choices": {
+      "aesthetic_presentation": "bicolor_modern_preliminary"
+    },
+    "cabinet_module": {
+      "module_id": "CAJONERA_DERECHA",
+      "width_mm": 300,
+      "panel_thickness_mm": 15,
+      "material_id": "MDP_15",
+      "construction": "sides_full",
+      "fronts": "none",
+      "back": {
+        "style": "inset_full",
+        "material_id": "MDP_15",
+        "thickness_mm": 15,
+        "services_present": false,
+        "grain_axis": "UNCONFIRMED"
+      },
+      "support": "floor",
+      "support_concept": {
+        "style": "legs",
+        "support_height_mm": 40,
+        "overall_height_mm": 885
+      },
+      "drawers": [
+        {
+          "drawer_id": "D1",
+          "front_construction": "integrated_overlay",
+          "opening_bottom_offset_mm": 663,
+          "opening_height_mm": 150,
+          "opening_depth_mm": 445,
+          "box_height_mm": 120,
+          "panel_thickness_mm": 15,
+          "bottom_thickness_mm": 15,
+          "slide_clearance_left_mm": 13,
+          "slide_clearance_right_mm": 13,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 45,
+          "material_id": "MDP_15",
+          "bottom_material_id": "MDP_15",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MDP_15",
+            "thickness_mm": 15,
+            "left_overlap_mm": 13,
+            "right_overlap_mm": 13,
+            "top_overlap_mm": 15,
+            "bottom_overlap_mm": 15,
+            "grain_axis": "UNCONFIRMED",
+            "edgebanding_edges": [
+              "x_min",
+              "x_max",
+              "y_min",
+              "y_max"
+            ],
+            "edgeband_thickness_mm": 2,
+            "opening_system": "handle"
+          }
+        },
+        {
+          "drawer_id": "D2",
+          "front_construction": "integrated_overlay",
+          "opening_bottom_offset_mm": 481,
+          "opening_height_mm": 150,
+          "opening_depth_mm": 445,
+          "box_height_mm": 120,
+          "panel_thickness_mm": 15,
+          "bottom_thickness_mm": 15,
+          "slide_clearance_left_mm": 13,
+          "slide_clearance_right_mm": 13,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 45,
+          "material_id": "MDP_15",
+          "bottom_material_id": "MDP_15",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MDP_15",
+            "thickness_mm": 15,
+            "left_overlap_mm": 13,
+            "right_overlap_mm": 13,
+            "top_overlap_mm": 15,
+            "bottom_overlap_mm": 15,
+            "grain_axis": "UNCONFIRMED",
+            "edgebanding_edges": [
+              "x_min",
+              "x_max",
+              "y_min",
+              "y_max"
+            ],
+            "edgeband_thickness_mm": 2,
+            "opening_system": "handle"
+          }
+        },
+        {
+          "drawer_id": "D3",
+          "front_construction": "integrated_overlay",
+          "opening_bottom_offset_mm": 2,
+          "opening_height_mm": 447,
+          "opening_depth_mm": 445,
+          "box_height_mm": 390,
+          "panel_thickness_mm": 15,
+          "bottom_thickness_mm": 15,
+          "slide_clearance_left_mm": 13,
+          "slide_clearance_right_mm": 13,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 45,
+          "material_id": "MDP_15",
+          "bottom_material_id": "MDP_15",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MDP_15",
+            "thickness_mm": 15,
+            "left_overlap_mm": 13,
+            "right_overlap_mm": 13,
+            "top_overlap_mm": 15,
+            "bottom_overlap_mm": 15,
+            "grain_axis": "UNCONFIRMED",
+            "edgebanding_edges": [
+              "x_min",
+              "x_max",
+              "y_min",
+              "y_max"
+            ],
+            "edgeband_thickness_mm": 2,
+            "opening_system": "handle"
+          }
+        }
+      ]
+    }
+  }
+}

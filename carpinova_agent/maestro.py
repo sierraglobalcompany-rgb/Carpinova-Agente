@@ -15,6 +15,7 @@ from knowledge_client.topic_screen import TOPIC_TERMS, screen_topic_results
 
 from .intake import guide_project
 from .modular import design_modular_run
+from .wall_bar import design_wall_bar
 from .drawer_modules import propose_drawer_layout, guide_drawer_layout
 from .opening_guide import guide_opening_systems
 from .construction_advice import construction_advice
@@ -134,6 +135,8 @@ def consult_maestro(
             if spec.get("type") == "drawer_layout_guide"
             else propose_drawer_layout(spec)
             if spec.get("type") == "drawer_layout_proposal"
+            else design_wall_bar(spec)
+            if spec.get("type") == "wall_bar"
             else design_modular_run(spec)
         )
         result["modular"] = modular
@@ -238,7 +241,9 @@ def consult_maestro(
                 "unit": "mm",
             })
         if modular["status"] == "DRAFT_NOT_FOR_CUTTING":
-            modules = inp["module_spec"]["modules"]
+            modules = (inp["module_spec"]["modules"]
+                       if spec.get("type") != "wall_bar"
+                       else [spec["cabinet_module"]])
             # Structural decisions come first; cosmetic finishing must not
             # hide an unresolved drawer/door/support when max_questions=3.
             for module in modules:
@@ -266,17 +271,22 @@ def consult_maestro(
                                 ),
                                 "unit": "construction_choice",
                             })
-            for module in modules:
-                if module.get("finish") is None:
-                    module_id = module["module_id"]
-                    result["questions"].append({
-                        "field": f"module_spec.modules.{module_id}.finish",
-                        "question": (
-                            f"¿Qué veta y cantos lleva cada una de las "
-                            f"cuatro piezas de {module_id}?"
-                        ),
-                        "unit": "per_panel",
-                    })
+            # The wall-bar draft already has safe presentation defaults.
+            # Do not request mounting type, false-thickness or grain/cants
+            # from an ordinary client before showing the review drawings.
+            # These remain optional choices, not implicit manufacturing data.
+            if spec.get("type") != "wall_bar":
+                for module in modules:
+                    if module.get("finish") is None:
+                        module_id = module["module_id"]
+                        result["questions"].append({
+                            "field": f"module_spec.modules.{module_id}.finish",
+                            "question": (
+                                f"¿Qué veta y cantos lleva cada una de las "
+                                f"cuatro piezas de {module_id}?"
+                            ),
+                            "unit": "per_panel",
+                        })
         result["questions"] = result["questions"][:max_questions]
     if action in ("project", "combined"):
         project = guide_project(inp["project"], max_questions=max_questions)
