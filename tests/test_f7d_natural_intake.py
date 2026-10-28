@@ -415,8 +415,28 @@ class NaturalRequestPreviewTests(unittest.TestCase):
         one = preview_natural_request(
             "Mueble ancho 50 cm alto 80 cm fondo 50 cm con un cajon"
         )
-        # Singular phrasing is deliberately not inferred by initial F7D.
-        self.assertNotIn("illustrative_drawer_layout_option", one)
+        # A single ordinary "un cajón" is now recognized, but changing
+        # height alone is impossible without changing the outer carcass.
+        self.assertEqual(
+            one["illustrative_drawer_layout_option"][
+                "explicit_user_values_to_confirm"]["drawer_count"], 1
+        )
+        with self.assertRaisesRegex(MaestroError, "Un solo cajón"):
+            revise_drawer_concept(one, "A 5 cm más alto")
+
+    def test_singular_one_drawer_regular_phrases_can_start_review(self):
+        for text in (
+            "Mueble ancho 50 cm alto 80 cm fondo 50 cm con un cajón",
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con una gaveta",
+            "Gabinete ancho 50 cm alto 80 cm fondo 50 cm con 1 cajón",
+        ):
+            with self.subTest(text=text):
+                preview = preview_natural_request(text)
+                self.assertEqual(
+                    preview["illustrative_drawer_layout_option"][
+                        "explicit_user_values_to_confirm"]["drawer_count"], 1
+                )
+                self.assertFalse(preview["fabrication_ready"])
 
     def test_drawer_correction_rejects_tampering_and_replay_mismatch(self):
         from carpinova_agent.natural_intake import revise_drawer_concept
