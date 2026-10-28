@@ -531,6 +531,7 @@ def revise_drawer_concept(
         ref, delta = _parse_drawer_correction(instruction, count)
         if "ref" in item and (item["ref"] != ref or item["delta_mm"] != delta):
             raise MaestroError("El historial no coincide con las frases del usuario.")
+        prior_spec = dict(spec)
         try:
             original = propose_drawer_layout(spec)
             # Public references A-D top down; F1 internal D1-D4 bottom up.
@@ -586,15 +587,7 @@ def revise_drawer_concept(
     # Reject silently altered opening plans, even if the untrusted JSON
     # still carries a plausible preview or a modified file path.
     if previous.get("proposed_request") != {
-        "action": "modular", "module_spec": (
-            spec if not replay[:-1]
-            else _replay_previous_spec(
-                base["proposed_request"]["module_spec"],
-                replay[:-1],
-                propose_drawer_layout,
-                _apportion_nominal,
-            )
-        )
+        "action": "modular", "module_spec": prior_spec
     }:
         raise MaestroError("El plan anterior no coincide con su historial.")
 
@@ -634,35 +627,3 @@ def revise_drawer_concept(
     )
     return fresh
 
-
-def _replay_previous_spec(
-    original: dict[str, Any],
-    history: list[dict[str, Any]],
-    calculate: Any,
-    apportion: Any,
-) -> dict[str, Any]:
-    """Recompute previous staged heights from instructions, never stored sizes."""
-    spec = dict(original)
-    for item in history:
-        ref, delta = _parse_drawer_correction(
-            item["instruction"], len(spec["drawer_weights"])
-        )
-        plan = calculate(spec)
-        heights = [x["opening_height_mm"]
-                   for x in reversed(plan["opening_plan"])]
-        index = ord(ref) - ord("A")
-        target = heights[index] + delta
-        remaining = sum(heights) - target
-        others = [i for i in range(len(heights)) if i != index]
-        if (target < _MIN_ILLUSTRATIVE_OPENING_MM
-                or remaining < len(others) * _MIN_ILLUSTRATIVE_OPENING_MM):
-            raise MaestroError("Historial con alturas imposibles.")
-        distributed = apportion(remaining, [heights[i] for i in others])
-        heights[index] = target
-        for i, n in zip(others, distributed):
-            heights[i] = n
-        if min(heights) < _MIN_ILLUSTRATIVE_OPENING_MM:
-            raise MaestroError("Historial con abertura inferior a 60 mm.")
-        spec["opening_heights_mm"] = list(reversed(heights))
-        calculate(spec)
-    return spec
