@@ -351,7 +351,15 @@ class NaturalRequestPreviewTests(unittest.TestCase):
         b = second["illustrative_drawer_layout_option"]
         self.assertEqual(a["opening_heights_mm_top_to_bottom"],
                          [270, 137, 137, 136])
-        self.assertEqual(b["opening_heights_mm_top_to_bottom"][1], 87)
+        self.assertEqual(b["opening_heights_mm_top_to_bottom"],
+                         [270, 87, 162, 161])
+        self.assertEqual(second["last_revision"]["preserved_user_refs"], ["A"])
+        self.assertEqual(second["last_revision"]["all_user_adjusted_refs"],
+                         ["A", "B"])
+        self.assertEqual(
+            [item["ref"] for item in second["last_revision"]["changes"]],
+            ["B", "C", "D"],
+        )
         self.assertEqual(sum(b["opening_heights_mm_top_to_bottom"]), 680)
         self.assertEqual(len(second["drawer_revisions_history"]), 2)
         self.assertEqual(second["drawer_revisions_history"][0], {
@@ -392,6 +400,44 @@ class NaturalRequestPreviewTests(unittest.TestCase):
             self.assertEqual(concept["opening_plan_bottom_to_top"],
                              authoritative["opening_plan"])
             self.assertEqual(authoritative["piece_count"], 0)
+
+    def test_sequential_edits_lock_earlier_user_heights_until_explicitly_revised(self):
+        from carpinova_agent.natural_intake import revise_drawer_concept
+        first = preview_natural_request(
+            "Cajonera ancho 50 cm alto 80 cm fondo 50 cm con 4 cajones"
+        )
+        a = revise_drawer_concept(first, "A 10 cm más alto")
+        b = revise_drawer_concept(a, "B 5 cm más bajo")
+        c = revise_drawer_concept(b, "C 2 cm más alto")
+        self.assertEqual(
+            c["illustrative_drawer_layout_option"]["opening_heights_mm_top_to_bottom"],
+            [270, 87, 182, 141]
+        )
+        self.assertEqual(c["last_revision"]["preserved_user_refs"], ["A", "B"])
+        self.assertEqual(c["last_revision"]["all_user_adjusted_refs"],
+                         ["A", "B", "C"])
+        self.assertEqual([v["ref"] for v in c["last_revision"]["changes"]],
+                         ["C", "D"])
+        with self.assertRaisesRegex(MaestroError, "No quedan cajones libres"):
+            revise_drawer_concept(c, "D 1 cm más bajo")
+        # An earlier drawer may be revised again while one unmodified drawer
+        # remains, but previously corrected B and C must stay unchanged.
+        again = revise_drawer_concept(c, "A 1 cm más bajo")
+        self.assertEqual(
+            again["illustrative_drawer_layout_option"]["opening_heights_mm_top_to_bottom"],
+            [260, 87, 182, 151]
+        )
+        self.assertEqual(again["last_revision"]["preserved_user_refs"],
+                         ["B", "C"])
+        self.assertEqual(sum(
+            again["illustrative_drawer_layout_option"][
+                "opening_heights_mm_top_to_bottom"]
+        ), 680)
+        self.assertEqual(again["executed_tools"], [])
+        self.assertTrue(all(again[flag] is False for flag in (
+            "fabrication_ready", "cutting_ready", "drilling_ready",
+            "purchase_ready"
+        )))
 
     def test_drawer_correction_rejects_missing_units_invalid_ref_and_impossible_sizes(self):
         from carpinova_agent.natural_intake import revise_drawer_concept
