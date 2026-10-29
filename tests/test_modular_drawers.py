@@ -85,6 +85,83 @@ class ModularDrawerTests(unittest.TestCase):
         self.assertEqual(p["BASE-LOW-DRAWER_FACADE"]["thickness_mm"],18)
         self.assertEqual(p["BASE-LOW-DRAWER_FACADE"]["material_id"],"OAK_MELAMINE_18")
 
+    def test_separate_overlay_keeps_complete_box_and_meets_front_wall_without_overlap(self):
+        data = fixture()
+        for drawer in data["modules"][0]["drawers"]:
+            drawer["front_setback_mm"] = 0
+            facade = drawer["facade"]
+            for key in ("left_clearance_mm", "right_clearance_mm",
+                        "top_clearance_mm", "bottom_clearance_mm"):
+                facade.pop(key)
+            facade.update({
+                "style": "overlay", "left_overlap_mm": 10,
+                "right_overlap_mm": 10, "top_overlap_mm": 10,
+                "bottom_overlap_mm": 10, "opening_system": "pending",
+            })
+        model = design_modular_run(data)
+        parts = {part["piece_id"]: part for part in model["parts"]}
+        self.assertEqual(model["piece_count"], 17)
+        for drawer_id in ("TOP", "LOW"):
+            roles = {part["role"] for part in model["parts"]
+                     if part.get("drawer_id") == drawer_id}
+            self.assertEqual(roles, {
+                "drawer_side_left", "drawer_side_right", "drawer_front_wall",
+                "drawer_rear_wall", "drawer_bottom", "drawer_facade",
+            })
+            facade = parts[f"BASE-{drawer_id}-DRAWER_FACADE"]
+            front_wall = parts[f"BASE-{drawer_id}-DRAWER_FRONT_WALL"]
+            self.assertEqual(facade["front_construction"], "separate")
+            self.assertEqual(facade["nominal_origin_xyz_mm"][2] +
+                             facade["thickness_mm"],
+                             front_wall["nominal_origin_xyz_mm"][2])
+        cad = validate_exchange(cad_exchange(model))
+        self.assertEqual(len(cad["boxes"]), 17)
+        self.assertFalse(model["fabrication_ready"])
+        self.assertFalse(model["cutting_ready"])
+        self.assertFalse(model["drilling_ready"])
+        self.assertFalse(model["purchase_ready"])
+
+    def test_integrated_overlay_is_only_an_explicit_legacy_choice(self):
+        data = fixture()
+        drawer = data["modules"][0]["drawers"][0]
+        drawer["front_construction"] = "integrated_overlay"
+        drawer["front_setback_mm"] = 0
+        facade = drawer["facade"]
+        for key in ("left_clearance_mm", "right_clearance_mm",
+                    "top_clearance_mm", "bottom_clearance_mm"):
+            facade.pop(key)
+        facade.update({
+            "style": "overlay", "left_overlap_mm": 10,
+            "right_overlap_mm": 10, "top_overlap_mm": 10,
+            "bottom_overlap_mm": 10,
+        })
+        model = design_modular_run(data)
+        self.assertNotIn("BASE-TOP-DRAWER_FRONT_WALL",
+                         {part["piece_id"] for part in model["parts"]})
+        front = next(part for part in model["parts"]
+                     if part["piece_id"] == "BASE-TOP-DRAWER_FACADE")
+        self.assertEqual(front["front_construction"], "integrated_overlay")
+        self.assertTrue(any("LEGACY explícito" in blocker
+                            for blocker in model["blockers"]))
+        self.assertFalse(model["fabrication_ready"])
+
+    def test_separate_overlay_with_positive_front_setback_reports_unmounted_gap(self):
+        data = fixture()
+        drawer = data["modules"][0]["drawers"][0]
+        drawer["front_setback_mm"] = 5
+        facade = drawer["facade"]
+        for key in ("left_clearance_mm", "right_clearance_mm",
+                    "top_clearance_mm", "bottom_clearance_mm"):
+            facade.pop(key)
+        facade.update({
+            "style": "overlay", "left_overlap_mm": 10,
+            "right_overlap_mm": 10, "top_overlap_mm": 10,
+            "bottom_overlap_mm": 10,
+        })
+        model = design_modular_run(data)
+        self.assertTrue(any("separación nominal" in blocker
+                            for blocker in model["blockers"]))
+
     def test_cad_17_boxes_and_no_factory_coordinates(self):
         cad=cad_exchange(design_modular_run(fixture()))
         self.assertEqual(cad["source_engine"],"F7C_DRAWER_BOXES_FROM_F1")

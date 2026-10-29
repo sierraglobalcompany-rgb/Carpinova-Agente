@@ -145,7 +145,7 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     with TemporaryDirectory(prefix=".carpinova-sheet-", dir=folder) as tmp:
         stage = Path(tmp) / "lamina"
         stage.mkdir()
-        (stage / "three-views.svg").write_text(svg, encoding="utf-8")
+        (stage / "three-views.svg").write_bytes(svg.encode("utf-8"))
         try:
             png = resvg_py.svg_to_bytes(svg_string=svg, width=2320)
             with Image.open(BytesIO(png)) as image:
@@ -319,6 +319,42 @@ def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str
     if not overview.endswith("</svg>\n"):
         raise DesignError("Vista general de CAD sin cierre esperado.")
     overview = overview.replace("</svg>\n", "".join(markers) + "</svg>\n")
+
+    conceptual_support = []
+    for module in model.get("modules", []):
+        support = module.get("support_review")
+        if (type(support) is dict and support.get("style") == "legs"
+                and support.get("physical_support_specification") == "NOT_VERIFIED"
+                and support.get("support_height_mm") is not None
+                and support.get("carcass_height_mm") is not None
+                and support.get("overall_height_mm") is not None):
+            conceptual_support.append((module.get("module_id"), support))
+    if conceptual_support:
+        overview = overview.replace('y="982" class="hash"',
+                                    'y="1022" class="hash"')
+        if len(conceptual_support) == 1:
+            module_id, support = conceptual_support[0]
+            overview = overview.replace(
+                "</svg>\n",
+                f'<text x="598" y="940" font-family="Arial" font-size="15" '
+                f'font-weight="bold" fill="#9e2733">{escape(str(module_id))} · '
+                f'CARCASA CAD: {support["carcass_height_mm"]} mm · PATAS SOLO '
+                f'CONCEPTUALES: {support["support_height_mm"]} mm</text>'
+                f'<text x="598" y="963" font-family="Arial" font-size="15" '
+                f'font-weight="bold" fill="#9e2733">ALTO TOTAL PROPUESTO: '
+                f'{support["overall_height_mm"]} mm · PATAS NO MODELADAS</text>'
+                "</svg>\n",
+            )
+        else:
+            notes = "".join(
+                f'<text x="598" y="{936 + index * 20}" font-family="Arial" '
+                f'font-size="13" fill="#9e2733">{escape(str(module_id))} · '
+                f'carcasa {support["carcass_height_mm"]} mm · apoyo conceptual '
+                f'{support["support_height_mm"]} mm · total propuesto '
+                f'{support["overall_height_mm"]} mm · no modelado</text>'
+                for index, (module_id, support) in enumerate(conceptual_support)
+            )
+            overview = overview.replace("</svg>\n", notes + "</svg>\n")
 
     pages = [overview]
     for letter, (module_id, drawer_id), entries in sheet_groups:

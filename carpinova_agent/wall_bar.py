@@ -79,11 +79,14 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise DesignError("Se requieren tres cajones.")
     for drawer in drawers:
         if (type(drawer) is not dict
-                or drawer.get("front_construction") != "integrated_overlay"
+                or drawer.get("front_construction") != "separate"
                 or not isinstance(drawer.get("facade"), dict)
                 or drawer["facade"].get("style") != "overlay"
                 or drawer.get("front_setback_mm") != 0):
-            raise DesignError("Frente exterior único requerido para cada cajón.")
+            raise DesignError(
+                "Cada cajón requiere caja completa y fachada overlay separada, "
+                "con retranqueo nominal cero."
+            )
         facade = drawer["facade"]
         if (facade.get("edgeband_thickness_mm") != 2
                 or set(facade.get("edgebanding_edges", []))
@@ -106,9 +109,20 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     source_ids = [p["piece_id"] for p in source["parts"]]
     if len(source_ids) != len(set(source_ids)):
         raise DesignError("IDs duplicados.")
-    if (sum(p["role"] == "drawer_facade" for p in source["parts"]) != 3
-            or any(p["role"] == "drawer_front_wall" for p in source["parts"])):
-        raise DesignError("Cajones no representan el frente externo único.")
+    expected_drawer_roles = {
+        "drawer_side_left", "drawer_side_right", "drawer_front_wall",
+        "drawer_rear_wall", "drawer_bottom", "drawer_facade",
+    }
+    by_drawer: dict[str, set[str]] = {"D1": set(), "D2": set(), "D3": set()}
+    for part in source["parts"]:
+        if part["role"].startswith("drawer_"):
+            did = part.get("drawer_id")
+            if did not in by_drawer:
+                raise DesignError("Pieza de cajón sin identidad D1/D2/D3.")
+            by_drawer[did].add(part["role"])
+    if (source["piece_count"] != 23
+            or any(roles != expected_drawer_roles for roles in by_drawer.values())):
+        raise DesignError("Se requieren seis piezas nominales por cada caja y fachada.")
     result = deepcopy(source)
     # Translate F1/F7C panels into one common coordinate system, no redraw.
     # Original overlay z=-top; after shifting it occupies z=0..top.
@@ -186,6 +200,7 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     for did in ("D1", "D2", "D3"):
         base = p_by_id[f"{cid}-{did}-DRAWER_BOTTOM"]
         facade = p_by_id[f"{cid}-{did}-DRAWER_FACADE"]
+        front_wall = p_by_id[f"{cid}-{did}-DRAWER_FRONT_WALL"]
         left = p_by_id[f"{cid}-{did}-DRAWER_SIDE_LEFT"]
         right = p_by_id[f"{cid}-{did}-DRAWER_SIDE_RIGHT"]
         gap = base["nominal_origin_xyz_mm"][1] - bottom_top_y
@@ -196,9 +211,11 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{did}: solape con base de carcasa o respaldo.")
         fx, fy, fz = facade["nominal_origin_xyz_mm"]
         contact_z = fz + facade["thickness_mm"]
+        if front_wall["nominal_origin_xyz_mm"][2] != contact_z:
+            raise DesignError(f"{did}: la fachada separada no toca la pared frontal interior.")
         surfaces = {}
-        for label, part in (("left_side", left), ("right_side", right),
-                            ("bottom", base)):
+        for label, part in (("front_wall", front_wall), ("left_side", left),
+                            ("right_side", right), ("bottom", base)):
             px, py, pz = part["nominal_origin_xyz_mm"]
             if pz != contact_z:
                 raise DesignError(f"{did}: {label} no toca plano posterior del frente.")
@@ -223,7 +240,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         planar_front_contacts[did] = True
         front_joint_interfaces[did] = {
             "front_piece_id": facade["piece_id"],
-            "single_external_front": True,
+            "box_front_wall_piece_id": front_wall["piece_id"],
+            "front_construction": "separate",
+            "front_style": "overlay",
+            "decorative_front_is_structural": False,
             "contact_is_not_a_mechanical_joint": True,
             "surfaces": surfaces,
             "fixing_holes_specified": False,
@@ -233,8 +253,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         rear_gaps[did] = rear_gap
     result["wall_bar_review"]["drawer_base_clearance_mm"] = gaps
     result["wall_bar_review"]["drawer_rear_clearance_mm"] = rear_gaps
-    result["wall_bar_review"]["drawer_front_side_contact"] = {
-        k: "GEOMETRIC_PLANE_ONLY_NOT_FASTENED" for k in planar_front_contacts
+    result["wall_bar_review"]["drawer_front_contact"] = {
+        k: "GEOMETRIC_PLANES_ONLY_NOT_FASTENED" for k in planar_front_contacts
     }
     result["wall_bar_review"]["front_joint_interfaces"] = front_joint_interfaces
     # The CAD has NOMINAL external faces only. Panel-cut sizing must not
@@ -300,7 +320,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "Resistencia de la cubierta bajo uso real NO verificada: "
         "nota técnica, sin impedir la revisión del CAD.",
         "Patas: SKU, cantidad, capacidad, distribución y fijaciones SIN VALIDAR.",
-        "Frente exterior único: fijación estructural a costados/base SIN VALIDAR.",
+        "Fachadas decorativas separadas: unión a pared frontal interior y ajuste SIN VALIDAR.",
+        "Los solapes overlay proceden del fixture de revisión; no son dimensiones aprobadas.",
         "Tapacanto rígido en frentes y flexible en restantes: dimensiones de corte pendientes.",
         "Prohibido inventar lateral izquierdo, faldón, escuadra o soporte físico.",
         "A confirmada: tres cajones abren hacia costado largo (Z negativo)."

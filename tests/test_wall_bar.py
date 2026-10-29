@@ -28,16 +28,16 @@ class WallBarTests(unittest.TestCase):
     def model(self):
         return design_wall_bar(spec())
 
-    def test_21_real_panels_and_cad_agree(self):
+    def test_24_real_panels_and_cad_agree(self):
         m = self.model()
         cad = cad_exchange(m)
         self.assertEqual(m["status"], "DRAFT_NOT_FOR_CUTTING")
         self.assertEqual(cad["bounds_xyz_mm"], [900, 900, 460])
-        self.assertEqual(len(m["parts"]), 21)
-        self.assertEqual(len(cad["boxes"]), 21)
+        self.assertEqual(len(m["parts"]), 24)
+        self.assertEqual(len(cad["boxes"]), 24)
         self.assertEqual({p["piece_id"] for p in m["parts"]},
                          {p["piece_id"] for p in cad["boxes"]})
-        self.assertEqual(len(native_boxes(cad)), 21)
+        self.assertEqual(len(native_boxes(cad)), 24)
         self.assertEqual(validate_exchange(cad), cad)
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready"):
             self.assertIs(m[key], False)
@@ -56,7 +56,14 @@ class WallBarTests(unittest.TestCase):
 
     def test_no_double_front_and_drawer_order(self):
         boxes = cad_exchange(self.model())["boxes"]
-        self.assertFalse(any(b["role"] == "drawer_front_wall" for b in boxes))
+        self.assertEqual(sum(b["role"] == "drawer_front_wall" for b in boxes), 3)
+        for did in ("D1", "D2", "D3"):
+            roles = {b["role"] for b in boxes
+                     if f"CAJONERA_DERECHA-{did}-" in b["piece_id"]}
+            self.assertEqual(roles, {
+                "drawer_side_left", "drawer_side_right", "drawer_front_wall",
+                "drawer_rear_wall", "drawer_bottom", "drawer_facade",
+            })
         faces = {b["piece_id"].split("-")[1]: b for b in boxes
                  if b["role"] == "drawer_facade"}
         self.assertEqual(set(faces), {"D1", "D2", "D3"})
@@ -99,31 +106,34 @@ class WallBarTests(unittest.TestCase):
         review = m["wall_bar_review"]
         self.assertEqual(review["drawer_base_clearance_mm"]["D3"], 2)
         self.assertEqual(review["drawer_rear_clearance_mm"]["D3"], 30)
-        self.assertEqual(set(review["drawer_front_side_contact"]), {"D1", "D2", "D3"})
-        self.assertTrue(all(v == "GEOMETRIC_PLANE_ONLY_NOT_FASTENED"
-                            for v in review["drawer_front_side_contact"].values()))
+        self.assertEqual(set(review["drawer_front_contact"]), {"D1", "D2", "D3"})
+        self.assertTrue(all(v == "GEOMETRIC_PLANES_ONLY_NOT_FASTENED"
+                            for v in review["drawer_front_contact"].values()))
         self.assertTrue(any("D3: holgura vertical inferior nominal de 2 mm"
                             in blocker for blocker in m["blockers"]))
-        self.assertEqual(len(m["parts"]), 21)
+        self.assertEqual(len(m["parts"]), 24)
         self.assertEqual(cad_exchange(m)["geometry_sha256"],
-                         "a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b")
+                         "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a")
         self.assertFalse(m["fabrication_ready"])
         self.assertFalse(m["cutting_ready"])
         self.assertFalse(m["drilling_ready"])
         self.assertFalse(m["purchase_ready"])
 
-    def test_three_front_contacts_are_complete_but_not_fastened(self):
+    def test_facade_contacts_front_wall_and_box_edges_but_is_not_fastened(self):
         m = self.model()
         joints = m["wall_bar_review"]["front_joint_interfaces"]
         self.assertEqual(set(joints), {"D1", "D2", "D3"})
         for did in ("D1", "D2", "D3"):
             one = joints[did]
-            self.assertTrue(one["single_external_front"])
+            self.assertEqual(one["front_construction"], "separate")
+            self.assertEqual(one["front_style"], "overlay")
+            self.assertIs(one["decorative_front_is_structural"], False)
+            self.assertIn("DRAWER_FRONT_WALL", one["box_front_wall_piece_id"])
             self.assertTrue(one["contact_is_not_a_mechanical_joint"])
             self.assertFalse(one["fixing_holes_specified"])
             self.assertFalse(one["fabrication_ready"])
             self.assertEqual(set(one["surfaces"]),
-                             {"left_side", "right_side", "bottom"})
+                             {"front_wall", "left_side", "right_side", "bottom"})
             self.assertTrue(all(v["front_contact_plane_z_mm"] == 15
                                 and v["attachment_method"] == "NOT_SPECIFIED"
                                 and v["load_capacity_verified"] is False
@@ -135,7 +145,12 @@ class WallBarTests(unittest.TestCase):
                              [15, wall_h])
             self.assertEqual(one["surfaces"]["bottom"]["nominal_contact_patch_xy_mm"],
                              [244, 15])
-        self.assertEqual(m["piece_count"], 21)
+            front_wall = next(p for p in m["parts"]
+                              if p["piece_id"] == one["box_front_wall_piece_id"])
+            self.assertEqual(one["surfaces"]["front_wall"][
+                "nominal_contact_patch_xy_mm"],
+                [front_wall["nominal_face_x_mm"], front_wall["nominal_face_y_mm"]])
+        self.assertEqual(m["piece_count"], 24)
         self.assertFalse(m["fabrication_ready"])
 
     def test_shifted_side_must_not_count_as_a_valid_joint(self):
@@ -162,10 +177,10 @@ class WallBarTests(unittest.TestCase):
         self.assertIn("VISTA", sheet.upper())
         for did in ("D1", "D2", "D3"):
             self.assertIn(f"CAJONERA_DERECHA-{did}-DRAWER_FACADE", sheet)
-        self.assertIn("Sujeción sin definir", sheet)
+        self.assertIn("montaje sin definir", sheet)
         self.assertIn(cad_exchange(model)["geometry_sha256"], sheet)
         self.assertNotIn("manufacturing_holes", sheet)
-        self.assertEqual(len(model["parts"]), 21)
+        self.assertEqual(len(model["parts"]), 24)
         self.assertFalse(model["drilling_ready"])
         self.assertFalse(model["cutting_ready"])
 
@@ -198,7 +213,7 @@ class WallBarTests(unittest.TestCase):
         self.assertTrue(all(p["finished_cut_dimensions_mm"] is None
                             for p in model["parts"]))
         self.assertFalse(model["cutting_ready"])
-        self.assertEqual(len(model["parts"]), 21)
+        self.assertEqual(len(model["parts"]), 24)
 
     def test_reject_unapproved_front_cantoning(self):
         for edit in ("thickness", "missing_edge"):
@@ -232,7 +247,7 @@ class WallBarTests(unittest.TestCase):
                 }
                 result = design_wall_bar(data)
                 self.assertEqual(cad_exchange(result), old_cad)
-                self.assertEqual(result["piece_count"], 21)
+                self.assertEqual(result["piece_count"], 24)
                 self.assertFalse(result["fabrication_ready"])
                 self.assertFalse(result["purchase_ready"])
                 self.assertFalse(result["cutting_ready"])
@@ -252,7 +267,7 @@ class WallBarTests(unittest.TestCase):
         self.assertEqual(choices["wall_support_presentation"], "installer_defined")
         self.assertEqual(choices["top_edge_presentation"], "actual_15mm")
         self.assertEqual(choices["aesthetic_presentation"], "bicolor_modern_preliminary")
-        self.assertEqual(len(draft["modular"]["parts"]), 21)
+        self.assertEqual(len(draft["modular"]["parts"]), 24)
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
                     "purchase_ready"):
             self.assertFalse(draft[key])
@@ -269,7 +284,7 @@ class WallBarTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(DesignError):
                 design_wall_bar(data)
 
-    def test_isometric_client_preview_comes_from_all_21_verified_panels(self):
+    def test_isometric_client_preview_comes_from_all_24_verified_panels(self):
         model = self.model()
         cad = cad_exchange(model)
         sheet = wall_bar_isometric_svg(model)
@@ -278,8 +293,8 @@ class WallBarTests(unittest.TestCase):
         ns = "{http://www.w3.org/2000/svg}"
         faces = [e for e in root.iter(ns+"polygon")
                  if e.get("data-piece-id") is not None]
-        # 21 CAD boxes remain; only external surfaces belong in this view.
-        self.assertEqual(len(cad["boxes"]), 21)
+        # All 24 CAD boxes remain; only external surfaces belong in this view.
+        self.assertEqual(len(cad["boxes"]), 24)
         self.assertEqual(len(faces), 7)
         expected_visible = {"BAR-COVER-TOP",
                             "CAJONERA_DERECHA-RIGHT_SIDE"}
@@ -314,7 +329,7 @@ class WallBarTests(unittest.TestCase):
         self.assertIn("Listón bajo cubierta (no modelado)", sheet)
         self.assertIn("Falso espesor: pendiente de medidas", sheet)
         self.assertEqual(cad_exchange(chosen), same_cad)
-        self.assertEqual(len(chosen["parts"]), 21)
+        self.assertEqual(len(chosen["parts"]), 24)
         self.assertFalse(chosen["drilling_ready"])
         self.assertFalse(chosen["cutting_ready"])
 
@@ -329,7 +344,7 @@ class WallBarTests(unittest.TestCase):
         self.assertIn("Veta productiva sin confirmar", drawing)
         self.assertIn("Tirador indicado; SKU pendiente", drawing)
         self.assertNotIn("Tirador instalado", drawing)
-        self.assertEqual(len(model["parts"]), 21)
+        self.assertEqual(len(model["parts"]), 24)
         self.assertFalse(model["purchase_ready"])
         changed = copy.deepcopy(model)
         for part in changed["parts"]:
@@ -358,11 +373,11 @@ class WallBarTests(unittest.TestCase):
         cad = validate_exchange(cad_exchange(proposal))
         self.assertEqual(cad_exchange(proposal), cad_exchange(undecided))
         self.assertEqual(cad["geometry_sha256"],
-                         "a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b")
+                         "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a")
         self.assertEqual(cad["bounds_xyz_mm"], [900, 900, 460])
-        self.assertEqual(len(cad["boxes"]), 21)
-        self.assertEqual(len({b["piece_id"] for b in cad["boxes"]}), 21)
-        self.assertEqual(proposal["piece_count"], 21)
+        self.assertEqual(len(cad["boxes"]), 24)
+        self.assertEqual(len({b["piece_id"] for b in cad["boxes"]}), 24)
+        self.assertEqual(proposal["piece_count"], 24)
         self.assertEqual(proposal["status"], "DRAFT_NOT_FOR_CUTTING")
         design_choices = proposal["wall_bar_review"]["design_choices"]
         self.assertEqual(design_choices["aesthetic_presentation"],
@@ -433,7 +448,7 @@ class WallBarTests(unittest.TestCase):
             elif scenario == "cabinet":
                 request["cabinet_module"]["width_mm"] = 900
             elif scenario == "front":
-                request["cabinet_module"]["drawers"][0]["front_construction"] = "separate"
+                request["cabinet_module"]["drawers"][0]["front_construction"] = "integrated_overlay"
             elif scenario == "span":
                 request["free_span_mm"] = 900
             else:
@@ -442,30 +457,30 @@ class WallBarTests(unittest.TestCase):
                 design_wall_bar(request)
 
 
-    def test_review_package_gives_three_drawer_sheets_21_traceable_codes(self):
+    def test_review_package_gives_three_drawer_sheets_24_traceable_codes(self):
         from carpinova_agent.wall_bar_delivery import reference_rows, review_files
         from xml.etree import ElementTree
         model = self.model()
         rows = reference_rows(model)
         files = review_files(model)
-        self.assertEqual(len(rows), 21)
-        self.assertEqual(len({r["referencia"] for r in rows}), 21)
-        self.assertEqual(len({r["id_cad"] for r in rows}), 21)
+        self.assertEqual(len(rows), 24)
+        self.assertEqual(len({r["referencia"] for r in rows}), 24)
+        self.assertEqual(len({r["id_cad"] for r in rows}), 24)
         self.assertEqual(len(files), 5)
         self.assertIn("E01", files["CN-BAR-001-referencias.csv"])
-        self.assertIn("C05", files["CN-BAR-001-referencias.csv"])
+        self.assertIn("C06", files["CN-BAR-001-referencias.csv"])
         for letter in "ABC":
             sheet = files[f"CN-BAR-001-cajon-{letter}.svg"]
             root = ElementTree.fromstring(sheet)
             self.assertEqual(
                 len([item for item in root.iter()
-                     if item.get("data-piece-id") is not None]), 5)
+                if item.get("data-piece-id") is not None]), 6)
             self.assertIn("NO CORTAR", sheet)
-            for n in ("01", "02", "03", "04", "05"):
+            for n in ("01", "02", "03", "04", "05", "06"):
                 self.assertIn(letter + n, sheet)
             self.assertIn(cad_exchange(model)["geometry_sha256"], sheet)
         self.assertIn("instalador", files["CN-BAR-001-guia-de-armado-REVISION.md"])
-        self.assertEqual(len(model["parts"]), 21)
+        self.assertEqual(len(model["parts"]), 24)
         self.assertFalse(model["fabrication_ready"])
         self.assertFalse(model["cutting_ready"])
         self.assertFalse(model["drilling_ready"])

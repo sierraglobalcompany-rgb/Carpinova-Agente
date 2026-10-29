@@ -23,11 +23,12 @@ STRUCTURE = (
     ("E06", "Respaldo", "CAJONERA_DERECHA-BACK_FULL"),
 )
 DRAWER_ROLES = (
-    ("01", "Frente", "DRAWER_FACADE"),
-    ("02", "Lateral izquierdo", "DRAWER_SIDE_LEFT"),
-    ("03", "Lateral derecho", "DRAWER_SIDE_RIGHT"),
-    ("04", "Trasera", "DRAWER_REAR_WALL"),
-    ("05", "Fondo", "DRAWER_BOTTOM"),
+    ("01", "Fachada decorativa aplicada", "DRAWER_FACADE"),
+    ("02", "Pared frontal interior", "DRAWER_FRONT_WALL"),
+    ("03", "Lateral izquierdo", "DRAWER_SIDE_LEFT"),
+    ("04", "Lateral derecho", "DRAWER_SIDE_RIGHT"),
+    ("05", "Trasera", "DRAWER_REAR_WALL"),
+    ("06", "Fondo", "DRAWER_BOTTOM"),
 )
 DRAWERS = (("A", "D1"), ("B", "D2"), ("C", "D3"))
 
@@ -39,15 +40,15 @@ def reference_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
         raise DesignError("Entregable solo para la barra aprobada en orientación A.")
     cad = validate_exchange(cad_exchange(model))
     pieces = {p["piece_id"]: p for p in cad["boxes"]}
-    if len(pieces) != 21 or len(cad["boxes"]) != 21:
-        raise DesignError("El despiece exige 21 piezas CAD únicas.")
+    if len(pieces) != 24 or len(cad["boxes"]) != 24:
+        raise DesignError("El despiece aplicado exige 24 piezas CAD únicas.")
     expected = list(STRUCTURE)
     for letter, did in DRAWERS:
         expected.extend((letter + n, "Cajón " + letter + ": " + label,
                          "CAJONERA_DERECHA-" + did + "-" + suffix)
                         for n, label, suffix in DRAWER_ROLES)
     if set(pieces) != {pid for _, _, pid in expected}:
-        raise DesignError("Los códigos y el CAD no contienen las mismas 21 piezas.")
+        raise DesignError("Los códigos y el CAD no contienen las mismas 24 piezas.")
     rows = []
     for code, label, pid in expected:
         part = pieces[pid]
@@ -77,8 +78,8 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
     result = {"CN-BAR-001-referencias.csv": writer_buffer.getvalue()}
     for letter, did in DRAWERS:
         subset = [r for r in rows if r["referencia"].startswith(letter)]
-        if len(subset) != 5:
-            raise DesignError("Cajón con despiece incompleto: " + letter)
+        if len(subset) != 6:
+            raise DesignError("Caja y fachada requieren seis piezas CAD: " + letter)
         svg = [
             '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="760" '
             'viewBox="0 0 1160 760" role="img">',
@@ -89,15 +90,16 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             '<text x="32" y="83" font-size="18" fill="#9e2733">'
             'BORRADOR · NO CORTAR · NO PERFORAR · NO FABRICAR</text>',
             '<text x="32" y="119" font-size="15">'
-            'PLANTA NOMINAL · cinco piezas CAD · frente hacia abajo</text>',
+            'PLANTA NOMINAL · caja completa + fachada separada</text>',
             '<rect x="610" y="125" width="523" height="460" rx="10" '
             'fill="#f7fafb" stroke="#bacbd6"/>',
             '<text x="630" y="160" font-size="20" font-weight="bold">'
             'DESPIECE DEL CAJÓN</text>',
         ]
-        # Back-to-front render order avoids drawing an invented interior part.
+        # Render the canonical six CAD boxes from the rear of the plan to the
+        # applied facade; the front wall stays visible as its own rectangle.
         roles = ("DRAWER_BOTTOM", "DRAWER_SIDE_LEFT", "DRAWER_SIDE_RIGHT",
-                 "DRAWER_REAR_WALL", "DRAWER_FACADE")
+                 "DRAWER_REAR_WALL", "DRAWER_FRONT_WALL", "DRAWER_FACADE")
         for suffix in roles:
             row = next(r for r in subset if r["id_cad"].endswith("-" + suffix))
             part = pieces[row["id_cad"]]
@@ -105,7 +107,9 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             w, _, depth = part["size_xyz_mm"]
             left, top, width, height = (105 + (x-600)*.92, 150 + z*.92,
                                          w*.92, depth*.92)
-            fill = "#e7d2a8" if suffix == "DRAWER_BOTTOM" else "#edf2f5"
+            fill = ("#e7d2a8" if suffix == "DRAWER_BOTTOM" else
+                    "#f4d7a0" if suffix == "DRAWER_FRONT_WALL" else
+                    "#cde4e8" if suffix == "DRAWER_FACADE" else "#edf2f5")
             svg.append(
                 f'<rect data-piece-id="{escape(row["id_cad"], quote=True)}" '
                 f'x="{left:.2f}" y="{top:.2f}" width="{width:.2f}" '
@@ -115,18 +119,21 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             if suffix == "DRAWER_BOTTOM":
                 svg.append(f'<text x="{left+width/2:.2f}" '
                            f'y="{top+height/2:.2f}" text-anchor="middle" '
-                           f'font-size="18" font-weight="bold">{letter}05</text>')
-        # Visual cross-references for ALL five real boxes, not only the floor.
+                           f'font-size="18" font-weight="bold">{letter}06</text>')
+        # Visual cross-references for all six real panels, not only the floor.
         # Leaders and labels are annotations; they never change CAD geometry.
         callouts = (
             (letter + "01", 195, 145, 235, 150),
-            (letter + "02", 42, 347, 128, 347),
-            (letter + "03", 400, 347, 355, 347),
-            (letter + "04", 224, 557, 235, 530),
+            (letter + "02", 275, 190, 355, 174),
+            (letter + "03", 42, 347, 128, 347),
+            (letter + "04", 400, 347, 355, 347),
+            (letter + "05", 224, 557, 235, 530),
         )
         for ref, tx, ty, px, py in callouts:
             svg.extend((
-                f'<path d="M{tx+20},{ty+4} L{px},{py}" fill="none" '
+                # Start the leader clear of the three-character reference;
+                # otherwise the line runs through labels such as A02/A06.
+                f'<path d="M{tx+44},{ty+4} L{px},{py}" fill="none" '
                 'stroke="#5c7690" stroke-width="1.3"/>',
                 f'<text x="{tx}" y="{ty}" font-size="17" '
                 f'font-weight="bold" fill="#183247">{ref}</text>',
@@ -162,13 +169,16 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         result[f"CN-BAR-001-cajon-{letter}.svg"] = drawing
     result["CN-BAR-001-guia-de-armado-REVISION.md"] = (
         "# CN-BAR-001 · Guía preliminar (NO FABRICAR)\n\n"
-        f"CAD: `{cad['geometry_sha256']}`; 21 piezas; "
+        f"CAD: `{cad['geometry_sha256']}`; 24 piezas nominales: seis de carcasa "
+        "y seis por cajón (cuatro paredes, fondo y fachada decorativa separada); "
         "mueble 900 × 460 × 900 mm.\n\n"
         "1. Identificar E01–E06 con la tabla de referencias.\n"
         "2. Presentar E02/E03 (laterales), E04/E05 (tapa/base) y E06 "
         "(respaldo); uniones pendientes.\n"
-        "3. Preparar A, B y C por separado, cada uno con cinco piezas "
-        "numeradas en su hoja; sin perforar hasta validar uniones.\n"
+        "3. Secuencia conceptual: caja cerrada de cuatro paredes y fondo; "
+        "validar la corredera exacta y presentarla nivelada; solo después "
+        "montar y ajustar la fachada decorativa separada. La fijación aún "
+        "no está especificada.\n"
         "4. Elegir rieles comerciales según longitud, holguras y categoría "
         "de carga documentada; no seleccionar marca automáticamente.\n"
         "5. Comprobar frentes, cantos terminados, apertura y roce.\n"
@@ -208,7 +218,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             'CN-BAR-001 · REVISION NOMINAL · NO FABRICAR</text>',
             *body,
             f'<text x="55" y="1092" font-size="15" fill="#617688">'
-            f'21 IDs CAD · SHA-256: {escape(cad["geometry_sha256"])}</text>',
+            f'24 IDs CAD · SHA-256: {escape(cad["geometry_sha256"])} · NO FABRICAR</text>',
             '</g></svg>',
         ]
         svg = "\n".join(out) + "\n"
@@ -239,7 +249,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             f'<text x="{x+12}" y="{y+24}" font-size="14" '
             f'fill="#617688">{escape(row["id_cad"])}</text>',
         ))
-    bom_svg = title_svg("DESPIECE GENERAL · 21 PIEZAS", bom)
+    bom_svg = title_svg("DESPIECE NOMINAL · 24 PIEZAS", bom)
     guidance = files["CN-BAR-001-guia-de-armado-REVISION.md"]
     steps = [line.split(". ", 1)[1] for line in guidance.splitlines()
              if len(line) > 3 and line[0] in "123456" and line[1:3] == ". "]

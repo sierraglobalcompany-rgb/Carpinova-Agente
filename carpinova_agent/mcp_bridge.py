@@ -18,6 +18,7 @@ from .maestro import MaestroError, consult_maestro
 from .drawing_sheet import create_render_bundle
 from .native_export import export_native_project, REVIEW_CONFIRMATION
 from .pilot_cli import PilotError, write_pilot_bundle, verify_pilot_bundle
+from .conversation_flow import build_flow_review_from_envelope
 
 
 _MAX_REQUEST_BYTES = 65536
@@ -26,7 +27,7 @@ _MAX_PREVIEW_BYTES = 4 * 1024 * 1024
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
 _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
-    "cad-exchange.json", "manifest.json",
+    "cad-exchange.json", "manifest.json", "flow-review.json",
     "lamina/three-views.svg", "lamina/render-manifest.json",
     "CN-BAR-001-referencias.csv", "CN-BAR-001-cajon-A.svg",
     "CN-BAR-001-cajon-B.svg", "CN-BAR-001-cajon-C.svg",
@@ -110,6 +111,7 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
 
 def carpinova_generar_borrador(
     solicitud_json: str, proyecto: str, incluir_planos: bool = False,
+    flow_review_json: str = "",
 ) -> dict[str, Any]:
     """One-call optional nominal review + PDF; existing two-step flow unchanged.
 
@@ -134,7 +136,11 @@ def carpinova_generar_borrador(
             raise PilotError(
                 "Para generar planos instalar resvg_py==0.5.0 y Pillow==13.0.0."
             ) from exc
-    manifest = write_pilot_bundle(request, destination)
+    flow_review = None
+    if flow_review_json:
+        flow_envelope = _request(flow_review_json)
+        flow_review = build_flow_review_from_envelope(flow_envelope, request)
+    manifest = write_pilot_bundle(request, destination, flow_review=flow_review)
     result = {
         "status": "DRAFT_NOT_FOR_CUTTING",
         "proyecto": name,
@@ -278,6 +284,8 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
         except (ImportError, OSError, ValueError) as exc:
             raise PilotError("No se puede verificar o transmitir el PNG.") from exc
         return MCPImage(data=raw, format="png")
+    if archivo == "flow-review.json":
+        verify_pilot_bundle(folder)
     contents = path.read_text(encoding="utf-8")
     return {
         "proyecto": name, "archivo": archivo, "contenido": contents,

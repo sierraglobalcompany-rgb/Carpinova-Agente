@@ -145,7 +145,7 @@ class McpBridgeContractTests(unittest.TestCase):
         import re
         for fixture, count, pages in (
             ("pilot-open-kitchen-800.json", 4, 3),
-            ("wall-bar-900-review.json", 21, 7),
+            ("wall-bar-900-review.json", 24, 7),
             ("four-drawer-500x500x800-INSET-UNCONFIRMED.json", 28, 8),
         ):
             with self.subTest(fixture=fixture), TemporaryDirectory() as root:
@@ -349,7 +349,7 @@ class McpBridgeContractTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
                 response = carpinova_generar_borrador(request, "barra001")
-                self.assertEqual(response["piece_count"], 21)
+                self.assertEqual(response["piece_count"], 24)
                 self.assertEqual(len(response["files"]), 10)
                 for letter in "ABC":
                     filename = f"CN-BAR-001-cajon-{letter}.svg"
@@ -358,11 +358,11 @@ class McpBridgeContractTests(unittest.TestCase):
                     self.assertEqual(len([
                         node for node in drawing.iter()
                         if node.get("data-piece-id") is not None
-                    ]), 5)
+                    ]), 6)
                 schedule = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-referencias.csv")
                 self.assertIn("E01", schedule["contenido"])
-                self.assertIn("C05", schedule["contenido"])
+                self.assertIn("C06", schedule["contenido"])
                 guide = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-guia-de-armado-REVISION.md")
                 self.assertIn("NO FABRICAR", guide["contenido"])
@@ -373,7 +373,7 @@ class McpBridgeContractTests(unittest.TestCase):
                                 encoding="utf-8")
                 with self.assertRaisesRegex(PilotError, "distinto del CAD"):
                     verify_pilot_bundle(folder)
-                self.assertEqual(len(original["boxes"]), 21)
+                self.assertEqual(len(original["boxes"]), 24)
                 for flag in ("fabrication_ready", "cutting_ready",
                              "drilling_ready", "purchase_ready"):
                     self.assertFalse(response[flag])

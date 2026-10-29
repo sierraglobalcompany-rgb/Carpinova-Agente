@@ -47,6 +47,7 @@ class SheetTests(unittest.TestCase):
             three_views_svg(cad)
 
     def test_create_png_and_pdf_after_existing_pilot(self):
+        from hashlib import sha256
         try:
             import resvg_py
             from PIL import Image
@@ -57,6 +58,12 @@ class SheetTests(unittest.TestCase):
             original = write_pilot_bundle(REQUEST, destination)
             sheet = create_render_bundle(destination)
             self.assertEqual(sheet["geometry_sha256"], original["geometry_sha256"])
+            svg = (destination / "lamina" / "three-views.svg").read_bytes()
+            pdf = (destination / "lamina" / "three-views.pdf").read_bytes()
+            self.assertEqual(sha256(svg).hexdigest(), sheet["svg_sha256"])
+            self.assertEqual(sha256(pdf).hexdigest(), sheet["pdf_sha256"])
+            self.assertNotEqual(sha256(pdf + b"\\n% tamper check").hexdigest(),
+                                sheet["pdf_sha256"])
             self.assertEqual(len(sheet["files"]), 5)
             self.assertEqual(sheet["booklet_pages"], 3)
             self.assertTrue((destination / "lamina" /
@@ -105,7 +112,7 @@ class SheetTests(unittest.TestCase):
             output = Path(td) / "barra"
             source = write_pilot_bundle(request, output)
             manifest = create_render_bundle(output)
-            self.assertEqual(manifest["piece_count"], 21)
+            self.assertEqual(manifest["piece_count"], 24)
             self.assertEqual(manifest["geometry_sha256"], source["geometry_sha256"])
             self.assertEqual(manifest["booklet_pages"], 7)
             self.assertEqual(len(manifest["files"]), 5)
