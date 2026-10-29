@@ -488,16 +488,21 @@ class WallBarTests(unittest.TestCase):
 
 
     def test_review_booklet_has_seven_traceable_svg_pages(self):
-        from carpinova_agent.wall_bar_delivery import review_booklet_svgs
+        import csv
+        from io import StringIO
+        from carpinova_agent.wall_bar_delivery import (
+            reference_rows, review_booklet_svgs, review_files,
+        )
         from xml.etree import ElementTree
         model = self.model()
         pages = review_booklet_svgs(model)
+        files = review_files(model)
+        rows = reference_rows(model)
         self.assertEqual(len(pages), 7)
         sha = cad_exchange(model)["geometry_sha256"]
         for page in pages:
             ElementTree.fromstring(page)
             self.assertIn(sha, page)
-        self.assertIn("E06", pages[5])
         self.assertIn("A = superior (CAD D1)", pages[1])
         self.assertIn("B = intermedio (CAD D2)", pages[1])
         self.assertIn("C = inferior (CAD D3)", pages[1])
@@ -505,9 +510,151 @@ class WallBarTests(unittest.TestCase):
         for letter in "ABC":
             self.assertIn(f'>{letter}</text>', pages[0])
             self.assertIn(f'>{letter}</text>', pages[1])
-        self.assertIn("C05", pages[5])
+
+        # Every visible BOM card maps back to the same reference, dimensions,
+        # and CAD ID used by the CSV and CADExchange.
+        bom_root = ElementTree.fromstring(pages[5])
+        bom_viewbox = list(map(float, bom_root.get("viewBox").split()))
+        _, _, bom_width, bom_height = bom_viewbox
+        cards = [item for item in bom_root.iter()
+                 if item.tag.endswith("rect") and item.get("data-reference")]
+        self.assertEqual(len(cards), 24)
+        self.assertEqual({item.get("data-reference") for item in cards},
+                         {row["referencia"] for row in rows})
+        csv_rows = list(csv.DictReader(StringIO(
+            files["CN-BAR-001-referencias.csv"])))
+        self.assertEqual(len(csv_rows), 24)
+        self.assertEqual(len({row["referencia"] for row in csv_rows}), 24)
+        self.assertEqual(len({row["id_cad"] for row in csv_rows}), 24)
+        text_by_ref = {}
+        for item in bom_root.iter():
+            if item.tag.endswith("text") and item.get("data-bom-field"):
+                text_by_ref.setdefault(item.get("data-reference"), {})[
+                    item.get("data-bom-field")
+                ] = "".join(item.itertext())
+        csv_by_ref = {row["referencia"]: row for row in csv_rows}
+        rows_by_ref = {row["referencia"]: row for row in rows}
+        for card in cards:
+            ref = card.get("data-reference")
+            row = rows_by_ref[ref]
+            csv_row = csv_by_ref[ref]
+            x, y = float(card.get("x")), float(card.get("y"))
+            width, height = float(card.get("width")), float(card.get("height"))
+            self.assertGreaterEqual(x, 0)
+            self.assertGreaterEqual(y, 130)
+            self.assertLessEqual(x + width, bom_width)
+            self.assertLessEqual(y + height, bom_height - 60)
+            self.assertEqual(card.get("data-cad-id"), row["id_cad"])
+            self.assertEqual(card.get("data-nominal-size"),
+                             f'{row["cara_a_mm"]} × {row["cara_b_mm"]} '
+                             f'× {row["espesor_mm"]} mm')
+            self.assertEqual(card.get("data-cad-id"), csv_row["id_cad"])
+            fields = text_by_ref[ref]
+            self.assertEqual(fields["label"],
+                             f'{row["referencia"]} · {row["descripcion"]}')
+            self.assertEqual(fields["size"], card.get("data-nominal-size"))
+            self.assertEqual(fields["cad-id"], row["id_cad"])
+            label_node = next(item for item in bom_root.iter()
+                              if item.tag.endswith("text")
+                              and item.get("data-reference") == ref
+                              and item.get("data-bom-field") == "label")
+            size_node = next(item for item in bom_root.iter()
+                             if item.tag.endswith("text")
+                             and item.get("data-reference") == ref
+                             and item.get("data-bom-field") == "size")
+            id_node = next(item for item in bom_root.iter()
+                           if item.tag.endswith("text")
+                           and item.get("data-reference") == ref
+                           and item.get("data-bom-field") == "cad-id")
+            label_width = len(fields["label"]) * float(label_node.get("font-size")) * .62
+            size_width = len(fields["size"]) * float(size_node.get("font-size")) * .62
+            id_width = len(fields["cad-id"]) * float(id_node.get("font-size")) * .62
+            self.assertLessEqual(float(label_node.get("x")) + label_width,
+                                 float(size_node.get("x")) - size_width - 8)
+            self.assertLessEqual(float(id_node.get("x")) + id_width,
+                                 x + width - 8)
+        self.assertTrue({"C05", "C06"}.issubset(text_by_ref))
+
+        # Recover every source step from the rendered SVG tspans. This checks
+        # wrapping, card spacing and page bounds rather than XML validity alone.
+        guide_root = ElementTree.fromstring(pages[6])
+        guide_viewbox = list(map(float, guide_root.get("viewBox").split()))
+        _, _, guide_width, guide_height = guide_viewbox
+        source_steps = [line.split(". ", 1)[1]
+                        for line in files[
+                            "CN-BAR-001-guia-de-armado-REVISION.md"
+                        ].splitlines()
+                        if len(line) > 3 and line[0] in "123456"
+                        and line[1:3] == ". "]
+        self.assertEqual(len(source_steps), 6)
+        guide_cards = {item.get("data-guide-step"): item
+                       for item in guide_root.iter()
+                       if item.tag.endswith("rect")
+                       and item.get("data-guide-step")}
+        guide_text = {item.get("data-guide-step"): item
+                      for item in guide_root.iter()
+                      if item.tag.endswith("text")
+                      and item.get("data-guide-step")}
+        self.assertEqual(set(guide_cards), {f"{n:02d}" for n in range(1, 7)})
+        self.assertEqual(set(guide_text), set(guide_cards))
+        for index, step in enumerate(source_steps, start=1):
+            key = f"{index:02d}"
+            card = guide_cards[key]
+            text_node = guide_text[key]
+            tspans = [item for item in text_node
+                      if item.tag.endswith("tspan")]
+            rendered_lines = [item.text or "" for item in tspans]
+            self.assertGreaterEqual(len(rendered_lines), 1)
+            self.assertEqual(" ".join(rendered_lines), step)
+            self.assertTrue(all(line == line.strip() for line in rendered_lines))
+            card_x, card_y = float(card.get("x")), float(card.get("y"))
+            card_w, card_h = float(card.get("width")), float(card.get("height"))
+            self.assertGreaterEqual(card_x, 0)
+            self.assertGreaterEqual(card_y, 130)
+            self.assertLessEqual(card_x + card_w, guide_width)
+            self.assertLessEqual(card_y + card_h, 950)
+            line_widths = [len(line) * float(text_node.get("font-size")) * .65
+                           for line in rendered_lines]
+            self.assertTrue(all(width <= card_w - 180 for width in line_widths))
+            last_baseline = (float(text_node.get("y")) +
+                             sum(float(item.get("dy", "0")) for item in tspans))
+            self.assertLessEqual(last_baseline + 6, card_y + card_h)
         self.assertIn("NO FABRICAR", pages[6])
+        self.assertIn("El apoyo mural y su seguridad los verifica el instalador en obra.",
+                      pages[6])
         self.assertFalse(model["fabrication_ready"])
+
+    def test_review_booklet_wraps_arbitrarily_long_guide_steps(self):
+        from unittest.mock import patch
+        from carpinova_agent.wall_bar_delivery import (
+            review_booklet_svgs, review_files,
+        )
+        from xml.etree import ElementTree
+        model = self.model()
+        files = review_files(model)
+        long_step = ("Secuencia conceptual: "
+                     + ("palabra larga y verificable " * 12).strip())
+        guide = files["CN-BAR-001-guia-de-armado-REVISION.md"]
+        guide = guide.replace(
+            "3. Secuencia conceptual: caja cerrada de cuatro paredes y fondo; "
+            "validar la corredera exacta y presentarla nivelada; solo después "
+            "montar y ajustar la fachada decorativa separada. La fijación aún "
+            "no está especificada.",
+            "3. " + long_step,
+        )
+        files["CN-BAR-001-guia-de-armado-REVISION.md"] = guide
+        with patch("carpinova_agent.wall_bar_delivery.review_files",
+                   return_value=files):
+            pages = review_booklet_svgs(model)
+        root = ElementTree.fromstring(pages[6])
+        step = next(item for item in root.iter()
+                    if item.tag.endswith("text")
+                    and item.get("data-guide-step") == "03")
+        lines = [item.text or "" for item in step
+                 if item.tag.endswith("tspan")]
+        self.assertGreater(len(lines), 2)
+        self.assertEqual(" ".join(lines), long_step)
+        self.assertTrue(all(len(line) <= 100 for line in lines))
 
 
 if __name__ == "__main__":

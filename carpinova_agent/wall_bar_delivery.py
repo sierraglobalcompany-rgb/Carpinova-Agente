@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 from html import escape
 from io import StringIO
+from textwrap import wrap
 from typing import Any
 from xml.etree import ElementTree
 
@@ -232,21 +233,27 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         'Los tamaños indicados NO incorporan descuentos verificados de cantos.</text>',
     ]
     for index, row in enumerate(rows):
-        col = index // 11
-        line = index % 11
+        col = index // 12
+        line = index % 12
         x = 55 + col * 770
-        y = 250 + 73 * line
+        y = 250 + 66 * line
         size = (f'{row["cara_a_mm"]} × {row["cara_b_mm"]} '
                 f'× {row["espesor_mm"]} mm')
         bom.extend((
-            f'<rect x="{x}" y="{y-26}" width="742" height="64" rx="6" '
+            f'<rect data-reference="{escape(row["referencia"], quote=True)}" '
+            f'data-cad-id="{escape(row["id_cad"], quote=True)}" '
+            f'data-nominal-size="{escape(size, quote=True)}" '
+            f'x="{x}" y="{y-24}" width="720" height="56" rx="6" '
             'fill="#f4f8fa" stroke="#d1dfe6"/>',
-            f'<text x="{x+12}" y="{y}" font-size="20" font-weight="bold" '
+            f'<text data-reference="{escape(row["referencia"], quote=True)}" '
+            f'data-bom-field="label" x="{x+12}" y="{y}" font-size="16" font-weight="bold" '
             f'fill="#183247">{escape(row["referencia"])} · '
             f'{escape(row["descripcion"])}</text>',
-            f'<text x="{x+600}" y="{y}" font-size="18" text-anchor="end" '
+            f'<text data-reference="{escape(row["referencia"], quote=True)}" '
+            f'data-bom-field="size" x="{x+706}" y="{y}" font-size="15" text-anchor="end" '
             f'fill="#0c5777">{escape(size)}</text>',
-            f'<text x="{x+12}" y="{y+24}" font-size="14" '
+            f'<text data-reference="{escape(row["referencia"], quote=True)}" '
+            f'data-bom-field="cad-id" x="{x+12}" y="{y+22}" font-size="12" '
             f'fill="#617688">{escape(row["id_cad"])}</text>',
         ))
     bom_svg = title_svg("DESPIECE NOMINAL · 24 PIEZAS", bom)
@@ -259,16 +266,33 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         '<text x="58" y="186" font-size="24" fill="#183247" '
         'font-weight="bold">ORDEN DE PRESENTACION Y REVISION</text>',
     ]
+    y = 230
     for index, step in enumerate(steps):
-        y = 230 + 116 * index
+        lines = wrap(step, width=100, break_long_words=False,
+                     break_on_hyphens=False) or [""]
+        card_height = max(87, 54 + 26 * len(lines))
+        card_top = y - 26
+        card_bottom = card_top + card_height
+        if card_bottom > 950:
+            raise DesignError("La guía de armado excede el espacio de revisión.")
         manual.extend((
-            f'<rect x="58" y="{y-26}" width="1480" height="87" rx="9" '
+            f'<rect data-guide-step="{index+1:02d}" x="58" '
+            f'y="{card_top}" width="1480" height="{card_height}" rx="9" '
             'fill="#f4f8fa" stroke="#d1dfe6"/>',
             f'<text x="83" y="{y+10}" font-size="28" font-weight="bold" '
             f'fill="#0c5777">{index+1:02d}</text>',
-            f'<text x="159" y="{y+10}" font-size="20" fill="#183247">'
-            f'{escape(step)}</text>',
         ))
+        manual.append(
+            f'<text data-guide-step="{index+1:02d}" x="159" y="{y+10}" '
+            'font-size="20" fill="#183247">'
+            + "".join(
+                f'<tspan x="159" dy="{0 if line_index == 0 else 26}">'
+                f'{escape(line)}</tspan>'
+                for line_index, line in enumerate(lines)
+            )
+            + "</text>"
+        )
+        y = card_bottom + 16 + 26
     manual.extend((
         '<text x="62" y="985" font-size="20" font-weight="bold" '
         'fill="#9e2733">PENDIENTE: fijaciones, apoyo, cargas, cantos '
