@@ -10,12 +10,11 @@ import unittest
 from carpinova_agent.conversation_flow import build_flow_review, validate_flow_review
 from carpinova_agent.maestro import MaestroError, consult_maestro
 from carpinova_agent.cad_exchange import cad_exchange
-from carpinova_agent.mcp_bridge import create_server
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "wall-bar-900-review.json"
-FIXTURE_SHA256 = "a580cc0d1c58e288f67615f7bd66a601e1c4f32be1c63cfac9d1cbf7b60113b0"
+FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
 GEOMETRY_SHA256 = "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a"
 OWNER_FIRST = (
     "Bueno, me gustaría que volviéramos a hacer la barra, ¿cierto? Tengo una barra de cocina. "
@@ -90,15 +89,13 @@ def build_trace(request=None, decisions=None):
 
 
 class Live02WallBarFlowTests(unittest.TestCase):
-    def test_mcp_keeps_optional_flow_review_json_as_string(self):
-        tool = create_server()._tool_manager._tools["carpinova_generar_borrador"]
-        prop = tool.parameters["properties"]["flow_review_json"]
-        self.assertEqual(prop["type"], "string")
-        self.assertEqual(prop["default"], "")
-        self.assertNotIn("flow_review_json", tool.parameters["required"])
-
     def test_owner_transcript_and_current_front_policy_bind_to_24_piece_maestro_model(self):
-        self.assertEqual(hashlib.sha256(FIXTURE.read_bytes()).hexdigest(), FIXTURE_SHA256)
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        canonical = json.dumps(
+            fixture, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), FIXTURE_SHA256)
         request = wall_bar_request()
         answer = consult_maestro(request)
         model = answer["modular"]

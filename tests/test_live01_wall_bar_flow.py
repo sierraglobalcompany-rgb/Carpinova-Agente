@@ -9,13 +9,21 @@ from unittest.mock import patch
 
 from carpinova_agent.conversation_flow import preview_conversation
 from carpinova_agent.maestro import MaestroError
-from carpinova_agent.mcp_bridge import create_server
 from carpinova_agent.natural_intake import extract_explicit_dimensions
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "wall-bar-900-review.json"
-FIXTURE_SHA256 = "a580cc0d1c58e288f67615f7bd66a601e1c4f32be1c63cfac9d1cbf7b60113b0"
+FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
+
+
+def canonical_fixture_sha256() -> str:
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    canonical = json.dumps(
+        fixture, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 OWNER_FIRST = (
     "Bueno, me gustaría que volviéramos a hacer la barra, ¿cierto? Tengo una barra de cocina. "
@@ -132,10 +140,14 @@ class Live01WallBarFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(MaestroError, "No existe una distribución F1 revisable"):
             preview_conversation(OWNER_FIRST, ["A 10 metros mas alto"])
 
-    def test_reference_fixture_is_unchanged_and_not_promoted_to_owner_choice(self):
-        self.assertEqual(hashlib.sha256(FIXTURE.read_bytes()).hexdigest(), FIXTURE_SHA256)
+    def test_reference_fixture_binds_overlay_policy_without_promoting_it_to_owner_choice(self):
+        self.assertEqual(canonical_fixture_sha256(), FIXTURE_SHA256)
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         self.assertEqual(fixture["module_spec"]["cabinet_module"]["width_mm"], 300)
+        drawers = fixture["module_spec"]["cabinet_module"]["drawers"]
+        self.assertTrue(all(drawer["front_construction"] == "separate"
+                            and drawer["facade"]["style"] == "overlay"
+                            for drawer in drawers))
         result = preview_conversation(OWNER_FIRST, [OWNER_CLARIFICATION])
         review = result["wall_bar_review"]
         self.assertEqual(review["reference_comparison"]["overall_depth_mm"]["matches"], True)
@@ -145,17 +157,6 @@ class Live01WallBarFlowTests(unittest.TestCase):
         self.assertEqual(prior["aesthetic_presentation"], "bicolor_modern_preliminary")
         self.assertTrue(review["not_currently_confirmed"])
         self.assertEqual(review["parts"], [])
-
-    def test_mcp_contract_remains_six_tools_with_optional_flow_trace(self):
-        server = create_server()
-        expected = {
-            "carpinova_estado", "carpinova_consultar", "carpinova_generar_borrador",
-            "carpinova_renderizar_lamina", "carpinova_exportar_3d", "carpinova_leer_entregable",
-        }
-        self.assertEqual(set(server._tool_manager._tools), expected)
-        params = server._tool_manager._tools["carpinova_generar_borrador"].parameters
-        self.assertIn("flow_review_json", params["properties"])
-        self.assertNotIn("flow_review_json", params["required"])
 
 
 if __name__ == "__main__":

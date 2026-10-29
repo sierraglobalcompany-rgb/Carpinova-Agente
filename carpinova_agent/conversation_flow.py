@@ -37,7 +37,7 @@ _MAX_TEXT = 2000
 _MAX_DECISIONS = 40
 _PRIOR_REPORTED = "PRIOR_DESIGN_DECISION_REPORTED"
 _OWNER_DIRECTIVE = OWNER_DIRECTIVE_SOURCE
-_WALL_BAR_FIXTURE_SHA256 = "a580cc0d1c58e288f67615f7bd66a601e1c4f32be1c63cfac9d1cbf7b60113b0"
+_WALL_BAR_FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
 _WALL_BAR_PRIOR_DECISIONS = {
     "wall_side": "left",
     "drawer_opening_face": "long_side_front",
@@ -84,7 +84,9 @@ def _load_wall_bar_fixture() -> tuple[dict[str, Any], bytes, str]:
         fixture = json.loads(fixture_bytes.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
         raise MaestroError("Fixture histórico de barra ausente o inválido.") from exc
-    digest = hashlib.sha256(fixture_bytes).hexdigest()
+    # Bind the parsed fixture, not checkout bytes: Git may normalize LF/CRLF
+    # differently on Windows and Linux while preserving the same JSON data.
+    digest = hashlib.sha256(_canonical(fixture)).hexdigest()
     if (type(fixture) is not dict or fixture.get("action") != "modular"
             or type(fixture.get("module_spec")) is not dict
             or digest != _WALL_BAR_FIXTURE_SHA256):
@@ -659,7 +661,7 @@ def _validate_wall_bar_binding(
         fixture = json.loads(fixture_bytes.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MaestroError("Fixture histórico de barra ausente o inválido.") from exc
-    fixture_sha = hashlib.sha256(fixture_bytes).hexdigest()
+    fixture_sha = hashlib.sha256(_canonical(fixture)).hexdigest()
     expected_fixture_ref = f"{fixture_rel}#sha256={fixture_sha}"
     if (fixture_sha != _WALL_BAR_FIXTURE_SHA256
             or source_fixture != expected_fixture_ref):

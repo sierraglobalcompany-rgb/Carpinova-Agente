@@ -15,7 +15,7 @@ from test_live02_wall_bar_flow import OWNER_CLARIFICATION, OWNER_FIRST
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "wall-bar-900-review.json"
-FIXTURE_SHA256 = "a580cc0d1c58e288f67615f7bd66a601e1c4f32be1c63cfac9d1cbf7b60113b0"
+FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
 CAD_SHA256 = "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a"
 
 
@@ -26,7 +26,12 @@ class Live03WallBarPreviewTests(unittest.TestCase):
     def test_real_measurements_prepare_fixture_visuals_without_approval_record(self):
         prepared = self.prepare()
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        self.assertEqual(hashlib.sha256(FIXTURE.read_bytes()).hexdigest(), FIXTURE_SHA256)
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        canonical = json.dumps(
+            fixture, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+        self.assertEqual(hashlib.sha256(canonical).hexdigest(), FIXTURE_SHA256)
         self.assertEqual(prepared["status"], "DRAFT_PENDING_OWNER_VISUAL")
         self.assertEqual(prepared["request"], fixture)
         self.assertEqual(prepared["request_sha256"], hashlib.sha256(

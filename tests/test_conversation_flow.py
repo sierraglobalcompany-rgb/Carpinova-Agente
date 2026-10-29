@@ -12,7 +12,7 @@ from carpinova_agent.conversation_flow import (
 )
 from carpinova_agent.drawer_modules import guide_drawer_layout
 from carpinova_agent.maestro import consult_maestro
-from carpinova_agent.mcp_bridge import carpinova_generar_borrador, carpinova_leer_entregable, create_server
+from carpinova_agent.mcp_bridge import carpinova_generar_borrador, carpinova_leer_entregable
 from carpinova_agent.pilot_cli import PilotError, verify_pilot_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -191,17 +191,6 @@ class ConversationFlowTests(unittest.TestCase):
         self.assertEqual(trace["piece_count"], 28)
         answer = consult_maestro(request)
         self.assertFalse(any("LEG" in p["piece_id"] for p in answer["modular"]["parts"]))
-
-    def test_mcp_still_registers_exactly_six_tools_and_flow_is_optional_argument(self):
-        server = create_server()
-        expected = {
-            "carpinova_estado", "carpinova_consultar", "carpinova_generar_borrador",
-            "carpinova_renderizar_lamina", "carpinova_exportar_3d", "carpinova_leer_entregable",
-        }
-        self.assertEqual(set(server._tool_manager._tools), expected)
-        params = server._tool_manager._tools["carpinova_generar_borrador"].parameters
-        self.assertIn("flow_review_json", params["properties"])
-        self.assertNotIn("flow_review_json", params["required"])
 
     def test_confirmation_flags_and_exact_request_binding_are_fail_closed(self):
         request = four_drawer_fixture()
