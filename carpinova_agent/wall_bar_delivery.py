@@ -41,15 +41,20 @@ def reference_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
         raise DesignError("Entregable solo para la barra aprobada en orientación A.")
     cad = validate_exchange(cad_exchange(model))
     pieces = {p["piece_id"]: p for p in cad["boxes"]}
-    if len(pieces) != 24 or len(cad["boxes"]) != 24:
-        raise DesignError("El despiece aplicado exige 24 piezas CAD únicas.")
+    if len(pieces) != 28 or len(cad["boxes"]) != 28:
+        raise DesignError("El despiece aplicado exige 28 piezas CAD únicas.")
     expected = list(STRUCTURE)
     for letter, did in DRAWERS:
         expected.extend((letter + n, "Cajón " + letter + ": " + label,
                          "CAJONERA_DERECHA-" + did + "-" + suffix)
                         for n, label, suffix in DRAWER_ROLES)
+    support_ids = rv.get("conceptual_support_piece_ids", [])
+    if len(support_ids) != 4:
+        raise DesignError("Se requieren cuatro apoyos CAD conceptuales.")
+    expected.extend((f"P{index:02d}", "Marcador CAD de apoyo (no pieza seleccionada)", pid)
+                    for index, pid in enumerate(support_ids, start=1))
     if set(pieces) != {pid for _, _, pid in expected}:
-        raise DesignError("Los códigos y el CAD no contienen las mismas 24 piezas.")
+        raise DesignError("Los códigos y el CAD no contienen las mismas 28 piezas.")
     rows = []
     for code, label, pid in expected:
         part = pieces[pid]
@@ -57,8 +62,9 @@ def reference_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
         role = part["role"]
         if min(x, y, z) != 15:
             raise DesignError("Espesor nominal no reconocido: " + pid)
-        face = ((z, y) if role in ("left_side", "right_side", "drawer_side_left",
-                                  "drawer_side_right")
+        face = ((x, y) if role == "support_leg_concept"
+                else (z, y) if role in ("left_side", "right_side", "drawer_side_left",
+                                       "drawer_side_right")
                 else (x, z) if role in ("top", "bottom", "drawer_bottom")
                 else (x, y))
         rows.append({"referencia": code, "descripcion": label, "id_cad": pid,
@@ -69,8 +75,11 @@ def reference_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
 
 def review_files(model: dict[str, Any]) -> dict[str, str]:
     """Five text outputs: CSV, three separate drawer SVGs, assembly review."""
+    from .wall_bar_sheets import wall_bar_review_dimensions
+
     rows = reference_rows(model)
     cad = validate_exchange(cad_exchange(model))
+    human = wall_bar_review_dimensions(model)
     pieces = {p["piece_id"]: p for p in cad["boxes"]}
     writer_buffer = StringIO()
     writer = csv.DictWriter(writer_buffer, fieldnames=list(rows[0]))
@@ -152,13 +161,20 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             ))
         front = pieces[next(r["id_cad"] for r in subset
                             if r["referencia"] == letter + "01")]
-        fw, fh, _ = front["size_xyz_mm"]
+        fw, fh, ft = front["size_xyz_mm"]
+        box = human["drawer_boxes"][did]
         svg.extend((
             f'<rect x="740" y="610" width="{fw*.75:.2f}" '
             f'height="{fh*.22:.2f}" fill="#f0f3f3" stroke="#36536a"/>',
             f'<text x="630" y="635" font-size="14">Frente {letter}01</text>',
             f'<text x="740" y="{650+fh*.22:.2f}" font-size="13">'
-            f'{fw} × {fh} × 15 mm</text>',
+            f'{fw} × {fh} × {ft} mm</text>',
+            f'<text x="32" y="610" font-size="14" font-weight="bold">'
+            f'Caja {letter} · exterior (ancho × alto × fondo): '
+            f'{box["width_mm"]} × {box["height_mm"]} × {box["depth_mm"]} mm</text>',
+            f'<text x="32" y="634" font-size="13">'
+            f'Fachada aplicada independiente: {fw} × {fh} × {ft} mm · '
+            f'luz lateral nominal {human["left_front_reveal_mm"]} mm/lado.</text>',
             f'<text x="32" y="676" font-size="12">'
             f'CAD SHA-256: {escape(cad["geometry_sha256"])}</text>',
             '<text x="32" y="703" font-size="15" fill="#9e2733">'
@@ -170,9 +186,15 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         result[f"CN-BAR-001-cajon-{letter}.svg"] = drawing
     result["CN-BAR-001-guia-de-armado-REVISION.md"] = (
         "# CN-BAR-001 · Guía preliminar (NO FABRICAR)\n\n"
-        f"CAD: `{cad['geometry_sha256']}`; 24 piezas nominales: seis de carcasa "
-        "y seis por cajón (cuatro paredes, fondo y fachada decorativa separada); "
-        "mueble 900 × 460 × 900 mm.\n\n"
+        f"CAD: `{cad['geometry_sha256']}`; {len(cad['boxes'])} piezas CAD nominales: "
+        "seis de carcasa, seis por cajón (cuatro paredes, fondo y fachada decorativa separada) "
+        f"y {human['support_count']} patas conceptuales de revisión de "
+        f"{human['support_height_mm']} mm bajo la cajonera. "
+        f"La huella {human['support_footprint_width_mm']} × "
+        f"{human['support_footprint_depth_mm']} mm solo deriva del espesor del tablero; "
+        "material, huella física, "
+        "SKU y fijación no están seleccionados; "
+        f"mueble {human['width_mm']} × {human['depth_mm']} × {human['height_mm']} mm.\n\n"
         "1. Identificar E01–E06 con la tabla de referencias.\n"
         "2. Presentar E02/E03 (laterales), E04/E05 (tapa/base) y E06 "
         "(respaldo); uniones pendientes.\n"
@@ -219,7 +241,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             'CN-BAR-001 · REVISION NOMINAL · NO FABRICAR</text>',
             *body,
             f'<text x="55" y="1092" font-size="15" fill="#617688">'
-            f'24 IDs CAD · SHA-256: {escape(cad["geometry_sha256"])} · NO FABRICAR</text>',
+            f'{len(cad["boxes"])} IDs CAD · SHA-256: {escape(cad["geometry_sha256"])} · NO FABRICAR</text>',
             '</g></svg>',
         ]
         svg = "\n".join(out) + "\n"
@@ -227,16 +249,16 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         return svg
 
     bom = [
-        '<text x="57" y="173" font-size="23" font-weight="bold" '
-        'fill="#183247">REFERENCIA / PIEZA / MEDIDA NOMINAL</text>',
+        f'<text x="57" y="173" font-size="23" font-weight="bold" '
+        f'fill="#183247">REFERENCIA / PIEZA / MEDIDA NOMINAL · {len(rows)} PIEZAS</text>',
         '<text x="57" y="207" font-size="18" fill="#9e2733">'
         'Los tamaños indicados NO incorporan descuentos verificados de cantos.</text>',
     ]
     for index, row in enumerate(rows):
-        col = index // 12
-        line = index % 12
+        col = index // 14
+        line = index % 14
         x = 55 + col * 770
-        y = 250 + 66 * line
+        y = 250 + 58 * line
         size = (f'{row["cara_a_mm"]} × {row["cara_b_mm"]} '
                 f'× {row["espesor_mm"]} mm')
         bom.extend((
@@ -256,7 +278,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             f'data-bom-field="cad-id" x="{x+12}" y="{y+22}" font-size="12" '
             f'fill="#617688">{escape(row["id_cad"])}</text>',
         ))
-    bom_svg = title_svg("DESPIECE NOMINAL · 24 PIEZAS", bom)
+    bom_svg = title_svg(f"DESPIECE NOMINAL · {len(rows)} PIEZAS CAD", bom)
     guidance = files["CN-BAR-001-guia-de-armado-REVISION.md"]
     steps = [line.split(". ", 1)[1] for line in guidance.splitlines()
              if len(line) > 3 and line[0] in "123456" and line[1:3] == ". "]
@@ -312,18 +334,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         if not svg.endswith("</g></svg>\n"):
             raise DesignError("Cierre inesperado de vista general.")
         if elevation:
-            note = (
-                '<text x="752" y="934" font-size="19" font-weight="bold" '
-                'fill="#183247">HOJAS DEL MANUAL</text>'
-                '<text x="752" y="970" font-size="16" fill="#183247">'
-                'A = superior (CAD D1)</text>'
-                '<text x="752" y="1002" font-size="16" fill="#183247">'
-                'B = intermedio (CAD D2)</text>'
-                '<text x="752" y="1034" font-size="16" fill="#183247">'
-                'C = inferior (CAD D3)</text>'
-                '<text x="752" y="1074" font-size="15" fill="#183247">'
-                'E01 cubierta; E02-E06 carcasa</text>'
-            )
+            note = ""
         else:
             note = (
                 '<text x="55" y="104" font-size="15" fill="white">'

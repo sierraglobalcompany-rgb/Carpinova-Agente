@@ -15,7 +15,7 @@ from carpinova_agent.cad_exchange import cad_exchange
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "wall-bar-900-review.json"
 FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
-GEOMETRY_SHA256 = "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a"
+GEOMETRY_SHA256 = "1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492"
 OWNER_FIRST = (
     "Bueno, me gustaría que volviéramos a hacer la barra, ¿cierto? Tengo una barra de cocina. "
     "Un extremo va pegado a la pared. La barra mide 90 centímetros de largo por 46 de ancho. "
@@ -89,7 +89,7 @@ def build_trace(request=None, decisions=None):
 
 
 class Live02WallBarFlowTests(unittest.TestCase):
-    def test_owner_transcript_and_current_front_policy_bind_to_24_piece_maestro_model(self):
+    def test_owner_transcript_and_current_front_policy_bind_to_28_element_maestro_model(self):
         fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
         canonical = json.dumps(
             fixture, ensure_ascii=False, sort_keys=True,
@@ -103,10 +103,10 @@ class Live02WallBarFlowTests(unittest.TestCase):
         trace = build_trace(request)
 
         self.assertEqual(answer["status"], "DRAFT_NOT_FOR_CUTTING")
-        self.assertEqual(len(model["parts"]), 24)
+        self.assertEqual(len(model["parts"]), 28)
         self.assertEqual(exchange["geometry_sha256"], GEOMETRY_SHA256)
         self.assertEqual(trace["geometry_sha256"], GEOMETRY_SHA256)
-        self.assertEqual(trace["piece_count"], 24)
+        self.assertEqual(trace["piece_count"], 28)
         self.assertEqual(trace["source_provenance"]["geometry_engine"], "WALL_BAR_F1_F7C")
         self.assertEqual(trace["source_provenance"]["prior_decision_source"],
                          "PRIOR_DESIGN_DECISION_REPORTED")

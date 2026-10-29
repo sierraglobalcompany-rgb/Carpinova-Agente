@@ -1,7 +1,10 @@
-"""Wall-to-cabinet auxiliary bar: place validated F1/F7C parts only.
+"""Wall-to-cabinet auxiliary bar from validated F1/F7C geometry.
 
-The left wall is NOT a wooden panel. Feet and anchors are concepts, not CAD parts.
-All output is nominal review geometry, never a cut/drill/fabrication release.
+Four small CAD markers make the requested 40 mm leg height visible below the
+floor pedestal. Their 15 mm square footprint is an illustration derived from
+the cabinet panel thickness, not a selected leg size, material, or SKU. The
+left wall is NOT a wooden panel. All output is nominal review geometry, never
+a cut/drill/fabrication release.
 """
 from __future__ import annotations
 
@@ -129,6 +132,38 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     for part in result["parts"]:
         x, y, z = part["nominal_origin_xyz_mm"]
         part["nominal_origin_xyz_mm"] = [x + free, y + feet, z + top]
+    cid = module["module_id"]
+    support_thickness = module["panel_thickness_mm"]
+    support_z = (top, top + cabinet_d - support_thickness)
+    support_x = (free, free + cabinet_w - support_thickness)
+    support_parts = []
+    for label, x, z in (
+        ("FRONT_LEFT", support_x[0], support_z[0]),
+        ("FRONT_RIGHT", support_x[1], support_z[0]),
+        ("REAR_LEFT", support_x[0], support_z[1]),
+        ("REAR_RIGHT", support_x[1], support_z[1]),
+    ):
+        support_parts.append({
+            "piece_id": f"{cid}-SUPPORT-LEG-{label}",
+            "module_id": cid, "role": "support_leg_concept",
+            "material_id": "SUPPORT_MATERIAL_PENDING",
+            "nominal_face_x_mm": support_thickness,
+            "nominal_face_y_mm": feet,
+            "thickness_mm": support_thickness,
+            "grain_axis": "UNCONFIRMED", "face_plane": "XY",
+            "nominal_origin_xyz_mm": [x, 0, z],
+            "edgebanding_edges": "UNCONFIRMED",
+            "edgebanding_thickness_mm": None,
+            "edgebanding_nominal_total_mm": None,
+            "finished_cut_dimensions_mm": None,
+            "source_engine": "WALL_BAR_CONCEPT_ONLY",
+            "source_formula": (
+                "four illustrative support markers under the floor pedestal; "
+                "height=feet_height_mm; square footprint derives from "
+                "cabinet panel_thickness_mm and is not a selected leg size"
+            ),
+        })
+    result["parts"].extend(support_parts)
     # A: facades lie along the 900 mm long edge (XY plane at Z=0),
     # and drawers open outwards towards negative Z, never from the short tip.
     faces = [p for p in result["parts"] if p["role"] == "drawer_facade"]
@@ -168,6 +203,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "cabinet_x_range_mm": [free, w],
         "cabinet_y_range_mm": [feet, h-top],
         "feet_height_mm": feet, "physical_feet_parts": None,
+        "conceptual_support_piece_ids": [p["piece_id"] for p in support_parts],
+        "conceptual_support_footprint_mm": [support_thickness, support_thickness],
+        "conceptual_support_footprint_basis": "cabinet_panel_thickness_mm",
+        "conceptual_support_geometry_is_illustrative_only": True,
         "top_y_range_mm": [h-top, h],
         "design_choices": {
             "wall_support_presentation": wall_presentation,
@@ -176,7 +215,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
             "aesthetic_is_illustrative_only": True,
             "wall_attachment_by_installer": True,
             "site_wall_material_required_for_design": False,
-            "support_parts_modeled": False,
+            "support_parts_modeled": True,
+            "support_parts_are_physical_or_selected": False,
             "false_thickness_parts_modeled": False,
             "selected_elements_require_dimensions_and_owner_approval": (
                 wall_presentation != "installer_defined"
@@ -188,7 +228,6 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     # Physical interfaces read from F1/F7C part coordinates; NO new geometry.
     # Record gaps and planar contacts, never infer a working mechanical joint.
     p_by_id = {p["piece_id"]: p for p in result["parts"]}
-    cid = module["module_id"]
     bottom = p_by_id[f"{cid}-BOTTOM"]
     back = p_by_id[f"{cid}-BACK_FULL"]
     bottom_top_y = bottom["nominal_origin_xyz_mm"][1] + bottom["thickness_mm"]
@@ -319,7 +358,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "NO es requisito para continuar el diseño de la barra.",
         "Resistencia de la cubierta bajo uso real NO verificada: "
         "nota técnica, sin impedir la revisión del CAD.",
-        "Patas: SKU, cantidad, capacidad, distribución y fijaciones SIN VALIDAR.",
+        f"Patas: cuatro bloques CAD conceptuales de {feet} mm bajo la cajonera; "
+        f"huella {support_thickness} × {support_thickness} mm ilustrativa derivada "
+        "del espesor del tablero. "
+        "Material, tamaño físico, SKU, capacidad y fijaciones SIN VALIDAR.",
         "Fachadas decorativas separadas: unión a pared frontal interior y ajuste SIN VALIDAR.",
         "Los solapes overlay proceden del fixture de revisión; no son dimensiones aprobadas.",
         "Tapacanto rígido en frentes y flexible en restantes: dimensiones de corte pendientes.",

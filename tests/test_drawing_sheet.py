@@ -112,7 +112,7 @@ class SheetTests(unittest.TestCase):
             output = Path(td) / "barra"
             source = write_pilot_bundle(request, output)
             manifest = create_render_bundle(output)
-            self.assertEqual(manifest["piece_count"], 24)
+            self.assertEqual(manifest["piece_count"], 28)
             self.assertEqual(manifest["geometry_sha256"], source["geometry_sha256"])
             self.assertEqual(manifest["booklet_pages"], 7)
             self.assertEqual(len(manifest["files"]), 5)

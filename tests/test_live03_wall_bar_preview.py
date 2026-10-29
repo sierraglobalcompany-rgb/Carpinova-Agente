@@ -16,7 +16,7 @@ from test_live02_wall_bar_flow import OWNER_CLARIFICATION, OWNER_FIRST
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "examples" / "wall-bar-900-review.json"
 FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
-CAD_SHA256 = "a81504b9e04745ef746b9a7d249fc6e805524260dca954444056fb1b02a5bd8a"
+CAD_SHA256 = "1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492"
 
 
 class Live03WallBarPreviewTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class Live03WallBarPreviewTests(unittest.TestCase):
         model = answer["modular"]
         cad = cad_exchange(model)
         self.assertEqual(answer["status"], "DRAFT_NOT_FOR_CUTTING")
-        self.assertEqual(len(model["parts"]), 24)
+        self.assertEqual(len(model["parts"]), 28)
         self.assertEqual(cad["geometry_sha256"], CAD_SHA256)
         pages = review_booklet_svgs(model)
         self.assertEqual(len(pages), 7)

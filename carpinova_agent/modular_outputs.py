@@ -106,6 +106,8 @@ def modular_front_svg(model: dict[str, Any]) -> str:
                       "front_single", "front_left", "front_right",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
+        elif role == "support_leg_concept":
+            pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         else:
             raise DesignError("Rol de panel desconocido.")
         origin = piece["nominal_origin_xyz_mm"]
@@ -122,9 +124,14 @@ def modular_front_svg(model: dict[str, Any]) -> str:
             # Explicit text metadata only; not a depiction of real hardware.
             name += (f" | {escape(style, quote=True)} | "
                      f"{escape(intent, quote=True)} | SIN MECANIZADO")
-        panel_class = "front" if role.startswith("front_") or role=="drawer_facade" else "panel"
+        panel_class = ("support" if role == "support_leg_concept" else
+                       "front" if role.startswith("front_") or role=="drawer_facade" else
+                       "panel")
+        if role == "support_leg_concept":
+            name += " | APOYO CONCEPTUAL | SIN SKU"
         shapes.append(
-            f'<rect x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
+            f'<rect data-role="{escape(role, quote=True)}" '
+            f'x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
             f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
         )
     titles = []
@@ -143,6 +150,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         '<style>svg{background-color:#ffffff}'
         '.panel{fill:#e2e8f0;stroke:#334155;stroke-width:1.15}'
         '.front{fill:#e8cfad;stroke:#475569;stroke-width:1.4}'
+        '.support{fill:#8c7864;stroke:#4f4032;stroke-width:1.2}'
         'text{font-family:Arial,sans-serif;fill:#1e293b;font-size:18px}'
         '.bad{font-size:25px;fill:#b91c1c;font-weight:bold}'
         '.note{font-size:15px;fill:#475569}.module{font-size:14px}'
@@ -168,5 +176,9 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         'Las dimensiones no compensan espesor de tapacanto.</text>'
         '<text x="45" y="755" class="note">No muestra uniones de fondos, '
         'fijaciones ni verificación estructural. Comprobar en sitio.</text>'
-        '</svg>\n'
+        + ('<text x="45" y="700" class="note">'
+           'Patas: geometría CAD conceptual bajo cajonera; sin material ni SKU.</text>'
+           if any(p["role"] == "support_leg_concept" for p in draft["parts"])
+           else "")
+        + '</svg>\n'
     )

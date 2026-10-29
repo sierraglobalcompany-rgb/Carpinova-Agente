@@ -1,5 +1,13 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
+## ACTIVO — PR #23 P2/P3: patas conceptuales y cotas humanas (29-oct-2026)
+
+Sobre la rama feat/carpn-ab-v1, base feature/wall-bar-freecad-v10, desde 51ce7af1aa37fb04cfc0a0ccfd75820f4ec88b46. P2 incorpora cuatro marcadores CAD conceptuales de 40 mm bajo la cajonera, sin apoyo en el tramo libre. La huella 15 × 15 mm solo ilustra el espesor del tablero; no selecciona patas físicas, material ni SKU. Alto exterior conservado en 900 mm. El CADExchange pasa de 24 a 28 elementos nominales, cuatro de ellos marcadores; no cambia la composición de las tres cajas completas ni sus fachadas separadas. Geometría nueva: 1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492.
+
+P3 deriva medidas y anotaciones de ese mismo CADExchange: página general y página explicativa apaisada; largo/fondo/alto 900 × 460 × 900 mm, luz 600 mm, cajonera 300 mm, frentes A/B/C, cajas como envolventes exteriores, revelados nominales, LI/LD y patas conceptuales. Incluye advertencia de que PVC rígido de 2 mm puede consumir las holguras. Los detalles conservan la caja completa de cinco piezas CAD más la fachada aplicada independiente. CSV, manifiesto, vistas y cuadernillo registran los 28 IDs.
+
+Verificación local del lote P2/P3: focales **45 PASS**, 18 subcasos; suite completa **682 PASS, 7 SKIP, 0 FAIL**, 414 subcasos. Los siete skips son las pruebas de enlaces simbólicos que requieren privilegios no disponibles en el host Windows. PDF y PNG finales rasterizados y revisados: isométrica, lámina de tres vistas, páginas 1, 2, detalle de cajón A y despiece. PR #23 permanece Draft; aprobación visual del propietario pendiente. SHA exacto del commit y CI se registran en el informe final de P2/P3. Todos los permisos permanecen fabrication_ready=false, cutting_ready=false, drilling_ready=false, purchase_ready=false; no exportar CAD nativo, fabricar, cortar, perforar ni comprar.
+
 ## ACTIVO — CAJA COMPLETA Y FACHADA APLICADA (29-oct-2026, P0 en `feat/carpn-ab-v1`)
 
 El propietario fijó para cajones y gavetas nuevos la propuesta inicial **caja independiente con cuatro paredes y fondo, más fachada exterior decorativa aplicada/sobrepuesta**, instalada y ajustada después de presentar la caja. La fachada no sustituye la pared frontal interior. **Inset/embutida** queda como alternativa explícita; `integrated_overlay` se conserva únicamente para solicitudes LEGACY explícitas. La intención de tirador negro y acabado bicolor de CN-BAR-001 continúa visual y nominal; no implica SKU, perforación, unión ni herrajes comprobados.

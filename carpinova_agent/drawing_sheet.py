@@ -64,6 +64,24 @@ def three_views_svg(data: dict[str, Any]) -> str:
     w, h, d = cad["bounds_xyz_mm"]
     digest = cad["geometry_sha256"]
     parts = len(cad["boxes"])
+    support_boxes = [box for box in cad["boxes"]
+                     if box["role"] == "support_leg_concept"]
+    support_note = ""
+    if support_boxes:
+        if len(support_boxes) != 4:
+            raise DesignError("La lámina de tres vistas exige cuatro apoyos conceptuales.")
+        foot = support_boxes[0]["size_xyz_mm"]
+        if any(box["size_xyz_mm"] != foot for box in support_boxes):
+            raise DesignError("Apoyos conceptuales con huellas CAD distintas.")
+        support_note = (
+            f'{len(support_boxes)} patas CAD conceptuales bajo cajonera · '
+            f'altura {foot[1]} mm.'
+        )
+        support_foot_note = (
+            f'Huella {foot[0]} × {foot[2]} mm ilustrativa; material, SKU y fijación pendientes.'
+        )
+    else:
+        support_foot_note = ""
     drawing = [
         _projection(cad, axes=(0, 1), panel=(36, 128, 536, 460),
                     title="01  FRENTE / X-Y", dimensions=f"Ancho {w} mm · Alto {h} mm",
@@ -86,7 +104,8 @@ def three_views_svg(data: dict[str, Any]) -> str:
         '.bounds{fill:none;stroke:#23465f;stroke-width:1.5;stroke-dasharray:5 3}'
         '.section{font-weight:bold;font-size:18px}.dimension{font-size:17px}'
         '.heading{font-size:26px;font-weight:bold}.warning{font-size:19px;fill:#b91c1c;font-weight:bold}'
-        '.note{font-size:16px;fill:#334155}.hash{font-size:13px;fill:#475569}'
+        '.note{font-size:16px;fill:#334155}.support-note{font-size:13px;fill:#334155}'
+        '.hash{font-size:13px;fill:#475569}'
         '</style>'
         '<rect x="0" y="0" width="1160" height="1040" fill="#fff"/>'
         '<text x="36" y="42" class="heading">CARPINOVA  ·  Lámina de geometría nominal</text>'
@@ -101,7 +120,11 @@ def three_views_svg(data: dict[str, Any]) -> str:
         '<text x="598" y="835" class="note">herrajes, apoyo, cargas, tuberías y obra.</text>'
         '<text x="598" y="880" class="note">Las cotas son exteriores nominales;</text>'
         '<text x="598" y="910" class="note">no corresponden a medidas finales de corte.</text>'
-        f'<text x="598" y="982" class="hash">CAD SHA-256: {escape(digest)}</text>'
+        + (f'<text x="598" y="943" class="support-note">'
+           f'{escape(support_note)}</text>' if support_note else "")
+        + (f'<text x="598" y="964" class="support-note">'
+           f'{escape(support_foot_note)}</text>' if support_note else "")
+        + f'<text x="598" y="1015" class="hash">CAD SHA-256: {escape(digest)}</text>'
         '</svg>\n'
     )
 
