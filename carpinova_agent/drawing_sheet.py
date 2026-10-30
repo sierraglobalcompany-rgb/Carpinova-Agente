@@ -64,6 +64,24 @@ def three_views_svg(data: dict[str, Any]) -> str:
     w, h, d = cad["bounds_xyz_mm"]
     digest = cad["geometry_sha256"]
     parts = len(cad["boxes"])
+    support_boxes = [box for box in cad["boxes"]
+                     if box["role"] == "support_leg_concept"]
+    support_note = ""
+    if support_boxes:
+        if len(support_boxes) != 4:
+            raise DesignError("La lámina de tres vistas exige cuatro apoyos conceptuales.")
+        foot = support_boxes[0]["size_xyz_mm"]
+        if any(box["size_xyz_mm"] != foot for box in support_boxes):
+            raise DesignError("Apoyos conceptuales con huellas CAD distintas.")
+        support_note = (
+            f'{len(support_boxes)} patas CAD conceptuales bajo cajonera · '
+            f'altura {foot[1]} mm.'
+        )
+        support_foot_note = (
+            f'Huella {foot[0]} × {foot[2]} mm ilustrativa; material, SKU y fijación pendientes.'
+        )
+    else:
+        support_foot_note = ""
     drawing = [
         _projection(cad, axes=(0, 1), panel=(36, 128, 536, 460),
                     title="01  FRENTE / X-Y", dimensions=f"Ancho {w} mm · Alto {h} mm",
@@ -86,7 +104,8 @@ def three_views_svg(data: dict[str, Any]) -> str:
         '.bounds{fill:none;stroke:#23465f;stroke-width:1.5;stroke-dasharray:5 3}'
         '.section{font-weight:bold;font-size:18px}.dimension{font-size:17px}'
         '.heading{font-size:26px;font-weight:bold}.warning{font-size:19px;fill:#b91c1c;font-weight:bold}'
-        '.note{font-size:16px;fill:#334155}.hash{font-size:13px;fill:#475569}'
+        '.note{font-size:16px;fill:#334155}.support-note{font-size:13px;fill:#334155}'
+        '.hash{font-size:13px;fill:#475569}'
         '</style>'
         '<rect x="0" y="0" width="1160" height="1040" fill="#fff"/>'
         '<text x="36" y="42" class="heading">CARPINOVA  ·  Lámina de geometría nominal</text>'
@@ -101,7 +120,11 @@ def three_views_svg(data: dict[str, Any]) -> str:
         '<text x="598" y="835" class="note">herrajes, apoyo, cargas, tuberías y obra.</text>'
         '<text x="598" y="880" class="note">Las cotas son exteriores nominales;</text>'
         '<text x="598" y="910" class="note">no corresponden a medidas finales de corte.</text>'
-        f'<text x="598" y="982" class="hash">CAD SHA-256: {escape(digest)}</text>'
+        + (f'<text x="598" y="943" class="support-note">'
+           f'{escape(support_note)}</text>' if support_note else "")
+        + (f'<text x="598" y="964" class="support-note">'
+           f'{escape(support_foot_note)}</text>' if support_note else "")
+        + f'<text x="598" y="1015" class="hash">CAD SHA-256: {escape(digest)}</text>'
         '</svg>\n'
     )
 
@@ -145,7 +168,7 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
     with TemporaryDirectory(prefix=".carpinova-sheet-", dir=folder) as tmp:
         stage = Path(tmp) / "lamina"
         stage.mkdir()
-        (stage / "three-views.svg").write_text(svg, encoding="utf-8")
+        (stage / "three-views.svg").write_bytes(svg.encode("utf-8"))
         try:
             png = resvg_py.svg_to_bytes(svg_string=svg, width=2320)
             with Image.open(BytesIO(png)) as image:
@@ -319,6 +342,42 @@ def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str
     if not overview.endswith("</svg>\n"):
         raise DesignError("Vista general de CAD sin cierre esperado.")
     overview = overview.replace("</svg>\n", "".join(markers) + "</svg>\n")
+
+    conceptual_support = []
+    for module in model.get("modules", []):
+        support = module.get("support_review")
+        if (type(support) is dict and support.get("style") == "legs"
+                and support.get("physical_support_specification") == "NOT_VERIFIED"
+                and support.get("support_height_mm") is not None
+                and support.get("carcass_height_mm") is not None
+                and support.get("overall_height_mm") is not None):
+            conceptual_support.append((module.get("module_id"), support))
+    if conceptual_support:
+        overview = overview.replace('y="982" class="hash"',
+                                    'y="1022" class="hash"')
+        if len(conceptual_support) == 1:
+            module_id, support = conceptual_support[0]
+            overview = overview.replace(
+                "</svg>\n",
+                f'<text x="598" y="940" font-family="Arial" font-size="15" '
+                f'font-weight="bold" fill="#9e2733">{escape(str(module_id))} · '
+                f'CARCASA CAD: {support["carcass_height_mm"]} mm · PATAS SOLO '
+                f'CONCEPTUALES: {support["support_height_mm"]} mm</text>'
+                f'<text x="598" y="963" font-family="Arial" font-size="15" '
+                f'font-weight="bold" fill="#9e2733">ALTO TOTAL PROPUESTO: '
+                f'{support["overall_height_mm"]} mm · PATAS NO MODELADAS</text>'
+                "</svg>\n",
+            )
+        else:
+            notes = "".join(
+                f'<text x="598" y="{936 + index * 20}" font-family="Arial" '
+                f'font-size="13" fill="#9e2733">{escape(str(module_id))} · '
+                f'carcasa {support["carcass_height_mm"]} mm · apoyo conceptual '
+                f'{support["support_height_mm"]} mm · total propuesto '
+                f'{support["overall_height_mm"]} mm · no modelado</text>'
+                for index, (module_id, support) in enumerate(conceptual_support)
+            )
+            overview = overview.replace("</svg>\n", notes + "</svg>\n")
 
     pages = [overview]
     for letter, (module_id, drawer_id), entries in sheet_groups:

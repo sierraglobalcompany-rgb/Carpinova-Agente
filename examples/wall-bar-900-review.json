@@ -36,7 +36,7 @@
       "drawers": [
         {
           "drawer_id": "D1",
-          "front_construction": "integrated_overlay",
+          "front_construction": "separate",
           "opening_bottom_offset_mm": 663,
           "opening_height_mm": 150,
           "opening_depth_mm": 445,
@@ -70,7 +70,7 @@
         },
         {
           "drawer_id": "D2",
-          "front_construction": "integrated_overlay",
+          "front_construction": "separate",
           "opening_bottom_offset_mm": 481,
           "opening_height_mm": 150,
           "opening_depth_mm": 445,
@@ -104,7 +104,7 @@
         },
         {
           "drawer_id": "D3",
-          "front_construction": "integrated_overlay",
+          "front_construction": "separate",
           "opening_bottom_offset_mm": 2,
           "opening_height_mm": 447,
           "opening_depth_mm": 445,

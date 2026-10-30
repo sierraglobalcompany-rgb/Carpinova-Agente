@@ -64,6 +64,9 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         elif role == "drawer_bottom":
             size=[fx,t,fy]  # XZ bottom under drawer walls
             grain_world={"face_x":"X","face_y":"Z","none":"none"}
+        elif role == "support_leg_concept":
+            size=[fx,fy,t]  # conceptual vertical support marker, XY face
+            grain_world={"face_x":"X","face_y":"Y","none":"none"}
         else:
             raise DesignError("Rol no soportado en intercambio CAD.")
         z += front_shift
@@ -206,7 +209,8 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                                 "front_single","front_left","front_right",
                                 "drawer_side_left","drawer_side_right",
                                 "drawer_front_wall","drawer_rear_wall",
-                                "drawer_bottom","drawer_facade"):
+                                "drawer_bottom","drawer_facade",
+                                "support_leg_concept"):
             raise DesignError("Rol CAD no soportado.")
         a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
         if (not isinstance(a,list) or not isinstance(b,list)

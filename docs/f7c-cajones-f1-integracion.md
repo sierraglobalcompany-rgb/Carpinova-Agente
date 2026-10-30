@@ -1,6 +1,12 @@
-# F7C Task 3 — cajones integrados a la carcasa, SIN autorización de fabricación
+# F7C — cajas independientes y fachadas decorativas, SIN autorización de fabricación
 
-El cálculo de cada caja se realiza **una única vez** en `carpinova_agent.core.design({"type":"drawer", ...})` (F1). `carpinova_agent.drawer_modules.module_drawers` ubica físicamente los cinco paneles derivados, sin repetir ni modificar sus dimensiones. El modelo único continúa hacia `modular_bom_csv`, `modular_front_svg` y `cad_exchange`; FreeCAD y Blender solo consumen ese contrato.
+El cálculo de cada caja se realiza **una única vez** en `carpinova_agent.core.design({"type":"drawer", ...})` (F1). `carpinova_agent.drawer_modules.module_drawers` ubica los cinco paneles estructurales derivados y, cuando está definida, una fachada decorativa separada; no repite ni modifica las dimensiones F1. El modelo único continúa hacia `modular_bom_csv`, `modular_front_svg` y `cad_exchange`; FreeCAD y Blender solo consumen ese contrato.
+
+## Política de construcción de frentes
+
+Para muebles nuevos, `front_construction` usa `separate` por defecto: la caja conserva pared frontal interior, pared posterior, laterales y fondo. La fachada overlay es otra pieza decorativa, se instala/ajusta después de presentar la caja y requiere cuatro solapes explícitos; esos valores no se autogeneran. `inset` es la alternativa explícita y requiere cuatro holguras explícitas. Una fachada ausente o `pending` no se completa inventando material, espesor, holguras ni solapes.
+
+`integrated_overlay` solo funciona si se solicita explícitamente: es compatibilidad LEGACY que hace que la fachada reemplace la pared frontal interior. No es el valor predeterminado ni se aplica silenciosamente a proyectos previos. Las solicitudes normales `separate + overlay` pueden tocarse en el plano: fachada overlay en `Z=-thickness..0`, caja en `Z=front_setback..`; con retranqueo cero sus caras se encuentran en `Z=0` sin interpenetración. Si el retranqueo es positivo, se informa la separación y montaje pendiente. Para `inset` se conserva la guarda anterior de retranqueo estrictamente mayor que el espesor del frente.
 
 
 ## Primer contacto: boceto identificado y editable (sin planos de corte)
@@ -25,7 +31,7 @@ Se admite `drawer_adjustments_mm={"A":100}` para «A 10 cm más alto». El alto 
 - `opening_depth_mm`, `box_height_mm`, `panel_thickness_mm`, `bottom_thickness_mm`.
 - `slide_clearance_left_mm`, `slide_clearance_right_mm`: luces suministradas expresamente, **NO recomendadas ni validadas para corredera concreta**.
 - `front_setback_mm`, `rear_setback_mm` y `material_id`, `bottom_material_id`.
-- `facade="pending"` o fachada rectangular explícita: `style="inset"` con cuatro luces positivas, o `style="overlay"` con cuatro solapes definidos y acotados por el espesor de carcasa. Ambas exigen material/espesor, conservan veta/canto no inferidos y admiten `opening_system=pending|handle|push_to_open|finger_pull|profile` como **intención, nunca geometría de herrajes**.
+- `front_construction` opcional: `separate` (predeterminado para diseños nuevos) o `integrated_overlay` (LEGACY, únicamente explícito). En modo separado, `facade="pending"` o fachada rectangular explícita: `style="inset"` con cuatro holguras positivas, o `style="overlay"` con cuatro solapes definidos y acotados por el espesor de carcasa. Ambas exigen material/espesor, conservan veta/canto no inferidos y admiten `opening_system=pending|handle|push_to_open|finger_pull|profile` como **intención, nunca geometría de herrajes**.
 
 Por seguridad, siguen bloqueados cajones dentro de un módulo con puertas configuradas hasta validar apertura/colisiones. Los **frentes sobrepuestos sí están implementados** en F7C y se comprueba que no se toquen/solapen; también se verifica el ancho/alto del módulo y el fondo exterior que aumenta por fachada `overlay` en `max_assembled_depth_mm`.
 
@@ -39,14 +45,14 @@ El cajón usa X a la derecha, Y arriba y Z atrás:
 
 - Fondo inferior: plano XZ en origen `[x_left, y_bottom, z_front]`.
 - Costados izquierdo/derecho: plano YZ, apoyados nominalmente sobre el fondo aplicado inferior.
-- Frente y trasera **estructurales**: plano XY, entre costados, con sus Z correspondientes.
-- Fachada embutida: plano XY, Z=0, definida por cuatro holguras; sobrepuesta: plano XY, Z negativo por espesor de frente, definida por cuatro solapes explícitos. Se exige `front_setback_mm > facade.thickness_mm` para no superponer el volumen de la fachada y la caja. Ambos estilos se validan mediante CADExchange único.
+- Pared frontal interior y trasera **estructurales**: plano XY entre costados, con sus Z correspondientes. La pared frontal sigue existiendo con `separate` aunque haya una fachada decorativa.
+- Fachada embutida: plano XY, Z=0, definida por cuatro holguras y caja retranqueada más que el espesor de fachada. Fachada overlay separada: plano XY, Z negativo por su espesor, definida por cuatro solapes explícitos; su cara posterior puede tocar la pared frontal interior en Z=0. Ambas se validan mediante el mismo CADExchange. El modo LEGACY integrado se identifica explícitamente y no representa una caja con pared frontal independiente.
 - Al apilar, las **aberturas** verticales nunca deben tocarse ni solaparse.
 - Si hay fondo posterior, toda la caja queda por delante de su plano (control conservador). No se fabrican perforaciones para tuberías, correderas ni tornillos.
 
 ## Caso demostrativo reproducible
 
-`examples/modular-two-drawers-inset.json`: base de cocina de 600 × 720 × 560 mm; 18 mm de espesor de carcasa, fondo HDF 6 mm, dos cajones `TOP` y `LOW` con aberturas de 300 mm de alto, separadas entre sí por 44 mm, ubicadas a 0 y 344 mm del inicio interior. Cada caja: luz lateral 13+13 mm, retranqueos 30/40 mm, espesor de paredes 18 mm, fondo aplicado 6 mm, altura exterior 230 mm. Dimensiones nominales F1: caja **538 mm de ancho × 460 mm de profundidad**, laterales de 224 mm de alto, frente/trasera estructurales de 502 mm de ancho. Cada frente embutido nominal mide **558 × 294 mm**. El proyecto devuelve **17 piezas físicas**: cuatro de carcasa, una de fondo, cinco por cada cajón y dos fachadas.
+`examples/modular-two-drawers-inset.json`: base de cocina de 600 × 720 × 560 mm; 18 mm de espesor de carcasa, fondo HDF 6 mm, dos cajones `TOP` y `LOW` con aberturas de 300 mm de alto, separadas entre sí por 44 mm, ubicadas a 0 y 344 mm del inicio interior. Cada caja: luz lateral 13+13 mm, retranqueos 30/40 mm, espesor de paredes 18 mm, fondo aplicado 6 mm, altura exterior 230 mm. Dimensiones nominales F1: caja **538 mm de ancho × 460 mm de profundidad**, laterales de 224 mm de alto, frente/trasera estructurales de 502 mm de ancho. Cada frente embutido nominal mide **558 × 294 mm**. El proyecto devuelve **17 piezas físicas**: cinco de carcasa y seis por cajón (cinco piezas estructurales de caja más una fachada decorativa).
 
 Los datos sirven SOLO para probar fórmulas. No prueban la compatibilidad de una corredera de 13 mm, su anclaje, recorrido, ni que la caja pueda instalarse sin tensiones.
 

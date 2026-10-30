@@ -200,10 +200,11 @@ def consult_maestro(
                 {
                     "field": "module_spec.finish_and_hardware",
                     "question": (
-                        "¿Frentes embutidos o sobrepuestos? ¿La "
-                        "profundidad incluye espesor del frente? "
-                        "Confirma materiales, correderas y sistema "
-                        "de apertura (tirador, uñero, push-to-open o perfil)."
+                        "Para nuevos cajones propongo caja completa y fachada "
+                        "sobrepuesta separada; embutida queda como excepción si la "
+                        "pides. ¿La profundidad incluye el frente? Confirma el "
+                        "material/espesor pendiente y el sistema de apertura; la "
+                        "corredera requiere referencia técnica antes de validar montaje."
                     ),
                     "unit": "construction_choice",
                 },
@@ -265,9 +266,10 @@ def consult_maestro(
                                     f"{drawer['drawer_id']}.facade"
                                 ),
                                 "question": (
-                                    f"Definir frente decorativo embutido del cajón "
-                                    f"{drawer['drawer_id']} en {module_id}: "
-                                    "material, espesor y cuatro holguras."
+                                    f"La fachada sobrepuesta separada es la propuesta "
+                                    f"inicial para {drawer['drawer_id']} en {module_id}; "
+                                    "falta indicar material, espesor y cuatro solapes. "
+                                    "Si quieres frente embutido, indícalo como excepción."
                                 ),
                                 "unit": "construction_choice",
                             })
