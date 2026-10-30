@@ -46,10 +46,31 @@ def wall_bar_review_dimensions(model: dict[str, Any]) -> dict[str, Any]:
                for axis in range(3)]
         high = [max(box["origin_xyz_mm"][axis] + box["size_xyz_mm"][axis]
                     for box in members) for axis in range(3)]
+        by_role = {box["role"]: box for box in members}
+        required = {"drawer_side_left", "drawer_side_right", "drawer_front_wall",
+                    "drawer_rear_wall", "drawer_bottom"}
+        if set(by_role) != required:
+            raise DesignError("Caja completa CAD con roles inesperados: " + did)
+        left_side = by_role["drawer_side_left"]
+        right_side = by_role["drawer_side_right"]
+        front_wall = by_role["drawer_front_wall"]
+        rear_wall = by_role["drawer_rear_wall"]
+        bottom = by_role["drawer_bottom"]
+        inside = (
+            right_side["origin_xyz_mm"][0] -
+            (left_side["origin_xyz_mm"][0] + left_side["size_xyz_mm"][0]),
+            left_side["origin_xyz_mm"][1] + left_side["size_xyz_mm"][1] -
+            (bottom["origin_xyz_mm"][1] + bottom["size_xyz_mm"][1]),
+            rear_wall["origin_xyz_mm"][2] -
+            (front_wall["origin_xyz_mm"][2] + front_wall["size_xyz_mm"][2]),
+        )
+        if min(inside) <= 0:
+            raise DesignError("Luz interior CAD no positiva: " + did)
         drawer_boxes[did] = {
             "width_mm": high[0] - low[0],
             "height_mm": high[1] - low[1],
             "depth_mm": high[2] - low[2],
+            "internal_clear_dimensions_mm": list(inside),
             "piece_ids": [box["piece_id"] for box in members],
         }
     face_summary = {}
@@ -185,114 +206,260 @@ def part_schedule_svg(model: dict[str, Any]) -> str:
     return "\n".join(fragments) + "\n"
 
 
+def format_mm_as_cm(value_mm: int) -> str:
+    """Format one CAD millimeter value as readable Spanish centimeters."""
+    if type(value_mm) is not int:
+        raise DesignError("La conversión visible mm→cm requiere milímetros enteros.")
+    sign = "-" if value_mm < 0 else ""
+    whole, tenth = divmod(abs(value_mm), 10)
+    value = str(whole) if tenth == 0 else f"{whole},{tenth}"
+    return sign + value
+
+
 def wall_bar_orientation_svg(model: dict[str, Any]) -> str:
-    """Landscape human-review page from canonical CAD boxes only."""
+    """Human main sheet: plan/elevation and dimensions projected from CAD."""
     rv = model.get("wall_bar_review")
     if (not isinstance(rv, dict) or rv.get("drawer_opening_face") != "long_side_front"
             or rv.get("drawer_open_direction") != "negative_Z"
             or rv.get("wall_side") != "left"):
-        raise DesignError("Lámina A requiere orientación confirmada.")
+        raise DesignError("Lámina humana requiere orientación A confirmada.")
     cad = validate_exchange(cad_exchange(model))
     w, h, d = cad["bounds_xyz_mm"]
     fronts = [box for box in cad["boxes"] if box["role"] == "drawer_facade"]
     covers = [box for box in cad["boxes"] if box["piece_id"] == "BAR-COVER-TOP"]
-    supports = [box for box in cad["boxes"] if box["role"] == "support_leg_concept"]
+    supports = [box for box in cad["boxes"]
+                if box["role"] == "support_leg_concept"]
     human = wall_bar_review_dimensions(model)
-    free = rv["free_span_mm"]
-    if (len(fronts) != 3 or len(covers) != 1 or len(supports) != 4
-            or any(box["origin_xyz_mm"][2] != 0 for box in fronts)):
-        raise DesignError("Geometría CAD no corresponde a tres frentes laterales.")
+    if (len(cad["boxes"]) != 28 or len(fronts) != 3 or len(covers) != 1
+            or len(supports) != 4 or (w, h, d) != (900, 900, 460)):
+        raise DesignError("La lámina humana requiere el CAD CN-BAR-001 conocido.")
+    choices = rv.get("design_choices", {})
+    aesthetic = choices.get("aesthetic_presentation", "undecided")
+    if (type(aesthetic) is not str
+            or aesthetic not in AESTHETIC_PRESENTATION_CHOICES):
+        raise DesignError("Opción estética no soportada por la lámina humana.")
 
-    sx, sy, sp = 130.0, 185.0, min(0.60, 640 / w, 280 / d)
-    fx, fy, sf = 130.0, 560.0, min(0.52, 520 / w, 470 / h)
-    lines = [
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130" '
-        'viewBox="0 0 1600 1130" role="img" aria-label="Barra de cocina: planta, elevación y cotas humanas">',
-        '<rect width="1600" height="1130" fill="#fff"/>',
-        '<g font-family="Arial,sans-serif" fill="#223345">',
-        '<text x="40" y="45" font-size="28" font-weight="bold">CARPINOVA · BARRA AUXILIAR DE COCINA</text>',
-        '<text x="40" y="79" font-size="20" font-weight="bold">ORIENTACION A CONFIRMADA · Cajones en el costado largo</text>',
-        '<text x="40" y="108" font-size="16" fill="#ad3434">SOLO REVISIÓN · NO CORTAR, PERFORAR NI FABRICAR</text>',
-        '<rect x="35" y="135" width="730" height="355" rx="12" fill="#fbfcfd" stroke="#cbd5e1"/>',
-        '<text x="58" y="169" font-size="20" font-weight="bold">1 · PLANTA · muro en el borde corto</text>',
-        f'<rect x="{sx:.2f}" y="{sy:.2f}" width="{w*sp:.2f}" height="{d*sp:.2f}" fill="#ecdcc1" stroke="#334155" stroke-width="2"/>',
-        f'<path d="M{sx-12:.2f} {sy-10:.2f}V{sy+d*sp+10:.2f}" stroke="#475569" stroke-width="9"/>',
-        f'<rect x="{sx+free*sp:.2f}" y="{sy:.2f}" width="{(w-free)*sp:.2f}" height="{d*sp:.2f}" fill="#c0d3db" fill-opacity=".52" stroke="#64748b" stroke-dasharray="7 4"/>',
-        f'<text x="{sx+55:.2f}" y="{sy+d*sp/2:.2f}" font-size="18" font-weight="bold">{human["free_span_mm"]} mm libres bajo cubierta</text>',
-        f'<text x="{sx+free*sp+8:.2f}" y="{sy+d*sp/2+30:.2f}" font-size="17">Cajonera {human["cabinet_width_mm"]} mm</text>',
-        f'<text x="{sx+95:.2f}" y="{sy+d*sp+24:.2f}" font-size="16">{w} mm de largo · {d} mm de fondo</text>',
-        f'<text x="48" y="{sy+d*sp/2+4:.2f}" font-size="16" font-weight="bold">MURO</text>',
-        '<text x="596" y="205" font-size="15">Abre hacia −Z</text>',
-        '<rect x="35" y="510" width="730" height="550" rx="12" fill="#fbfcfd" stroke="#cbd5e1"/>',
-        '<text x="58" y="545" font-size="20" font-weight="bold">2 · ELEVACIÓN · vista del costado largo</text>',
-    ]
-    cover = covers[0]
-    x, y, z = cover["origin_xyz_mm"]
-    dx, dy, dz = cover["size_xyz_mm"]
-    lines.append(
-        f'<rect x="{fx+x*sf:.2f}" y="{fy+(h-y-dy)*sf:.2f}" width="{dx*sf:.2f}" height="{dy*sf:.2f}" fill="#ecdcc1" stroke="#334155" stroke-width="2"/>'
-    )
-    lines.append(
-        f'<text x="{fx+410:.2f}" y="{fy-12:.2f}" font-size="12">'
-        f'BAR-COVER-TOP · {w} × {d} × {dy} mm</text>'
-    )
+    def h_dimension(name: str, x1: float, x2: float, y: float,
+                    source_y1: float, source_y2: float,
+                    label: str) -> str:
+        tx = (x1 + x2) / 2
+        return (
+            f'<line x1="{x1:.2f}" y1="{source_y1:.2f}" x2="{x1:.2f}" '
+            f'y2="{y:.2f}" stroke="#668094" stroke-width="1.5"/>'
+            f'<line x1="{x2:.2f}" y1="{source_y2:.2f}" x2="{x2:.2f}" '
+            f'y2="{y:.2f}" stroke="#668094" stroke-width="1.5"/>'
+            f'<g data-dimension-id="{name}"><line x1="{x1:.2f}" y1="{y:.2f}" '
+            f'x2="{x2:.2f}" y2="{y:.2f}" stroke="#244b63" stroke-width="2" '
+            'marker-start="url(#dim-arrow)" marker-end="url(#dim-arrow)"/>'
+            f'<text x="{tx:.2f}" y="{y-10:.2f}" text-anchor="middle" '
+            f'font-size="20" font-weight="bold" fill="#244b63">{escape(label)}</text>'
+            '</g>'
+        )
+
+    def v_dimension(name: str, x: float, y1: float, y2: float,
+                    source_x1: float, source_x2: float,
+                    label: str) -> str:
+        mid = (y1 + y2) / 2
+        return (
+            f'<line x1="{source_x1:.2f}" y1="{y1:.2f}" x2="{x:.2f}" '
+            f'y2="{y1:.2f}" stroke="#668094" stroke-width="1.5"/>'
+            f'<line x1="{source_x2:.2f}" y1="{y2:.2f}" x2="{x:.2f}" '
+            f'y2="{y2:.2f}" stroke="#668094" stroke-width="1.5"/>'
+            f'<g data-dimension-id="{name}"><line x1="{x:.2f}" y1="{y1:.2f}" '
+            f'x2="{x:.2f}" y2="{y2:.2f}" stroke="#244b63" stroke-width="2" '
+            'marker-start="url(#dim-arrow)" marker-end="url(#dim-arrow)"/>'
+            f'<text x="{x-13:.2f}" y="{mid:.2f}" text-anchor="middle" '
+            f'transform="rotate(-90 {x-13:.2f} {mid:.2f})" font-size="20" '
+            f'font-weight="bold" fill="#244b63">{escape(label)}</text></g>'
+        )
+
+    plan_x, plan_y = 170.0, 360.0
+    plan_scale = min(0.58, 540 / w, 350 / d)
+    plan_w, plan_d = w * plan_scale, d * plan_scale
+    plan_x1, plan_y1 = plan_x + plan_w, plan_y + plan_d
+    cabinet_x0 = plan_x + human["free_span_mm"] * plan_scale
+    cabinet_x1 = plan_x1
+    grain_paths = []
+    if aesthetic == "bicolor_modern_preliminary":
+        for ratio in (0.2, 0.4, 0.6, 0.8):
+            y = plan_y + plan_d * ratio
+            grain_paths.append(
+                f'<path data-concept="decorative-grain" data-axis="X" '
+                f'd="M{plan_x+18:.2f} {y:.2f}H{cabinet_x0-18:.2f}" '
+                'fill="none" stroke="#9a7448" stroke-width="1.4" opacity=".48"/>'
+            )
+
+    elev_x, elev_y = 1000.0, 315.0
+    elev_scale = min(0.45, 520 / w, 430 / h)
+    elev_y1 = elev_y + h * elev_scale
+    elev_x1 = elev_x + w * elev_scale
     cab0, cab1 = rv["cabinet_x_range_mm"]
     cy0, cy1 = rv["cabinet_y_range_mm"]
+    cab_px0, cab_px1 = elev_x + cab0 * elev_scale, elev_x + cab1 * elev_scale
+    cab_py0 = elev_y + (h - cy1) * elev_scale
+    cab_py1 = elev_y + (h - cy0) * elev_scale
+
+    lines = [
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130" '
+        'viewBox="0 0 1600 1130" role="img" '
+        'aria-label="Barra de cocina: vista superior y elevación con cotas humanas">',
+        '<defs><marker id="dim-arrow" markerWidth="8" markerHeight="8" '
+        'refX="4" refY="4" orient="auto-start-reverse">'
+        '<path d="M0,0 L8,4 L0,8 z" fill="#244b63"/></marker></defs>',
+        '<rect width="1600" height="1130" fill="#ffffff"/>',
+        '<g font-family="Arial,sans-serif" fill="#20394b">',
+        '<text x="48" y="58" font-size="38" font-weight="bold">Tu barra de cocina</text>',
+        '<text x="50" y="96" font-size="21" fill="#587083">'
+        'Propuesta visual para revisar · orientación A · medidas en centímetros</text>',
+        '<text x="50" y="127" font-size="17" fill="#a12e35" font-weight="bold">'
+        'BORRADOR · NO CORTAR, PERFORAR NI FABRICAR</text>',
+        '<rect x="35" y="145" width="730" height="790" rx="18" '
+        'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
+        '<text x="62" y="190" font-size="25" font-weight="bold">'
+        'Desde arriba · dónde queda cada extremo</text>',
+        '<rect x="785" y="145" width="780" height="790" rx="18" '
+        'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
+        '<text x="815" y="190" font-size="25" font-weight="bold">'
+        'De frente · cómo se reparte el largo</text>',
+        '<text x="65" y="222" font-size="17" fill="#536b7e">'
+        'Muro en el extremo corto; cajones abren por el costado largo.</text>',
+        '<text x="817" y="222" font-size="17" fill="#536b7e">'
+        'Las patas dibujadas son conceptuales y aparecen solo bajo la cajonera.</text>',
+    ]
+
+    length_label = f'{format_mm_as_cm(w)} cm de largo'
+    depth_label = f'{format_mm_as_cm(d)} cm de fondo'
+    free_label = f'{format_mm_as_cm(human["free_span_mm"])} cm libres'
+    cabinet_label = f'{format_mm_as_cm(human["cabinet_width_mm"])} cm cajonera'
+    lines.extend((
+        f'<path d="M{plan_x-12:.2f} 350 V638" stroke="#475d6b" stroke-width="9"/>',
+        '<text x="50" y="493" font-size="18" font-weight="bold">MURO</text>',
+        '<text x="50" y="519" font-size="15">extremo corto</text>',
+        f'<rect x="{plan_x:.2f}" y="{plan_y:.2f}" width="{plan_w:.2f}" '
+        f'height="{plan_d:.2f}" fill="#efe4d2" stroke="#334b5c" stroke-width="3"/>',
+        *grain_paths,
+        f'<rect x="{cabinet_x0:.2f}" y="{plan_y:.2f}" '
+        f'width="{cabinet_x1-cabinet_x0:.2f}" height="{plan_d:.2f}" '
+        'fill="#bcd6df" fill-opacity=".78" stroke="#546e7b" stroke-dasharray="7 4"/>',
+        f'<text x="{(plan_x+cabinet_x0)/2:.2f}" y="{plan_y+plan_d/2-3:.2f}" '
+        'text-anchor="middle" font-size="23" font-weight="bold">60 cm libres</text>',
+        f'<text x="{(cabinet_x0+cabinet_x1)/2:.2f}" y="{plan_y+plan_d/2-3:.2f}" '
+        'text-anchor="middle" font-size="19" font-weight="bold">30 cm</text>',
+        f'<text x="{(cabinet_x0+cabinet_x1)/2:.2f}" y="{plan_y+plan_d/2+25:.2f}" '
+        'text-anchor="middle" font-size="16">cajonera</text>',
+        h_dimension("plan-length", plan_x, plan_x1, plan_y-62,
+                    plan_y, plan_y, length_label),
+        v_dimension("plan-depth", plan_x1+35, plan_y, plan_y1,
+                    plan_x1, plan_x1, depth_label),
+        h_dimension("plan-free-span", plan_x, cabinet_x0, plan_y1+52,
+                    plan_y1, plan_y1, free_label),
+        h_dimension("plan-cabinet-width", cabinet_x0, cabinet_x1, plan_y1+100,
+                    plan_y1, plan_y1, cabinet_label),
+        f'<path d="M{(cabinet_x0+cabinet_x1)/2:.2f} {plan_y1:.2f} '
+        f'v32" stroke="#315d73" stroke-width="3" marker-end="url(#dim-arrow)"/>',
+        f'<text x="{(cabinet_x0+cabinet_x1)/2:.2f}" y="{plan_y1+165:.2f}" '
+        'text-anchor="middle" font-size="16" font-weight="bold">'
+        'Los cajones abren por el costado largo</text>',
+    ))
+
+    if aesthetic == "bicolor_modern_preliminary":
+        presentation_lines = (
+            "Bicolor preliminar · no acabado aprobado",
+            "Cubierta roble claro · lateral/frentes blanco mate",
+            "Veta X decorativa; veta productiva sin confirmar",
+            "Tirador recto negro · concepto",
+            "Sin herraje, SKU, cantidad, posición ni taladros",
+        )
+    else:
+        presentation_lines = (
+            "Apariencia por definir · colores no seleccionados",
+            "Veta productiva sin confirmar",
+            "Apertura sin herraje verificado; SKU y taladros pendientes",
+        )
     lines.append(
-        f'<rect x="{fx+cab0*sf:.2f}" y="{fy+(h-cy1)*sf:.2f}" width="{(cab1-cab0)*sf:.2f}" height="{(cy1-cy0)*sf:.2f}" fill="none" stroke="#64748b" stroke-dasharray="6 4" stroke-width="2"/>'
+        '<g data-concept="visual-finish-and-opening-not-production">'
+        '<text x="60" y="824" font-size="14" font-weight="bold" '
+        'fill="#315d73">Notas visuales; no definen materiales ni herrajes de compra</text>'
+    )
+    for index, label in enumerate(presentation_lines):
+        lines.append(
+            f'<text x="60" y="{845 + 18*index}" font-size="13" '
+            f'fill="#536b7e">{escape(label)}</text>'
+        )
+    lines.append('</g>')
+
+    cover = covers[0]
+    cx, cy, cz = cover["origin_xyz_mm"]
+    cw, ch, cd = cover["size_xyz_mm"]
+    lines.append(
+        f'<rect data-piece-id="{escape(covers[0]["piece_id"], quote=True)}" '
+        f'x="{elev_x+cx*elev_scale:.2f}" '
+        f'y="{elev_y+(h-cy-ch)*elev_scale:.2f}" '
+        f'width="{cw*elev_scale:.2f}" height="{ch*elev_scale:.2f}" '
+        'fill="#dfc99f" stroke="#334b5c" stroke-width="2"/>'
+    )
+    lines.append(
+        f'<rect x="{cab_px0:.2f}" y="{cab_py0:.2f}" '
+        f'width="{cab_px1-cab_px0:.2f}" height="{cab_py1-cab_py0:.2f}" '
+        'fill="none" stroke="#657b89" stroke-width="2" stroke-dasharray="7 5"/>'
     )
     front_support_z = min(box["origin_xyz_mm"][2] for box in supports)
     for box in supports:
         px, py, pz = box["origin_xyz_mm"]
-        pw, ph, pd = box["size_xyz_mm"]
+        pw, ph, _ = box["size_xyz_mm"]
         if pz == front_support_z:
             lines.append(
-                f'<rect data-piece-id="{escape(box["piece_id"], quote=True)}" x="{fx+px*sf:.2f}" y="{fy+(h-py-ph)*sf:.2f}" width="{pw*sf:.2f}" height="{ph*sf:.2f}" fill="#8c7864" stroke="#4f4032" stroke-width="1.4"/>'
+                f'<rect x="{elev_x+px*elev_scale:.2f}" '
+                f'y="{elev_y+(h-py-ph)*elev_scale:.2f}" '
+                f'width="{pw*elev_scale:.2f}" height="{ph*elev_scale:.2f}" '
+                'fill="#8c7864" stroke="#4f4032" stroke-width="1.5"/>'
             )
-    lines.append(f'<path d="M{fx-12:.2f} {fy-12:.2f}V{fy+h*sf+12:.2f}" stroke="#475569" stroke-width="8"/>')
-    for box in fronts:
-        px, py, pz = box["origin_xyz_mm"]
-        pw, ph, pd = box["size_xyz_mm"]
-        label = box["piece_id"].split("-")[1]
-        top = fy + (h - py - ph) * sf
+    lines.append(
+        f'<path d="M{elev_x-18:.2f} {elev_y-3:.2f} V{elev_y1+5:.2f}" '
+        'stroke="#475d6b" stroke-width="8"/>'
+    )
+    for letter, did in (("A", "D1"), ("B", "D2"), ("C", "D3")):
+        face = next(box for box in fronts if f"-{did}-" in box["piece_id"])
+        px, py, _ = face["origin_xyz_mm"]
+        fw, fh, _ = face["size_xyz_mm"]
+        front_fill = "#f2f3f0" if aesthetic == "bicolor_modern_preliminary" else "#d8e8ed"
+        top = elev_y + (h-py-fh)*elev_scale
         lines.extend((
-            f'<rect data-piece-id="{escape(box["piece_id"], quote=True)}" x="{fx+px*sf:.2f}" y="{top:.2f}" width="{pw*sf:.2f}" height="{ph*sf:.2f}" fill="#bfdbfe" stroke="#2563eb" stroke-width="2"/>',
-            f'<text x="{fx+(px+pw/2)*sf:.2f}" y="{top+ph*sf/2:.2f}" text-anchor="middle" font-size="18" font-weight="bold">{escape(label)}</text>',
+            f'<rect data-piece-id="{escape(face["piece_id"], quote=True)}" '
+            f'x="{elev_x+px*elev_scale:.2f}" y="{top:.2f}" '
+            f'width="{fw*elev_scale:.2f}" height="{fh*elev_scale:.2f}" '
+            f'fill="{front_fill}" stroke="#52798a" stroke-width="2"/>',
+            f'<text x="{elev_x+(px+fw/2)*elev_scale:.2f}" '
+            f'y="{top+fh*elev_scale/2+7:.2f}" text-anchor="middle" '
+            'font-size="19" font-weight="bold">'
+            f'{letter} · {"arriba" if letter == "A" else "en medio" if letter == "B" else "abajo"}'
+            '</text>',
         ))
+    length_y = elev_y1 + 80
     lines.extend((
-        f'<text x="{fx+10:.2f}" y="{fy+260:.2f}" font-size="15">Sin lateral junto al muro</text>',
-        f'<text x="{fx+10:.2f}" y="{fy+h*sf+20:.2f}" font-size="15">Altura total {h} mm · patas conceptuales {human["support_height_mm"]} mm, solo cajonera</text>',
-        '<rect x="800" y="135" width="765" height="925" rx="12" fill="#f8fafc" stroke="#cbd5e1"/>',
-        '<text x="835" y="178" font-size="23" font-weight="bold">MEDIDAS PARA REVISIÓN · NOMINALES (mm)</text>',
-        f'<text x="835" y="213" font-size="17">Largo X {w} · fondo Z {d} · altura total Y {h}</text>',
-        f'<text x="835" y="241" font-size="16">Luz libre {human["free_span_mm"]} · ancho de cajonera {human["cabinet_width_mm"]}</text>',
-        '<path d="M835 258H1530" stroke="#d2dce4"/>',
-        '<text x="835" y="285" font-size="14">A = superior (CAD D1) · B = intermedio (CAD D2) · C = inferior (CAD D3)</text>',
-    ))
-    for index, letter in enumerate(("A", "B", "C")):
-        face = human["facades"][letter]
-        box = human["drawer_boxes"][face["drawer_id"]]
-        base_y = 325 + index * 70
-        lines.extend((
-            f'<text x="835" y="{base_y}" font-size="17" font-weight="bold">{letter} · frente {face["width_mm"]} × {face["height_mm"]} × {face["thickness_mm"]}</text>',
-            f'<text x="870" y="{base_y+26}" font-size="15">Caja exterior: {box["width_mm"]} × {box["height_mm"]} × {box["depth_mm"]} (ancho × alto × fondo)</text>',
-        ))
-    lines.extend((
-        '<path d="M835 548H1530" stroke="#d2dce4"/>',
-        f'<text x="835" y="580" font-size="15">A ↔ B: {human["front_gaps_mm"]["A_B"]} mm · B ↔ C: {human["front_gaps_mm"]["B_C"]} mm nominales</text>',
-        f'<text x="835" y="606" font-size="15">Revelado lateral de fachada: {human["left_front_reveal_mm"]} mm por lado</text>',
-        '<text x="835" y="632" font-size="14" fill="#9a3d32">PVC rígido 2 mm puede consumir/superar estas luces.</text>',
-        f'<text x="835" y="666" font-size="15">LI/LD carcasa: {human["carcass_side_size_xyz_mm"][0]} × {human["carcass_side_size_xyz_mm"][1]} × {human["carcass_side_size_xyz_mm"][2]} mm</text>',
-        '<text x="835" y="692" font-size="14">Cada caja tiene 4 paredes + fondo; la fachada aplicada es independiente.</text>',
-        '<text x="835" y="717" font-size="14">Las cotas de caja son envolventes exteriores, no espacio útil interior.</text>',
-        f'<text x="835" y="759" font-size="16" font-weight="bold">4 apoyos CAD conceptuales · altura {human["support_height_mm"]} mm bajo la cajonera</text>',
-        f'<text x="835" y="785" font-size="14">Huella {human["support_footprint_width_mm"]} × {human["support_footprint_depth_mm"]} mm ilustrativa; material y SKU pendientes.</text>',
-        '<text x="835" y="811" font-size="14">No especifica capacidad, fijación ni dimensiones de patas físicas.</text>',
-        '<text x="835" y="855" font-size="15" fill="#9a3d32">Rieles, cantos y fijaciones no verificados · NO FABRICAR.</text>',
-    ))
-    lines.extend((
-        '<text x="40" y="1093" font-size="13" fill="#52677a">Muro y piso: contexto, no piezas · orientación y cotas de revisión, no plano de corte.</text>',
-        f'<text x="40" y="1115" font-size="12" fill="#52677a">CAD SHA-256: {escape(cad["geometry_sha256"])}</text>',
+        h_dimension("elevation-length", elev_x, elev_x1, length_y,
+                    elev_y1, elev_y1, length_label),
+        v_dimension("elevation-height", elev_x-65, elev_y, elev_y1,
+                    elev_x, elev_x, f'{format_mm_as_cm(h)} cm de alto'),
+        f'<text x="{elev_x+human["free_span_mm"]*elev_scale/2:.2f}" '
+        f'y="{elev_y+260:.2f}" text-anchor="middle" font-size="20" '
+        'font-weight="bold">60 cm libres</text>',
+        f'<text x="{cab_px0+12:.2f}" y="{cab_py0-15:.2f}" '
+        'font-size="16" font-weight="bold">30 cm cajonera</text>',
+        f'<path d="M{cab_px1-10:.2f} {elev_y1-14:.2f} '
+        f'L{cab_px1+28:.2f} {elev_y1-34:.2f}" stroke="#705a46" '
+        'stroke-width="1.7"/>',
+        f'<text x="{cab_px1+32:.2f}" y="{elev_y1-38:.2f}" '
+        'font-size="18" font-weight="bold" fill="#614b37">4 cm</text>',
+        f'<text x="{cab_px1+32:.2f}" y="{elev_y1-16:.2f}" '
+        'font-size="14" fill="#614b37">apoyo conceptual</text>',
+        '<text x="816" y="872" font-size="16" fill="#536b7e">'
+        'Los 4 cm están debajo del módulo; no se eligió una pata física.</text>',
+        '<text x="48" y="1000" font-size="18" font-weight="bold" '
+        'fill="#a12e35">La orientación y las cotas son nominales; no describen un montaje validado.</text>',
+        f'<text x="48" y="1030" font-size="13" fill="#617688">'
+        f'CAD de origen · {len(cad["boxes"])} elementos · SHA-256: '
+        f'{escape(cad["geometry_sha256"])}</text>',
         '</g></svg>',
     ))
     svg = "\n".join(lines) + "\n"

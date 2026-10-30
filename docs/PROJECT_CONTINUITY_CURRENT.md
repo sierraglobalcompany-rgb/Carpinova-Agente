@@ -1,6 +1,20 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PR #23 P2/P3: patas conceptuales y cotas humanas (29-oct-2026)
+## ACTIVO — PR #23 P4: cuadernillo humano y holguras (30-oct-2026)
+
+Base protegida: `feature/wall-bar-freecad-v10@e2f20c5231bff3d384430b3a07146ecac93a0eeb`. Trabajo local sobre `feat/carpn-ab-v1`, iniciado en `d0c865f904596b3566cec79a542b4e5706bfddf5`; cambios P4 aún locales, sin commit ni publicación en este checkpoint. PR #23 debe seguir Draft y sin merge.
+
+P4 reorganiza la comunicación de CN-BAR-001 a siete hojas de revisión humana: vista del mueble, una hoja comparable por cajón A/B/C, detalle de holguras y canto, decisiones pendientes y anexo nominal. El CADExchange sigue siendo la fuente única; SHA geométrico conservado exactamente `1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492`. El paquete representa **24 paneles nominales de madera + 4 marcadores conceptuales de apoyo**, no 28 tableros para cortar. Se separan el frente visible del cajón y la caja deslizante; las medidas interiores son geométricas derivadas, no espacio útil validado para herrajes.
+
+Holguras A–B y B–C: 2 mm nominales. Si 296 mm fuese sustrato bruto y se añadiese PVC rígido de 2 mm en cada borde, la interferencia vertical sería teóricamente −2 mm; esto no es una medida de taller validada. La interpretación de dimensiones terminadas, proceso, adhesivo y tolerancias sigue pendiente. 3 mm finales aparece solo como alternativa no seleccionada. No cambiar el CAD a partir de esa ilustración.
+
+Verificación local P4: focales y vecinos **43 PASS, 21 subcasos**; suite completa **686 PASS, 7 SKIP, 0 FAIL, 417 subcasos** (Python 3.12.10 del entorno existente). Los skips son las pruebas de symlink dependientes de privilegios Windows. `verify_pilot_bundle` aprobó el paquete final; CSV/CAD/manifest/render conservan 28 IDs, SHA y estado `DRAFT_NOT_FOR_CUTTING`. Siete SVG de páginas parsean como XML; PNG legibles; PDF real de cuadernillo de siete páginas y PDF de vistas de una página rasterizados y revisados. `git diff --check` limpio. WIP protegido QA: 12 rutas y SHA-256 cotejados contra `wip_transfer_manifest.json` P2/P3, sin cambios de este lote. CI de un SHA P4 no existe hasta publicar un commit, así que no se afirma CI verde.
+
+`fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; sin autorización de exportación nativa, fabricación, corte, perforación o compra. `OWNER_VISUAL_APPROVAL=PENDING`. PR #23 permanece Draft.
+
+**NEXT único:** CHATGPT audita la entrega y propietario revisa.
+
+## HISTÓRICO — PR #23 P2/P3: patas conceptuales y cotas humanas (29-oct-2026)
 
 Sobre la rama feat/carpn-ab-v1, base feature/wall-bar-freecad-v10, desde 51ce7af1aa37fb04cfc0a0ccfd75820f4ec88b46. P2 incorpora cuatro marcadores CAD conceptuales de 40 mm bajo la cajonera, sin apoyo en el tramo libre. La huella 15 × 15 mm solo ilustra el espesor del tablero; no selecciona patas físicas, material ni SKU. Alto exterior conservado en 900 mm. El CADExchange pasa de 24 a 28 elementos nominales, cuatro de ellos marcadores; no cambia la composición de las tres cajas completas ni sus fachadas separadas. Geometría nueva: 1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492.
 

@@ -95,23 +95,28 @@ class WallBarTests(unittest.TestCase):
         box_a = summary["drawer_boxes"]["D1"]
         self.assertEqual((box_a["width_mm"], box_a["height_mm"],
                           box_a["depth_mm"]), (244, 120, 400))
+        self.assertEqual(box_a["internal_clear_dimensions_mm"], [214, 105, 370])
         self.assertEqual(len(box_a["piece_ids"]), 5)
         pages = review_booklet_svgs(model)
-        self.assertIn("Largo X: 900 mm", pages[0])
-        self.assertIn("600 mm libres bajo cubierta", pages[0])
-        self.assertIn("Cajonera: 300 mm", pages[0])
-        self.assertIn("Patas conceptuales: 40 mm, solo cajonera", pages[0])
-        self.assertIn("A = superior (CAD D1)", pages[1])
-        self.assertIn("A · frente 296 × 180 × 15", pages[1])
-        self.assertIn("Caja exterior: 244 × 120 × 400", pages[1])
-        self.assertIn("C · frente 296 × 477 × 15", pages[1])
-        self.assertIn("Caja exterior: 244 × 390 × 400", pages[1])
-        self.assertIn("A ↔ B: 2 mm · B ↔ C: 2 mm nominales", pages[1])
-        self.assertIn("PVC rígido 2 mm puede consumir/superar estas luces", pages[1])
-        self.assertIn("LI/LD carcasa: 15 × 845 × 445 mm", pages[1])
-        self.assertIn("Caja A · exterior (ancho × alto × fondo): 244 × 120 × 400 mm",
-                      pages[2])
-        self.assertIn("Fachada aplicada independiente: 296 × 180 × 15 mm", pages[2])
+        self.assertIn("90 cm de largo", pages[0])
+        self.assertIn("46 cm de fondo", pages[0])
+        self.assertIn("90 cm de alto", pages[0])
+        self.assertIn("60 cm libres", pages[0])
+        self.assertIn("30 cm cajonera", pages[0])
+        self.assertIn("4 cm", pages[0])
+        self.assertIn("orientación A", pages[0])
+        self.assertIn("BAR-COVER-TOP", pages[0])
+        self.assertIn("Cajón A · superior", pages[1])
+        self.assertIn("29,6 × 18 × 1,5 cm", pages[1])
+        self.assertIn("24,4 × 12 × 40 cm", pages[1])
+        self.assertIn("21,4 × 10,5 × 37 cm", pages[1])
+        self.assertIn("Cajón C · inferior", pages[3])
+        self.assertIn("24,4 × 39 × 40 cm", pages[3])
+        self.assertIn("2 mm nominales", pages[4])
+        self.assertIn("292 mm teóricos, no para sierra", pages[4])
+        self.assertIn("3 mm finales: alternativa a evaluar, no seleccionada", pages[4])
+        self.assertIn("push-to-open", pages[4])
+        self.assertIn("E02", pages[6])
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
                     "purchase_ready"):
             self.assertIs(model[key], False)
@@ -169,7 +174,7 @@ class WallBarTests(unittest.TestCase):
                             b["size_xyz_mm"][0] == 296 for b in fronts))
         sheet = wall_bar_orientation_svg(model)
         ElementTree.fromstring(sheet)
-        self.assertIn("ORIENTACION A CONFIRMADA", sheet)
+        self.assertIn("orientación A", sheet)
         self.assertIn("BAR-COVER-TOP", sheet)
         self.assertIn("CAJONERA_DERECHA-D1-DRAWER_FACADE", sheet)
 
@@ -587,17 +592,21 @@ class WallBarTests(unittest.TestCase):
         for page in pages:
             ElementTree.fromstring(page)
             self.assertIn(sha, page)
-        self.assertIn("A = superior (CAD D1)", pages[1])
-        self.assertIn("B = intermedio (CAD D2)", pages[1])
-        self.assertIn("C = inferior (CAD D3)", pages[1])
-        self.assertIn("E01 cubierta", pages[0])
-        for letter in "ABC":
-            self.assertIn(f'>{letter}</text>', pages[0])
-            self.assertIn(f'>{letter}</text>', pages[1])
+        for letter, position, drawer_id in (
+            ("A", "superior", "D1"),
+            ("B", "intermedio", "D2"),
+            ("C", "inferior", "D3"),
+        ):
+            page = pages["ABC".index(letter) + 1]
+            self.assertIn(f"Cajón {letter} · {position}", page)
+            self.assertIn(f"CAJONERA_DERECHA-{drawer_id}-DRAWER_FACADE", page)
+        self.assertIn("Muro en el extremo corto", pages[0])
+        self.assertIn("cajones abren por el costado largo", pages[0])
+        self.assertIn("BAR-COVER-TOP", pages[0])
 
         # Every visible BOM card maps back to the same reference, dimensions,
         # and CAD ID used by the CSV and CADExchange.
-        bom_root = ElementTree.fromstring(pages[5])
+        bom_root = ElementTree.fromstring(pages[6])
         bom_viewbox = list(map(float, bom_root.get("viewBox").split()))
         _, _, bom_width, bom_height = bom_viewbox
         cards = [item for item in bom_root.iter()
@@ -634,8 +643,13 @@ class WallBarTests(unittest.TestCase):
                              f'× {row["espesor_mm"]} mm')
             self.assertEqual(card.get("data-cad-id"), csv_row["id_cad"])
             fields = text_by_ref[ref]
-            self.assertEqual(fields["label"],
-                             f'{row["referencia"]} · {row["descripcion"]}')
+            expected_label = (
+                f'{row["referencia"]} · Marcador conceptual de apoyo '
+                '(no pieza seleccionada)'
+                if card.get("data-category") == "support-concept"
+                else f'{row["referencia"]} · {row["descripcion"]}'
+            )
+            self.assertEqual(fields["label"], expected_label)
             self.assertEqual(fields["size"], card.get("data-nominal-size"))
             self.assertEqual(fields["cad-id"], row["id_cad"])
             label_node = next(item for item in bom_root.iter()
@@ -661,7 +675,7 @@ class WallBarTests(unittest.TestCase):
 
         # Recover every source step from the rendered SVG tspans. This checks
         # wrapping, card spacing and page bounds rather than XML validity alone.
-        guide_root = ElementTree.fromstring(pages[6])
+        guide_root = ElementTree.fromstring(pages[5])
         guide_viewbox = list(map(float, guide_root.get("viewBox").split()))
         _, _, guide_width, guide_height = guide_viewbox
         source_steps = [line.split(". ", 1)[1]
@@ -703,9 +717,9 @@ class WallBarTests(unittest.TestCase):
             last_baseline = (float(text_node.get("y")) +
                              sum(float(item.get("dy", "0")) for item in tspans))
             self.assertLessEqual(last_baseline + 6, card_y + card_h)
-        self.assertIn("NO FABRICAR", pages[6])
-        self.assertIn("El apoyo mural y su seguridad los verifica el instalador en obra.",
-                      pages[6])
+        self.assertIn("NO FABRICAR", pages[5])
+        self.assertIn("El propietario todavía no ha aprobado visualmente el diseño.",
+                      pages[5])
         self.assertFalse(model["fabrication_ready"])
 
     def test_review_booklet_wraps_arbitrarily_long_guide_steps(self):
@@ -720,17 +734,15 @@ class WallBarTests(unittest.TestCase):
                      + ("palabra larga y verificable " * 12).strip())
         guide = files["CN-BAR-001-guia-de-armado-REVISION.md"]
         guide = guide.replace(
-            "3. Secuencia conceptual: caja cerrada de cuatro paredes y fondo; "
-            "validar la corredera exacta y presentarla nivelada; solo después "
-            "montar y ajustar la fachada decorativa separada. La fijación aún "
-            "no está especificada.",
+            "3. A va arriba, B en medio y C abajo; cada caja se desliza detrás "
+            "de su frente.",
             "3. " + long_step,
         )
         files["CN-BAR-001-guia-de-armado-REVISION.md"] = guide
         with patch("carpinova_agent.wall_bar_delivery.review_files",
                    return_value=files):
             pages = review_booklet_svgs(model)
-        root = ElementTree.fromstring(pages[6])
+        root = ElementTree.fromstring(pages[5])
         step = next(item for item in root.iter()
                     if item.tag.endswith("text")
                     and item.get("data-guide-step") == "03")
