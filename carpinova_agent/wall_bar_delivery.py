@@ -134,12 +134,17 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
 
     positions = {"A": "superior", "B": "intermedio", "C": "inferior"}
     plain_parts = {
-        "01": "Frente blanco visible cuando cierra",
-        "02": "Pared delantera interior de la caja; no es otra tapa visible",
+        "01": "Frente decorativo EXTERIOR aplicado",
+        "02": "Pared frontal INTERIOR; no es otra fachada visible",
         "03": "Costado izquierdo",
         "04": "Costado derecho",
         "05": "Pared trasera",
-        "06": "Base o fondo horizontal de abajo",
+        "06": "Fondo inferior",
+    }
+    role_color = {
+        "drawer_bottom": "#ddc49b", "drawer_side_left": "#aac7d0",
+        "drawer_side_right": "#92b7c1", "drawer_front_wall": "#d6b987",
+        "drawer_rear_wall": "#b8cbd2", "drawer_facade": "#ffffff",
     }
     for letter, did in DRAWERS:
         subset = [r for r in rows if r["referencia"].startswith(letter)]
@@ -148,31 +153,29 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         face = human["facades"][letter]
         box = human["drawer_boxes"][did]
         face_part = pieces[face["piece_id"]]
-        fx, fy, _ = face_part["origin_xyz_mm"]
         fw, fh, ft = face_part["size_xyz_mm"]
-        face_scale = min(0.8, 440 / fw, 300 / fh)
-        face_left = 400 - fw * face_scale / 2
-        face_top = 435 - fh * face_scale / 2
+        face_scale = 0.74
+        face_left = 255 - fw * face_scale / 2
+        face_top = 420 - fh * face_scale / 2
         face_bottom = face_top + fh * face_scale
 
         box_parts = [pieces[row["id_cad"]] for row in subset
                      if row["id_cad"] != face["piece_id"]]
         if len(box_parts) != 5:
             raise DesignError("La caja deslizante debe conservar cinco paneles: " + letter)
+        side_left = next(p for p in box_parts if p["role"] == "drawer_side_left")
+        side_right = next(p for p in box_parts if p["role"] == "drawer_side_right")
+        front_wall = next(p for p in box_parts if p["role"] == "drawer_front_wall")
+        rear_wall = next(p for p in box_parts if p["role"] == "drawer_rear_wall")
         min_x = min(p["origin_xyz_mm"][0] for p in box_parts)
         max_x = max(p["origin_xyz_mm"][0] + p["size_xyz_mm"][0]
                     for p in box_parts)
         min_z = min(p["origin_xyz_mm"][2] for p in box_parts)
         max_z = max(p["origin_xyz_mm"][2] + p["size_xyz_mm"][2]
                     for p in box_parts)
-        plan_scale = min(0.58, 380 / (max_x-min_x), 300 / (max_z-min_z))
-        plan_left, plan_top = 1060.0, 270.0
+        plan_scale = min(0.70, 420 / (max_x-min_x), 300 / (max_z-min_z))
+        plan_left, plan_top = 745.0 - (max_x-min_x)*plan_scale/2, 270.0
         plan_width, plan_depth = (max_x-min_x)*plan_scale, (max_z-min_z)*plan_scale
-        side_left = next(p for p in box_parts if p["role"] == "drawer_side_left")
-        side_right = next(p for p in box_parts if p["role"] == "drawer_side_right")
-        front_wall = next(p for p in box_parts if p["role"] == "drawer_front_wall")
-        rear_wall = next(p for p in box_parts if p["role"] == "drawer_rear_wall")
-        bottom = next(p for p in box_parts if p["role"] == "drawer_bottom")
         inner_x0 = side_left["origin_xyz_mm"][0] + side_left["size_xyz_mm"][0]
         inner_x1 = side_right["origin_xyz_mm"][0]
         inner_z0 = front_wall["origin_xyz_mm"][2] + front_wall["size_xyz_mm"][2]
@@ -185,7 +188,7 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         svg = [
             '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130" '
             'viewBox="0 0 1600 1130" role="img" '
-            f'aria-label="Cajón {letter}: frente visible y caja deslizante con dimensiones nominales">',
+            f'aria-label="Cajón {letter}: frente aplicado, caja abierta y perspectiva del conjunto armado">',
             '<defs><marker id="dim-arrow" markerWidth="8" markerHeight="8" '
             'refX="4" refY="4" orient="auto-start-reverse">'
             '<path d="M0,0 L8,4 L0,8 z" fill="#315d73"/></marker></defs>',
@@ -195,47 +198,41 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             f'Cajón {letter} · {positions[letter]}</text>',
             '<text x="55" y="94" fill="#f3d5aa" font-size="19" font-weight="bold">'
             'REVISIÓN NOMINAL · NO CORTAR NI PERFORAR</text>',
-            '<rect x="40" y="150" width="720" height="520" rx="14" '
+            '<rect x="40" y="150" width="430" height="520" rx="14" '
             'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
-            '<text x="70" y="196" font-size="23" font-weight="bold">'
+            '<text x="60" y="184" font-size="18" font-weight="bold">'
             '(1) Frente blanco visible cuando cierra</text>',
             '<rect data-piece-id="' + escape(face_part["piece_id"], quote=True) + '" '
-            f'x="{face_left:.2f}" y="{face_top:.2f}" '
+            f'data-piece-reference="{letter}01" x="{face_left:.2f}" y="{face_top:.2f}" '
             f'width="{fw*face_scale:.2f}" height="{fh*face_scale:.2f}" '
             'fill="#ffffff" stroke="#456678" stroke-width="3"/>',
-            f'<text x="{face_left+12:.2f}" y="{face_top+24:.2f}" '
-            'font-size="14" font-weight="bold" fill="#587083">'
-            f'{letter}01</text>',
+            f'<text x="{face_left+10:.2f}" y="{face_top+22:.2f}" '
+            'font-size="14" font-weight="bold" fill="#315d73">'
+            f'{letter}01 · EXTERIOR</text>',
             h_dimension(letter+"-front-width", face_left,
-                        face_left+fw*face_scale, face_top-32, face_top,
+                        face_left+fw*face_scale, face_top-24, face_top,
                         f'{format_mm_as_cm(fw)} cm de ancho'),
-            v_dimension(letter+"-front-height", face_left+fw*face_scale+33,
+            v_dimension(letter+"-front-height", face_left+fw*face_scale+31,
                         face_top, face_bottom, face_left+fw*face_scale,
                         f'{format_mm_as_cm(fh)} cm de alto'),
-            f'<text x="70" y="622" font-size="18" font-weight="bold">'
+            f'<text x="60" y="615" font-size="17" font-weight="bold">'
             f'{format_mm_as_cm(fw)} × {format_mm_as_cm(fh)} × '
             f'{format_mm_as_cm(ft)} cm</text>',
-            '<text x="70" y="649" font-size="15" fill="#536b7e">'
-            'Ancho × alto × espesor · el frente es una pieza separada</text>',
-            '<rect x="840" y="150" width="720" height="520" rx="14" '
+            '<text x="60" y="642" font-size="13" fill="#536b7e">'
+            f'{fw} × {fh} × {ft} mm · objetivo exterior; el frente aplicado es pieza separada.</text>',
+            '<rect x="490" y="150" width="510" height="520" rx="14" '
             'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
-            '<text x="870" y="196" font-size="23" font-weight="bold">'
-            '(2) Caja de madera que se desliza detrás</text>',
-            '<text x="870" y="226" font-size="15" fill="#536b7e">'
-            'Vista desde arriba; las líneas punteadas muestran de dónde se mide el interior.</text>',
+            '<text x="510" y="184" font-size="18" font-weight="bold">'
+            '(2) Caja de madera que se desliza detrás · vista superior</text>',
+            '<text x="510" y="213" font-size="14" fill="#536b7e">'
+            'Vista abierta de la caja; el frente 01 no se dibuja aquí para leer su interior.</text>',
             f'<rect x="{plan_left:.2f}" y="{plan_top:.2f}" '
             f'width="{plan_width:.2f}" height="{plan_depth:.2f}" '
             'fill="#e7d2ae" stroke="#435c69" stroke-width="2"/>',
         ]
-        # Paint each panel from its exact CAD rectangle; the floor is first,
-        # then the four walls are drawn over its edges in the top view.
+        # The plan and all component references use the five box parts from CAD.
         draw_order = ("drawer_bottom", "drawer_side_left", "drawer_side_right",
                       "drawer_front_wall", "drawer_rear_wall")
-        role_color = {
-            "drawer_bottom": "#ddc49b", "drawer_side_left": "#aac7d0",
-            "drawer_side_right": "#aac7d0", "drawer_front_wall": "#d6b987",
-            "drawer_rear_wall": "#b8cbd2",
-        }
         for role in draw_order:
             part = next(p for p in box_parts if p["role"] == role)
             x, _, z = part["origin_xyz_mm"]
@@ -244,6 +241,7 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             py = plan_top + (max_z-z-sz)*plan_scale
             svg.append(
                 f'<rect data-piece-id="{escape(part["piece_id"], quote=True)}" '
+                f'data-piece-reference="{refs_by_id[part["piece_id"]]}" '
                 f'x="{px:.2f}" y="{py:.2f}" width="{sx*plan_scale:.2f}" '
                 f'height="{sz*plan_scale:.2f}" fill="{role_color[role]}" '
                 'stroke="#405c6b" stroke-width="2"/>'
@@ -253,62 +251,195 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             f'width="{iw:.2f}" height="{idepth:.2f}" fill="none" '
             'stroke="#187b7b" stroke-width="2" stroke-dasharray="7 5"/>',
             f'<text x="{plan_left+plan_width/2:.2f}" y="{plan_top+plan_depth/2:.2f}" '
-            'text-anchor="middle" font-size="17" font-weight="bold" fill="#31515e">'
+            'text-anchor="middle" font-size="16" font-weight="bold" fill="#31515e">'
             f'{letter}06 · fondo</text>',
             f'<text x="{plan_left+plan_width/2:.2f}" y="{plan_top+plan_depth+18:.2f}" '
-            'text-anchor="middle" font-size="14" font-weight="bold">'
-            f'{letter}02 · pared delantera</text>',
+            'text-anchor="middle" font-size="13" font-weight="bold">'
+            f'{letter}02 · pared frontal INTERIOR</text>',
             f'<text x="{plan_left+plan_width/2:.2f}" y="{plan_top-7:.2f}" '
-            'text-anchor="middle" font-size="14" font-weight="bold">'
+            'text-anchor="middle" font-size="13" font-weight="bold">'
             f'{letter}05 · pared trasera</text>',
             f'<text x="{plan_left-6:.2f}" y="{plan_top+plan_depth/2:.2f}" '
-            'text-anchor="end" font-size="14" font-weight="bold">'
+            'text-anchor="end" font-size="13" font-weight="bold">'
             f'{letter}03</text>',
             f'<text x="{plan_left+plan_width+6:.2f}" y="{plan_top+plan_depth/2:.2f}" '
-            'font-size="14" font-weight="bold">'
+            'font-size="13" font-weight="bold">'
             f'{letter}04</text>',
             h_dimension(letter+"-box-width", plan_left,
-                        plan_left+plan_width, plan_top+plan_depth+72,
+                        plan_left+plan_width, plan_top+plan_depth+44,
                         plan_top+plan_depth, f'{format_mm_as_cm(box["width_mm"])} cm'),
-            '<path d="M770 405 H822" stroke="#315d73" stroke-width="3" '
-            'marker-end="url(#dim-arrow)"/>',
-            '<text x="796" y="390" text-anchor="middle" font-size="14" '
-            'font-weight="bold">detrás</text>',
-            f'<text x="870" y="604" font-size="17" font-weight="bold">'
+            f'<text x="510" y="612" font-size="15" font-weight="bold">'
             f'Medida por fuera de la caja que se desliza: '
             f'{format_mm_as_cm(box["width_mm"])} × '
             f'{format_mm_as_cm(box["height_mm"])} × '
             f'{format_mm_as_cm(box["depth_mm"])} cm</text>',
-            '<text x="870" y="630" font-size="15" fill="#536b7e">'
-            'Ancho × alto × fondo · la caja sale hacia el frente al abrir.</text>',
-            '<text x="870" y="650" font-size="14" fill="#315d73">'
-            'Medidas por fuera; no son espacio útil interior.</text>',
-            '<rect x="40" y="700" width="1520" height="320" rx="14" '
-            'fill="#ffffff" stroke="#d1dce4" stroke-width="2"/>',
-            '<text x="66" y="742" font-size="23" font-weight="bold">'
-            'Qué significa cada código</text>',
+            '<text x="510" y="638" font-size="14" fill="#536b7e">'
+            'Espacio útil final: pendiente de validar; correderas sin seleccionar.</text>',
+            '<rect x="1020" y="150" width="540" height="520" rx="14" '
+            'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
+            '<text x="1040" y="184" font-size="18" font-weight="bold">'
+            '(3) Perspectiva · conjunto armado desde CAD</text>',
         ))
-        code_positions = ((68, 790), (810, 790), (68, 850), (810, 850),
-                          (68, 910), (810, 910))
+
+        all_drawer_parts = [pieces[row["id_cad"]] for row in subset]
+        xyz_bounds = []
+        for part in all_drawer_parts:
+            ox, oy, oz = part["origin_xyz_mm"]
+            sx, sy, sz = part["size_xyz_mm"]
+            xyz_bounds.extend((x, y, z)
+                              for x in (ox, ox+sx)
+                              for y in (oy, oy+sy)
+                              for z in (oz, oz+sz))
+        min_x = min(point[0] for point in xyz_bounds)
+        min_y = min(point[1] for point in xyz_bounds)
+        min_z = min(point[2] for point in xyz_bounds)
+
+        def oblique_raw(point: tuple[float, float, float]) -> tuple[float, float]:
+            x, y, z = point
+            return (x-min_x+0.42*(z-min_z),
+                    -(y-min_y)-0.28*(z-min_z))
+
+        raw_points = [oblique_raw(point) for point in xyz_bounds]
+        raw_left = min(point[0] for point in raw_points)
+        raw_right = max(point[0] for point in raw_points)
+        raw_top = min(point[1] for point in raw_points)
+        raw_bottom = max(point[1] for point in raw_points)
+        iso_scale = 0.72
+        iso_center_x, iso_center_y = 1290.0, 410.0
+        raw_center_x = (raw_left+raw_right)/2
+        raw_center_y = (raw_top+raw_bottom)/2
+
+        def oblique_point(point: tuple[float, float, float]) -> tuple[float, float]:
+            u, v = oblique_raw(point)
+            return (iso_center_x+(u-raw_center_x)*iso_scale,
+                    iso_center_y+(v-raw_center_y)*iso_scale)
+
+        def projection_face(part: dict[str, Any],
+                            corners: tuple[tuple[float, float, float], ...],
+                            fill: str | None = None) -> str:
+            points = " ".join(
+                f"{x:.2f},{y:.2f}" for x, y in
+                (oblique_point(point) for point in corners)
+            )
+            pid = part["piece_id"]
+            return (
+                f'<polygon data-projection-view="assembled" '
+                f'data-projection-piece-id="{escape(pid, quote=True)}" '
+                f'data-projection-reference="{refs_by_id[pid]}" '
+                f'points="{points}" fill="{fill or role_color[part["role"]]}" '
+                'stroke="#405c6b" stroke-width="2"/>'
+            )
+
+        projected_by_role = {part["role"]: part for part in all_drawer_parts}
+        svg.append('<g data-assembly-view="assembled">')
+        for role in ("drawer_bottom", "drawer_rear_wall", "drawer_side_left",
+                     "drawer_side_right", "drawer_front_wall"):
+            part = projected_by_role[role]
+            x, y, z = part["origin_xyz_mm"]
+            sx, sy, sz = part["size_xyz_mm"]
+            if role == "drawer_bottom":
+                corners = ((x, y+sy, z), (x+sx, y+sy, z),
+                           (x+sx, y+sy, z+sz), (x, y+sy, z+sz))
+            elif role in ("drawer_side_left", "drawer_side_right"):
+                plane_x = x if role == "drawer_side_left" else x+sx
+                corners = ((plane_x, y, z), (plane_x, y+sy, z),
+                           (plane_x, y+sy, z+sz), (plane_x, y, z+sz))
+            elif role in ("drawer_front_wall", "drawer_facade"):
+                corners = ((x, y, z), (x+sx, y, z),
+                           (x+sx, y+sy, z), (x, y+sy, z))
+            else:
+                plane_z = z+sz
+                corners = ((x, y, plane_z), (x+sx, y, plane_z),
+                           (x+sx, y+sy, plane_z), (x, y+sy, plane_z))
+            svg.append(projection_face(part, corners))
+        facade_part = projected_by_role["drawer_facade"]
+        facade_x, facade_y, facade_z = facade_part["origin_xyz_mm"]
+        facade_sx, facade_sy, facade_sz = facade_part["size_xyz_mm"]
+        svg.extend((
+            projection_face(
+                facade_part,
+                ((facade_x, facade_y+facade_sy, facade_z),
+                 (facade_x+facade_sx, facade_y+facade_sy, facade_z),
+                 (facade_x+facade_sx, facade_y+facade_sy, facade_z+facade_sz),
+                 (facade_x, facade_y+facade_sy, facade_z+facade_sz)),
+                "#eef2f4",
+            ),
+            projection_face(
+                facade_part,
+                ((facade_x+facade_sx, facade_y, facade_z),
+                 (facade_x+facade_sx, facade_y+facade_sy, facade_z),
+                 (facade_x+facade_sx, facade_y+facade_sy, facade_z+facade_sz),
+                 (facade_x+facade_sx, facade_y, facade_z+facade_sz)),
+                "#dce4e8",
+            ),
+            projection_face(
+                facade_part,
+                ((facade_x, facade_y, facade_z),
+                 (facade_x+facade_sx, facade_y, facade_z),
+                 (facade_x+facade_sx, facade_y+facade_sy, facade_z),
+                 (facade_x, facade_y+facade_sy, facade_z)),
+            ),
+        ))
+        facade_corners = (
+            (face_part["origin_xyz_mm"][0],
+             face_part["origin_xyz_mm"][1],
+             face_part["origin_xyz_mm"][2]),
+            (face_part["origin_xyz_mm"][0]+fw,
+             face_part["origin_xyz_mm"][1]+fh,
+             face_part["origin_xyz_mm"][2]),
+        )
+        fx0, fy0 = oblique_point(facade_corners[0])
+        fx1, fy1 = oblique_point(facade_corners[1])
+        svg.extend((
+            f'<text x="{(fx0+fx1)/2:.2f}" y="{(fy0+fy1)/2:.2f}" '
+            'text-anchor="middle" font-size="15" font-weight="bold" '
+            'fill="#315d73">'
+            f'{letter}01 · EXTERIOR</text>',
+            '</g>',
+            '<text x="1040" y="626" font-size="14" font-weight="bold" fill="#315d73">'
+            f'{letter}02 queda detrás de {letter}01 al cerrar; la vista superior muestra la pared.</text>',
+            '<text x="1040" y="650" font-size="13" fill="#536b7e">'
+            'Sin rieles, tornillos ni fijación dibujados.</text>',
+            '<rect x="40" y="700" width="960" height="320" rx="14" '
+            'fill="#ffffff" stroke="#d1dce4" stroke-width="2"/>',
+            '<text x="66" y="742" font-size="22" font-weight="bold">'
+            'Seis piezas nominales · códigos vinculados al CAD</text>',
+            '<rect x="1020" y="700" width="540" height="320" rx="14" '
+            'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
+            '<text x="1045" y="742" font-size="21" font-weight="bold">'
+            'Cómo se lee el conjunto</text>',
+        ))
+        code_positions = ((68, 795), (68, 850), (68, 905),
+                          (520, 795), (520, 850), (520, 905))
         code_order = ("01", "02", "03", "04", "05", "06")
         for code, (x, y) in zip(code_order, code_positions):
             svg.extend((
-                f'<text x="{x}" y="{y}" font-size="16" font-weight="bold" '
+                f'<text x="{x}" y="{y}" font-size="14" font-weight="bold" '
                 f'fill="#315d73">{letter}{code}</text>',
-                f'<text x="{x+66}" y="{y}" font-size="16" fill="#20394b">'
+                f'<text x="{x+54}" y="{y}" font-size="13" fill="#20394b">'
                 f'{escape(plain_parts[code])}</text>',
             ))
         iw_mm, ih_mm, id_mm = box["internal_clear_dimensions_mm"]
         svg.extend((
-            '<text x="68" y="970" font-size="17" font-weight="bold" '
-            'fill="#187b7b">Luz interior geométrica CAD (ancho × alto × fondo): '
+            '<text x="1045" y="792" font-size="15" fill="#20394b">'
+            '1. Primero se forma la caja con cuatro paredes y el fondo.</text>',
+            '<text x="1045" y="830" font-size="15" fill="#20394b">'
+            '2. Después se fija el frente decorativo aplicado.</text>',
+            '<text x="1045" y="870" font-size="14" fill="#536b7e">'
+            'Secuencia conceptual; la unión y su fijación no están definidas.</text>',
+            '<text x="1045" y="902" font-size="14" fill="#536b7e">'
+            f'{letter}02 queda cubierto por {letter}01 cuando cierra; '
+            'no es una segunda fachada exterior.</text>',
+            f'<text x="68" y="970" font-size="16" font-weight="bold" '
+            f'fill="#187b7b">Luz interior geométrica CAD (ancho × alto × fondo): '
             f'{format_mm_as_cm(iw_mm)} × {format_mm_as_cm(ih_mm)} × '
-            f'{format_mm_as_cm(id_mm)} cm</text>',
-            '<text x="68" y="995" font-size="15" fill="#536b7e">'
-            'Cálculo entre las caras de las paredes y la base; sin rieles. '
-            'Espacio útil final: pendiente de validar.</text>',
+            f'{format_mm_as_cm(id_mm)} cm; sin correderas.</text>',
+            '<text x="1045" y="948" font-size="14" fill="#9e2733" font-weight="bold">'
+            'Riel, canto y holguras finales pendientes de validar.</text>',
+            '<text x="1045" y="980" font-size="14" fill="#9e2733" font-weight="bold">'
+            'REVISIÓN NOMINAL · NO CORTAR NI PERFORAR</text>',
             '<text x="50" y="1055" font-size="16" fill="#9e2733" font-weight="bold">'
-            'Riel, canto y fijación del frente sin especificar. Esta vista no los representa ni los valida.</text>',
+            'Las vistas explican las piezas; no representan una unión, herraje ni montaje aprobado.</text>',
             f'<text x="50" y="1087" font-size="12" fill="#617688">'
             f'Fuente CAD · {escape(cad["geometry_sha256"])} · NO FABRICAR</text>',
             '</svg>',
@@ -471,79 +602,239 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
     gap_ab = human["front_gaps_mm"]["A_B"]
     gap_bc = human["front_gaps_mm"]["B_C"]
     faces = edge["fronts"]
-    raw_a_w = faces["D1"]["if_nominal_is_raw_resulting_width_mm"]
-    raw_a_h = faces["D1"]["if_nominal_is_raw_resulting_height_mm"]
-    raw_c_w = faces["D3"]["if_nominal_is_raw_resulting_width_mm"]
-    raw_c_h = faces["D3"]["if_nominal_is_raw_resulting_height_mm"]
-    finish_a_w = faces["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"]
-    finish_a_h = faces["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"]
-    finish_c_w = faces["D3"]["if_nominal_is_finished_theoretical_raw_width_mm"]
-    finish_c_h = faces["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"]
     target_a_w, target_a_h = faces["D1"]["proposed_finished_outer_target_size_mm"]
     target_c_w, target_c_h = faces["D3"]["proposed_finished_outer_target_size_mm"]
+    substrate_a_w = faces["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"]
+    substrate_a_h = faces["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"]
+    substrate_c_w = faces["D3"]["if_nominal_is_finished_theoretical_raw_width_mm"]
+    substrate_c_h = faces["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"]
     band = faces["D1"]["rigid_edge_mm_each_side"]
     invalid_raw = edge["raw_interpretation_scenario"]
     if invalid_raw.get("status") != "INVALID_RAW_VS_FINISHED":
         raise DesignError("La interpretación bruta que deja luz cero debe rechazarse.")
+
+    cabinet_left_part = pieces["CAJONERA_DERECHA-LEFT_SIDE"]
+    cabinet_right_part = pieces["CAJONERA_DERECHA-RIGHT_SIDE"]
+    cabinet_top_part = pieces["CAJONERA_DERECHA-TOP"]
+    cabinet_base_part = pieces["CAJONERA_DERECHA-BOTTOM"]
+    cabinet_x0 = cabinet_left_part["origin_xyz_mm"][0]
+    cabinet_x1 = (cabinet_right_part["origin_xyz_mm"][0]
+                  + cabinet_right_part["size_xyz_mm"][0])
+    cabinet_y0 = cabinet_base_part["origin_xyz_mm"][1]
+    cabinet_y1 = (cabinet_top_part["origin_xyz_mm"][1]
+                  + cabinet_top_part["size_xyz_mm"][1])
+    cabinet_width, cabinet_height = cabinet_x1-cabinet_x0, cabinet_y1-cabinet_y0
+    front_intervals = {}
+    for letter, did in DRAWERS:
+        facade_id = human["facades"][letter]["piece_id"]
+        part = pieces[facade_id]
+        x, y, z = part["origin_xyz_mm"]
+        width, height, depth = part["size_xyz_mm"]
+        front_intervals[letter] = {
+            "piece_id": facade_id, "x0": x, "x1": x+width,
+            "y0": y, "y1": y+height, "z0": z, "depth": depth,
+            "width": width, "height": height,
+        }
+    front_a, front_b, front_c = (front_intervals[key] for key in "ABC")
+    gap_values = {
+        "PERIMETER-LEFT": front_a["x0"]-cabinet_x0,
+        "PERIMETER-RIGHT": cabinet_x1-front_a["x1"],
+        "PERIMETER-TOP": cabinet_y1-front_a["y1"],
+        "PERIMETER-BOTTOM": front_c["y0"]-cabinet_y0,
+        "A-B": front_a["y0"]-front_b["y1"],
+        "B-C": front_b["y0"]-front_c["y1"],
+    }
+    if (gap_values["A-B"] != gap_ab or gap_values["B-C"] != gap_bc
+            or len(set(gap_values.values())) != 1
+            or min(gap_values.values()) < 0):
+        raise DesignError("Las seis separaciones no coinciden con el CAD y Maestro.")
+
+    drawing_scale = min(0.72, 610/cabinet_height, 350/cabinet_width)
+    cabinet_draw_left = 330.0
+    cabinet_draw_top = 270.0
+    cabinet_draw_right = cabinet_draw_left + cabinet_width*drawing_scale
+    cabinet_draw_bottom = cabinet_draw_top + cabinet_height*drawing_scale
+
+    def front_point(x: float, y: float) -> tuple[float, float]:
+        return (cabinet_draw_left+(x-cabinet_x0)*drawing_scale,
+                cabinet_draw_top+(cabinet_y1-y)*drawing_scale)
+
     gap_svg_body: list[str] = [
         '<text x="58" y="174" font-size="22" font-weight="bold" '
-        'fill="#20394b">Separación objetivo: 4 mm entre envolventes exteriores terminadas propuestas.</text>',
+        'fill="#20394b">Separación objetivo: 4 mm entre envolventes exteriores terminadas propuestas; seis posiciones.</text>',
+        '<rect x="55" y="195" width="660" height="700" rx="12" '
+        'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
+        '<text x="78" y="226" font-size="19" font-weight="bold" fill="#20394b">'
+        'Cajonera completa · elevación frontal proporcional al CAD</text>',
+        f'<g data-cabinet-outline="drawer-module" '
+        f'data-source-width-mm="{cabinet_width}" '
+        f'data-source-height-mm="{cabinet_height}">',
+        f'<rect x="{cabinet_draw_left:.2f}" y="{cabinet_draw_top:.2f}" '
+        f'width="{cabinet_width*drawing_scale:.2f}" '
+        f'height="{cabinet_height*drawing_scale:.2f}" '
+        'fill="#e6edf0" stroke="#405c6b" stroke-width="3"/>',
     ]
-    for gap_id, upper, lower, value, left in (
-        ("A-B", "Borde inferior A", "Borde superior B", gap_ab, 55),
-        ("B-C", "Borde inferior B", "Borde superior C", gap_bc, 815),
-    ):
+    width_y = cabinet_draw_top-9
+    gap_svg_body.extend((
+        f'<line x1="{cabinet_draw_left:.2f}" y1="{width_y:.2f}" '
+        f'x2="{cabinet_draw_right:.2f}" y2="{width_y:.2f}" '
+        'stroke="#315d73" stroke-width="1.8" marker-start="url(#dim-arrow)" '
+        'marker-end="url(#dim-arrow)"/>',
+        f'<text x="{(cabinet_draw_left+cabinet_draw_right)/2:.2f}" '
+        f'y="{width_y-8:.2f}" text-anchor="middle" font-size="16" '
+        'font-weight="bold" fill="#315d73">'
+        f'{cabinet_width} mm de ancho</text>',
+    ))
+    for letter in "ABC":
+        front = front_intervals[letter]
+        fx0, fy0 = front_point(front["x0"], front["y1"])
+        fx1, fy1 = front_point(front["x1"], front["y0"])
         gap_svg_body.extend((
-            f'<rect x="{left}" y="205" width="730" height="285" rx="12" '
+            f'<rect data-front-letter="{letter}" '
+            f'data-cad-piece-id="{escape(front["piece_id"], quote=True)}" '
+            f'data-origin-x-mm="{front["x0"]}" data-origin-y-mm="{front["y0"]}" '
+            f'data-width-mm="{front["width"]}" data-height-mm="{front["height"]}" '
+            f'x="{fx0:.2f}" y="{fy0:.2f}" width="{fx1-fx0:.2f}" '
+            f'height="{fy1-fy0:.2f}" fill="#ffffff" stroke="#52798a" '
+            'stroke-width="2"/>',
+            f'<text x="{(fx0+fx1)/2:.2f}" y="{(fy0+fy1)/2+6:.2f}" '
+            'text-anchor="middle" font-size="20" font-weight="bold" '
+            'fill="#315d73">'
+            f'{letter}</text>',
+        ))
+    gap_svg_body.append('</g>')
+
+    perimeter_callouts = (
+        ("PERIMETER-LEFT", "Lateral izquierdo",
+         (cabinet_x0+front_a["x0"])/2,
+         (front_a["y0"]+front_a["y1"])/2, "left"),
+        ("PERIMETER-RIGHT", "Lateral derecho",
+         (front_a["x1"]+cabinet_x1)/2,
+         (front_a["y0"]+front_a["y1"])/2, "right"),
+        ("PERIMETER-TOP", "Arriba", (front_a["x0"]+front_a["x1"])/2,
+         (front_a["y1"]+cabinet_y1)/2, "top"),
+        ("PERIMETER-BOTTOM", "Abajo", (front_c["x0"]+front_c["x1"])/2,
+         (cabinet_y0+front_c["y0"])/2, "bottom"),
+    )
+    for gap_id, label, source_x, source_y, side in perimeter_callouts:
+        px, py = front_point(source_x, source_y)
+        gap_value = gap_values[gap_id]
+        gap_svg_body.append(
+            f'<g data-gap-id="{gap_id}" data-gap-kind="perimeter" '
+            f'data-nominal-gap-mm="{gap_value}">'
+            f'<circle cx="{px:.2f}" cy="{py:.2f}" r="4.5" fill="#d27b27"/>'
+            '</g>'
+        )
+        if side == "left":
+            label_x, label_y = cabinet_draw_left-72, py+6
+            gap_svg_body.extend((
+                f'<path d="M{label_x+8:.2f},{label_y-5:.2f} '
+                f'H{px:.2f}" fill="none" stroke="#d27b27" stroke-width="1.5"/>',
+                f'<text x="{label_x:.2f}" y="{label_y:.2f}" text-anchor="end" '
+                'font-size="14" font-weight="bold" fill="#8c571d">'
+                f'{gap_value} mm · {label}</text>',
+            ))
+        elif side == "right":
+            label_x, label_y = cabinet_draw_right+18, py+6
+            gap_svg_body.extend((
+                f'<path d="M{px:.2f},{py:.2f} H{label_x-4:.2f}" '
+                'fill="none" stroke="#d27b27" stroke-width="1.5"/>',
+                f'<text x="{label_x:.2f}" y="{label_y:.2f}" '
+                'font-size="14" font-weight="bold" fill="#8c571d">'
+                f'{gap_value} mm · {label}</text>',
+            ))
+        else:
+            label_x = cabinet_draw_right+18
+            label_y = py + (14 if side == "top" else -5)
+            gap_svg_body.extend((
+                f'<path d="M{px:.2f},{py:.2f} L{label_x-5:.2f},{label_y-5:.2f}" '
+                'fill="none" stroke="#d27b27" stroke-width="1.5"/>',
+                f'<text x="{label_x:.2f}" y="{label_y:.2f}" '
+                'font-size="14" font-weight="bold" fill="#8c571d">'
+                f'{gap_value} mm · {label}</text>',
+            ))
+
+    detail_cards = (
+        ("A-B", "Borde inferior A", "Borde superior B", front_a, front_b, 205),
+        ("B-C", "Borde inferior B", "Borde superior C", front_b, front_c, 520),
+    )
+    for gap_id, upper_label, lower_label, upper, lower, top in detail_cards:
+        anchor_y = (upper["y0"]+lower["y1"])/2
+        anchor_x = upper["x1"]
+        px, py = front_point(anchor_x, anchor_y)
+        value = gap_values[gap_id]
+        gap_svg_body.append(
+            f'<g data-gap-id="{gap_id}" data-gap-kind="interfront" '
+            f'data-nominal-gap-mm="{value}">'
+            f'<circle cx="{px:.2f}" cy="{py:.2f}" r="4.5" fill="#315d73"/>'
+            '</g>'
+        )
+        card_x, card_width, card_height = 760, 785, 295
+        gap_svg_body.extend((
+            f'<rect x="{card_x}" y="{top}" width="{card_width}" '
+            f'height="{card_height}" rx="12" '
             'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
-            f'<text x="{left+24}" y="243" font-size="22" font-weight="bold" '
+            f'<text x="{card_x+24}" y="{top+37}" font-size="20" font-weight="bold" '
             f'fill="#20394b">Detalle ampliado {gap_id}</text>',
-            f'<text x="{left+28}" y="285" font-size="15" fill="#536b7e">{upper}</text>',
-            f'<rect x="{left+28}" y="300" width="420" height="58" '
+            f'<text x="{card_x+28}" y="{top+70}" font-size="14" fill="#536b7e">'
+            f'{upper_label}</text>',
+            f'<rect x="{card_x+28}" y="{top+82}" width="400" height="50" '
             'fill="#d8e8ed" stroke="#52798a" stroke-width="2"/>',
-            f'<rect x="{left+28}" y="378" width="420" height="58" '
+            f'<line x1="{card_x+28}" y1="{top+132}" '
+            f'x2="{card_x+428}" y2="{top+132}" '
+            'stroke="#d27b27" stroke-width="6"/>',
+            f'<text x="{card_x+28}" y="{top+159}" font-size="14" fill="#536b7e">'
+            f'{lower_label}</text>',
+            f'<rect x="{card_x+28}" y="{top+171}" width="400" height="50" '
             'fill="#e6d2b2" stroke="#52798a" stroke-width="2"/>',
-            f'<text x="{left+28}" y="463" font-size="15" fill="#536b7e">{lower}</text>',
-            f'<g data-gap-id="{gap_id}" data-nominal-gap-mm="{value}">',
-            f'<line x1="{left+448}" y1="358" x2="{left+448}" y2="378" '
+            f'<line x1="{card_x+28}" y1="{top+171}" '
+            f'x2="{card_x+428}" y2="{top+171}" '
+            'stroke="#d27b27" stroke-width="6"/>',
+            f'<g data-gap-detail-for="{gap_id}" '
+            f'data-nominal-gap-mm="{value}">',
+            f'<line x1="{card_x+500}" y1="{top+132}" '
+            f'x2="{card_x+500}" y2="{top+171}" '
             'stroke="#315d73" stroke-width="2.4" marker-start="url(#dim-arrow)" '
             'marker-end="url(#dim-arrow)"/>',
-            f'<text x="{left+475}" y="373" font-size="20" font-weight="bold" '
-            f'fill="#315d73">{value} mm objetivo</text>',
+            f'<text x="{card_x+520}" y="{top+150}" font-size="17" '
+            'font-weight="bold" fill="#315d73">'
+            f'{value} mm libres</text>',
+            f'<text x="{card_x+520}" y="{top+174}" font-size="15" '
+            'font-weight="bold" fill="#315d73">OBJETIVO</text>',
             '</g>',
-            f'<text x="{left+475}" y="410" font-size="14" fill="#536b7e">'
-            'Ampliación esquemática, no a escala</text>',
+            f'<text x="{card_x+520}" y="{top+204}" font-size="14" fill="#536b7e">'
+            'entre bordes terminados</text>',
+            f'<text x="{card_x+28}" y="{top+257}" font-size="14" '
+            'font-weight="bold" fill="#8c571d">'
+            'Naranja: PVC rígido 2 mm candidato; el canto físico no está modelado.</text>',
+            f'<text x="{card_x+28}" y="{top+279}" font-size="13" fill="#536b7e">'
+            'Ampliación esquemática · NO A ESCALA</text>',
         ))
+        line_y = py
+        leader_y = top+36
+        gap_svg_body.append(
+            f'<path d="M{px:.2f},{line_y:.2f} L728,{line_y:.2f} '
+            f'L748,{leader_y:.2f} H760" fill="none" stroke="#315d73" '
+            'stroke-width="1.8"/>'
+        )
     gap_svg_body.extend((
-        '<rect x="55" y="515" width="1490" height="110" rx="12" '
+        '<rect x="55" y="915" width="1490" height="130" rx="12" '
         'fill="#fff3cf" stroke="#e1b844" stroke-width="2"/>',
-        '<text x="80" y="555" font-size="22" font-weight="bold" fill="#775b11">'
-        'Los 4 mm son un objetivo geométrico; la holgura física sigue sin verificar.</text>',
-        '<text x="80" y="592" font-size="19" font-weight="bold" fill="#a12e35">'
-        'PROPUESTA NO APROBADA · NO CORTAR</text>',
-        '<rect x="55" y="650" width="730" height="220" rx="12" '
-        'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
-        '<text x="80" y="691" font-size="21" font-weight="bold">'
-        'Si el objetivo se interpreta por error como sustrato bruto</text>',
-        '<text x="80" y="730" font-size="18">'
-        f'A/B {target_a_w} × {target_a_h} + PVC {band} mm por borde '
-        f'→ {raw_a_w} × {raw_a_h} mm teóricos.',
-        f'<tspan x="80" dy="30">A-B y B-C: {invalid_raw["theoretical_interfront_gaps_mm"]["D2_D1"]} mm teóricos.</tspan>',
-        '<tspan x="80" dy="30">INVALID_RAW_VS_FINISHED · el cero no se acepta como holgura.</tspan></text>',
-        '<rect x="815" y="650" width="730" height="220" rx="12" '
-        'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
-        '<text x="840" y="691" font-size="21" font-weight="bold">'
-        'Objetivos exteriores terminados propuestos</text>',
-        '<text x="840" y="730" font-size="18">'
-        f'A/B: {target_a_w} × {target_a_h} mm ({format_mm_as_cm(target_a_w)} × '
-        f'{format_mm_as_cm(target_a_h)} cm); C: {target_c_w} × {target_c_h} mm.',
-        f'<tspan x="840" dy="30">Sustrato teórico A/B: {finish_a_w} × {finish_a_h}; C: {finish_c_w} × {finish_c_h} mm.</tspan>',
-        f'<tspan x="840" dy="30">Lectura alternativa bruta produciría A/B {raw_a_w} × {raw_a_h}; C {raw_c_w} × {raw_c_h} mm.</tspan>',
-        '<tspan x="840" dy="30">Todo cálculo de sustrato es ilustrativo, no aprobado ni para sierra.</tspan></text>',
-        '<text x="58" y="915" font-size="18" font-weight="bold" fill="#315d73">'
-        'Objetivo entre frentes terminados; no representa luz de corredera ni apertura.</text>',
-        '<text x="58" y="952" font-size="17" fill="#536b7e">'
-        'La separación entre frentes se ve de frente; no es la luz en profundidad para push-to-open. Ese sistema y su ficha siguen pendientes.</text>',
+        '<text x="78" y="940" font-size="14" fill="#775b11">'
+        f'A/B {target_a_w} × {target_a_h} mm y C {target_c_w} × {target_c_h} mm: '
+        f'objetivos exteriores terminados; PVC rígido {band} mm por borde candidato.</text>',
+        '<text x="78" y="963" font-size="14" fill="#775b11">'
+        f'Sustrato teórico ilustrativo (no para sierra): A/B {substrate_a_w} × '
+        f'{substrate_a_h} mm; C {substrate_c_w} × {substrate_c_h} mm.</text>',
+        '<text x="78" y="985" font-size="14" fill="#775b11">'
+        f'Si se toma el objetivo terminado como sustrato bruto y se suma el canto: '
+        f'{gap_values["A-B"]} → '
+        f'{invalid_raw["theoretical_interfront_gaps_mm"]["D2_D1"]} mm teóricos · '
+        'INVALID_RAW_VS_FINISHED; el cero no se acepta como holgura.</text>',
+        '<text x="78" y="1008" font-size="15" font-weight="bold" fill="#a12e35">'
+        'SIN HOLGURA FÍSICA CERTIFICADA · PROPUESTA NO APROBADA · NO CORTAR</text>',
+        '<text x="78" y="1031" font-size="13" fill="#775b11">'
+        'La holgura física sigue sin verificar; no es la luz en profundidad para push-to-open ni una holgura de corredera.</text>',
     ))
     gap_svg = title_svg("Separación objetivo y revisión de cantos", gap_svg_body)
 

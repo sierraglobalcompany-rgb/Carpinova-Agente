@@ -91,9 +91,61 @@ class PR23P5HumanBookletTests(unittest.TestCase):
                     "Medida por fuera de la caja que se desliza",
                     "Espacio útil final: pendiente de validar",
                     f"{letter}02", f"{letter}06",
-                    "no es otra tapa visible", "fondo horizontal de abajo",
+                    "Pared frontal INTERIOR", "no es otra fachada visible",
+                    "Frente decorativo EXTERIOR aplicado", "Fondo inferior",
                 ):
                     self.assertIn(phrase, text)
+                physical_ids = [node.get("data-piece-id") for node in root.iter()
+                                if node.get("data-piece-id")]
+                self.assertEqual(len(physical_ids), 6)
+                self.assertEqual(len(set(physical_ids)), 6)
+                expected_ids = {row["id_cad"] for row in reference_rows(self.model)
+                                if row["referencia"].startswith(letter)}
+                self.assertEqual(set(physical_ids), expected_ids)
+                projection_nodes = [
+                    node for node in root.iter()
+                    if node.get("data-projection-view") == "assembled"
+                ]
+                self.assertEqual(
+                    {node.get("data-projection-piece-id")
+                     for node in projection_nodes},
+                    expected_ids,
+                )
+                self.assertEqual(
+                    {node.get("data-projection-reference")
+                     for node in projection_nodes},
+                    {row["referencia"] for row in reference_rows(self.model)
+                     if row["referencia"].startswith(letter)},
+                )
+                front_wall_label = next(
+                    node for node in root.iter()
+                    if node.tag.endswith("text")
+                    and (node.text or "").strip()
+                    == f"{letter}02 · pared frontal INTERIOR"
+                )
+                width_dimension_label = next(
+                    node for group in root.iter()
+                    if group.get("data-dimension-id") == f"{letter}-box-width"
+                    for node in group.iter()
+                    if node.tag.endswith("text")
+                )
+                self.assertGreater(
+                    float(width_dimension_label.get("y"))
+                    - float(front_wall_label.get("y")),
+                    16,
+                )
+                for node in projection_nodes:
+                    for pair in node.get("points", "").split():
+                        px, py = (float(value) for value in pair.split(","))
+                        self.assertGreaterEqual(px, 1020)
+                        self.assertLessEqual(px, 1560)
+                        self.assertGreaterEqual(py, 200)
+                        self.assertLessEqual(py, 630)
+                self.assertIn("Primero se forma la caja con cuatro paredes y el fondo", text)
+                self.assertIn("Después se fija el frente decorativo aplicado", text)
+                self.assertIn("la unión y su fijación no están definidas", text)
+                self.assertIn("no es una segunda fachada exterior", text)
+                self.assertIn("Sin rieles, tornillos ni fijación dibujados", text)
                 self.assertNotIn("Caja exterior:", text)
                 self.assertNotIn("revelado", text.lower())
 
@@ -102,14 +154,49 @@ class PR23P5HumanBookletTests(unittest.TestCase):
         text = page_text(self.pages[4])
         gaps = {node.get("data-gap-id"): node.get("data-nominal-gap-mm")
                 for node in root.iter() if node.get("data-gap-id")}
-        self.assertEqual(gaps, {"A-B": "4", "B-C": "4"})
+        self.assertEqual(gaps, {
+            "PERIMETER-LEFT": "4", "PERIMETER-RIGHT": "4",
+            "PERIMETER-TOP": "4", "PERIMETER-BOTTOM": "4",
+            "A-B": "4", "B-C": "4",
+        })
+        self.assertEqual(
+            {node.get("data-gap-detail-for") for node in root.iter()
+             if node.get("data-gap-detail-for")},
+            {"A-B", "B-C"},
+        )
+        cabinet = next(node for node in root.iter()
+                       if node.get("data-cabinet-outline") == "drawer-module")
+        self.assertEqual(cabinet.get("data-source-width-mm"), "300")
+        self.assertEqual(cabinet.get("data-source-height-mm"), "845")
+        fronts = {node.get("data-front-letter"): node for node in root.iter()
+                  if node.get("data-front-letter")}
+        self.assertEqual(
+            {letter: (
+                fronts[letter].get("data-cad-piece-id"),
+                fronts[letter].get("data-origin-x-mm"),
+                fronts[letter].get("data-origin-y-mm"),
+                fronts[letter].get("data-width-mm"),
+                fronts[letter].get("data-height-mm"),
+            ) for letter in "ABC"},
+            {
+                "A": ("CAJONERA_DERECHA-D1-DRAWER_FACADE", "604", "703", "292", "178"),
+                "B": ("CAJONERA_DERECHA-D2-DRAWER_FACADE", "604", "521", "292", "178"),
+                "C": ("CAJONERA_DERECHA-D3-DRAWER_FACADE", "604", "44", "292", "473"),
+            },
+        )
         for phrase in (
             "4 mm entre envolventes exteriores terminadas propuestas",
             "holgura física sigue sin verificar", "NO CORTAR",
+            "SIN HOLGURA FÍSICA CERTIFICADA",
             "INVALID_RAW_VS_FINISHED", "el cero no se acepta como holgura",
+            "4 → 0 mm teóricos",
             "288 × 174", "no es la luz en profundidad para push-to-open",
+            "Cajonera completa · elevación frontal proporcional al CAD",
         ):
             self.assertIn(phrase, text)
+        self.assertEqual(sum(1 for node in root.iter()
+                             if node.tag.endswith("text")
+                             and node.text == "Ampliación esquemática · NO A ESCALA"), 2)
         edge = self.model["wall_bar_review"]["front_edgebanding_review"]
         self.assertEqual(edge["finished_outer_target"], "PROPOSED")
         self.assertEqual(edge["physical_edge_model"], "NOT_MODELED")
