@@ -129,7 +129,9 @@ def three_views_svg(data: dict[str, Any]) -> str:
     )
 
 
-def create_render_bundle(project_folder: Path) -> dict[str, Any]:
+def create_render_bundle(
+    project_folder: Path, *, bundle_dir: Path | str | None = None,
+) -> dict[str, Any]:
     """Atomically publish SVG/PNG/PDF in a NEW lamina/ directory.
 
     Reject symlinks and altered CAD before any optional raster conversion.
@@ -141,7 +143,7 @@ def create_render_bundle(project_folder: Path) -> dict[str, Any]:
         raise DesignError("Lámina existente: no sobrescribir.")
     # One provenance gate for 2D AND native CAD. No duplicate geometry tests.
     try:
-        cad = verify_pilot_bundle(folder)
+        cad = verify_pilot_bundle(folder, bundle_dir=bundle_dir)
     except (PilotError, DesignError) as exc:
         raise DesignError("Paquete de revisión inconsistente con Maestro.") from exc
     svg = three_views_svg(cad)

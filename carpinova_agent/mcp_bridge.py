@@ -17,11 +17,14 @@ from typing import Any
 from .maestro import MaestroError, consult_maestro
 from .drawing_sheet import create_render_bundle
 from .native_export import export_native_project, REVIEW_CONFIRMATION
-from .pilot_cli import PilotError, write_pilot_bundle, verify_pilot_bundle
+from .pilot_cli import (
+    BookEvidenceError, PilotError, write_pilot_bundle, verify_pilot_bundle,
+)
 from .conversation_flow import build_flow_review_from_envelope
 
 
 _MAX_REQUEST_BYTES = 65536
+_MAX_MANIFEST_BYTES = 65536
 _MAX_ARTIFACT_BYTES = 262144
 _MAX_PREVIEW_BYTES = 4 * 1024 * 1024
 _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
@@ -81,6 +84,12 @@ def _output_root() -> Path:
     return base.resolve(strict=True)
 
 
+def _resolve_knowledge_bundle_dir() -> Path | None:
+    """Resolve the per-process optional Knowledge bundle, without loading it."""
+    raw = os.environ.get("CARPINOVA_KNOWLEDGE_BUNDLE_DIR")
+    return Path(raw).expanduser() if raw else None
+
+
 def _project_id(name: str) -> str:
     if type(name) is not str or not _PROJECT_NAME.fullmatch(name):
         raise PilotError("Nombre de proyecto inválido: letras, números, guion o guion bajo.")
@@ -108,9 +117,7 @@ def carpinova_estado() -> dict[str, Any]:
 def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
     """Query existing deterministic Maestro. Text is not treated as code."""
     request = _request(solicitud_json)
-    bundle = os.environ.get("CARPINOVA_KNOWLEDGE_BUNDLE_DIR")
-    bundle_path = Path(bundle).expanduser() if bundle else None
-    return consult_maestro(request, bundle_dir=bundle_path)
+    return consult_maestro(request, bundle_dir=_resolve_knowledge_bundle_dir())
 
 
 def carpinova_generar_borrador(
@@ -124,6 +131,11 @@ def carpinova_generar_borrador(
     """
     request = _request(solicitud_json)
     name = _project_id(proyecto)
+    bundle_dir = _resolve_knowledge_bundle_dir()
+    if "query" in request and flow_review_json:
+        raise BookEvidenceError(
+            "BOOK_FLOW_COMBINATION_UNSUPPORTED: separar consulta del libro y flow-review."
+        )
     if type(incluir_planos) is not bool:
         raise PilotError("incluir_planos debe ser booleano.")
     root = _output_root()
@@ -144,7 +156,9 @@ def carpinova_generar_borrador(
     if flow_review_json:
         flow_envelope = _request(flow_review_json)
         flow_review = build_flow_review_from_envelope(flow_envelope, request)
-    manifest = write_pilot_bundle(request, destination, flow_review=flow_review)
+    manifest = write_pilot_bundle(
+        request, destination, flow_review=flow_review, bundle_dir=bundle_dir,
+    )
     result = {
         "status": "DRAFT_NOT_FOR_CUTTING",
         "proyecto": name,
@@ -180,7 +194,9 @@ def carpinova_renderizar_lamina(proyecto: str) -> dict[str, Any]:
     name = _project_id(proyecto)
     root = _output_root()
     folder = root / name
-    manifest = create_render_bundle(folder)
+    manifest = create_render_bundle(
+        folder, bundle_dir=_resolve_knowledge_bundle_dir(),
+    )
     return {
         "proyecto": name, "status": "DRAFT_NOT_FOR_CUTTING",
         "geometry_sha256": manifest["geometry_sha256"],
@@ -243,11 +259,12 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
     cap = _MAX_PREVIEW_BYTES if archivo in _IMAGE_FILES else _MAX_ARTIFACT_BYTES
     if path.stat().st_size > cap:
         raise PilotError("El entregable excede el límite de lectura del Agente.")
+    bundle_dir = _resolve_knowledge_bundle_dir()
     if archivo in _IMAGE_FILES:
         # An image is a view of a still-consistent Maestro project, not
         # authority to cut, fabricate, drill or purchase.
         try:
-            cad = verify_pilot_bundle(folder)
+            cad = verify_pilot_bundle(folder, bundle_dir=bundle_dir)
             manifest_name = (
                 "render-manifest.json" if archivo.startswith("lamina/")
                 else "native-manifest.json"
@@ -288,14 +305,42 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
         except (ImportError, OSError, ValueError) as exc:
             raise PilotError("No se puede verificar o transmitir el PNG.") from exc
         return MCPImage(data=raw, format="png")
-    if archivo == "flow-review.json":
-        verify_pilot_bundle(folder)
+    book_evidence_status = None
+    manifest_path = folder / "manifest.json"
+    answer_path = folder / "maestro-review.json"
+    if (manifest_path.is_symlink() or not manifest_path.is_file()
+            or manifest_path.stat().st_size > _MAX_MANIFEST_BYTES
+            or answer_path.is_symlink() or not answer_path.is_file()
+            or answer_path.stat().st_size > 1048576):
+        raise PilotError("Manifiesto o respuesta Maestro ausentes, enlazados o excesivos.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    answer = json.loads(answer_path.read_text(encoding="utf-8"))
+    book_markers = {
+        "book_source_request", "book_source_metadata", "book_source_status",
+    }
+    has_book_evidence = (
+        any(key in manifest for key in book_markers)
+        or answer.get("knowledge") is not None
+        or bool(answer.get("source_provenance"))
+    )
+    if (archivo == "flow-review.json" or archivo.endswith("P6-criterios.md")
+            or has_book_evidence):
+        verify_pilot_bundle(folder, bundle_dir=bundle_dir)
+    if archivo.endswith("P6-criterios.md"):
+        # P6's explanatory citations are not derived from this request's
+        # replay and therefore are never promoted to BOOK_VERIFIED here.
+        book_evidence_status = "BOOK_UNVERIFIED"
+    elif has_book_evidence:
+        book_evidence_status = manifest.get("book_source_status", "BOOK_UNVERIFIED")
     contents = path.read_text(encoding="utf-8")
-    return {
+    result = {
         "proyecto": name, "archivo": archivo, "contenido": contents,
         "encoding": "utf-8", "status": "DRAFT_NOT_FOR_CUTTING",
         **_FABRICATION,
     }
+    if book_evidence_status is not None:
+        result["book_evidence_status"] = book_evidence_status
+    return result
 
 def create_server():
     """Import the optional official MCP SDK only when launching this bridge."""

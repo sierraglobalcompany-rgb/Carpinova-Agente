@@ -1,6 +1,23 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PR #23 P6 V3: libro primero, cantos, sustratos y correderas (04-nov-2026)
+## ACTIVO — PR #23 P7: evidencia runtime libro→Maestro→borrador (04-nov-2026)
+
+P7 continúa únicamente en `feat/carpn-ab-v1`, PR #23 OPEN/DRAFT, desde el HEAD publicado `54685615bd70b3e147f400fbad278a0d1085db77` y base protegida PR #21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. No reabre P5/P6 ni modifica `main`, PR #21, geometría CAD, fixture P5, Knowledge, el trabajo G39 ni los jobs nativos.
+
+El cambio enlaza de forma reproducible la solicitud bibliográfica, la respuesta de Maestro, el bundle declarado y el CAD del borrador usando las rutas existentes `pilot_cli.py`, `mcp_bridge.py` y `drawing_sheet.py`. Solo los paquetes con `query` reciben `book_source_request` y metadatos de bundle en `manifest.json`; la generación, verificación, render y lectura exigen un bundle BOOK completo y repiten Maestro para comparar la respuesta estructurada. Las solicitudes sin consulta conservan el paquete histórico byte a byte. Consulta con `flow_review_json` se rechaza antes de crear la carpeta (`BOOK_FLOW_COMBINATION_UNSUPPORTED`). `NO_BOOK_MATCH` no crea citas ni se etiqueta como evidencia aprobada. Sin bundle, alcance parcial/corrupto, enlace incompleto o replay distinto, la ruta bibliográfica falla cerrada.
+
+Prueba local aislada en Python 3.12.13 y bundle Knowledge `cpnc-2025` v1.2.0/schema 0.1.0, `FULL_BOOK`, 252 páginas, 295 de origen y 43 excluidas. El bundle se construyó fuera del repositorio desde el checkpoint de workflow `CarpiNova-Knowledge@4df02ef54562fac5a820cbad92b0edee547c310b`; la procedencia declarada identifica `source_manifest_sha256=318ceb94569608bfe062e3e50c7032edee79febf06102f7eec760769a6dfd90c`. Las comparaciones de fuente documentadas para esta prueba cubren blobs de páginas p0067, p0113–p0116 y p0177 entre el checkpoint y `d350f3de1104977986f30498d212e018cbac5d29`, no el repositorio entero. `source_pdf_bytes_verified=false`: validar manifest/contenido del bundle no autentica los bytes del PDF original.
+
+El MCP stdio aislado con variable de entorno del proceso descubrió las seis herramientas y ejecutó `carpinova_estado`, consultas de barra y cocina, generación de ambos paquetes, replay completo, lectura de JSON/CSV/CAD, render PNG/PDF y lectura de imagen. Evidencia sanitizada: `real-mcp-book-e2e.json`; no contiene el corpus. El MCP conectado globalmente a Codex reportó al inicio `knowledge_bundle_configured=false`; no se modificó su configuración y esta prueba local no certifica ese proceso global. Los hashes sin clave detectan alteraciones individuales cubiertas por pruebas, pero no autentican a un usuario ni una edición coordinada de manifiesto y contenido.
+
+Verificación del lote: batería focal integrada **60 tests, OK, 4 SKIP**; suite completa **707 tests, OK, 7 SKIP**, todos los skips por privilegios/soporte de symlink de Windows. La primera ejecución encontró `NameError: name '_MAX_MANIFEST_BYTES' is not defined` al leer manifiestos; se añadió la constante local de 65.536 bytes y la prueba MCP real pasó después. Se conservan las salidas sin query con huellas combinadas `pilot-open-kitchen-800=ea7f52ab516f6a1cf2616927f8cfafe6e5ca27cd3ee1bbd0a3091ef52f904c7f`, `wall-bar-900-review-p5=368d7f9e686d3414fce7b00be807df7fa04ec5753d8274aff2c4d9280160b361`, `modular-kitchen-door-fronts=3afd46e50c3dabccf7eb588b0f5a242da11e39260742a11e9bcfa12cc6c47738`.
+
+El fixture `examples/wall-bar-900-review-p5.json` sigue en SHA-256 `b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983`; CAD protegido conserva SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`, 28 elementos y 96 bordes de revisión. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `manufacturing_holes=[]`, `drilling_coordinates=[]`; `hardware_included=false` y `finished_panel_edges_included=false` donde aplican. FreeCAD/Blender permanecen deshabilitados por política (`if: ${{ false }}`) y no fueron ejecutados. La CI del SHA que se publique deberá anotarse y revisarse en el informe P7 externo; en este punto local todavía no existe resultado de CI para el commit final.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW del informe, artefactos y CI del SHA exacto; PR #23 permanece Draft, sin merge.
+
+
+## HISTÓRICO — PR #23 P6 V3: libro primero, cantos, sustratos y correderas (04-nov-2026)
 
 Continuación en `feat/carpn-ab-v1`, worktree aislado `D:\codex\CARPN-WORKTREES\CARPN-GAVETAS-FRENTES-APLICADOS-P0`, desde el HEAD de PR #23 `ba8ddaaf3d0af0818097a7715b1bb494c4908c39`, PR OPEN/DRAFT. P6 reusa Maestro, `wall_bar_sheets.py::edge_policy_rows`, `wall_bar_delivery.py::review_files`, el piloto y la allowlist MCP; no crea motor geométrico alterno.
 

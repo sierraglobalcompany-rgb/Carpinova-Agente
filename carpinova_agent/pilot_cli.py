@@ -19,19 +19,109 @@ from .core import DesignError
 from .wall_bar_delivery import review_files
 from .maestro import MaestroError, consult_maestro
 from .modular_outputs import modular_bom_csv, modular_front_svg
+from knowledge_client.reader import BundleError, load_bundle
 
 _BLOCKED_FLAGS = ("fabrication_ready", "cutting_ready",
                   "drilling_ready", "purchase_ready")
 _FILES = ("maestro-review.json", "front-review.svg",
           "parts-review.csv", "cad-exchange.json", "manifest.json")
+_MAX_MANIFEST_BYTES = 65536
+_MAX_BOOK_REQUEST_BYTES = 32768
 
 
 class PilotError(ValueError):
     """An unapproved or inconsistent proposal cannot yield a pilot bundle."""
 
 
+class BookEvidenceError(PilotError):
+    """A book-backed proposal cannot be generated or verified safely."""
+
+
+def _book_bundle(bundle_dir: Path | str | None) -> dict[str, Any]:
+    if bundle_dir is None:
+        raise BookEvidenceError(
+            "BLOCKED_BOOK_BUNDLE: configurar el bundle Knowledge para esta consulta."
+        )
+    try:
+        bundle = load_bundle(bundle_dir)
+    except (BundleError, OSError, TypeError, ValueError) as exc:
+        raise BookEvidenceError(
+            "BLOCKED_BOOK_BUNDLE: el bundle Knowledge falta o no es válido."
+        ) from exc
+    manifest = bundle["manifest"]
+    if (bundle.get("coverage") != "FULL_BOOK"
+            or manifest.get("scope") != "BOOK"
+            or manifest.get("knowledge_version") != "1.2.0"
+            or manifest.get("schema_version") != "0.1.0"
+            or manifest.get("counts", {}).get("pages") != 252
+            or manifest.get("source_page_count") != 295
+            or manifest.get("excluded_page_count") != 43):
+        raise BookEvidenceError(
+            "BOOK_SCOPE_NOT_FULL: se requiere Knowledge BOOK 1.2.0 completo."
+        )
+    return bundle
+
+
+def _book_source_request(request: dict[str, Any]) -> dict[str, Any]:
+    try:
+        raw = json.dumps(request, ensure_ascii=False, allow_nan=False,
+                         separators=(",", ":"))
+        round_trip = json.loads(raw)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise BookEvidenceError(
+            "BOOK_SOURCE_REQUEST_INVALID: la solicitud no es JSON reproducible."
+        ) from exc
+    if round_trip != request:
+        raise BookEvidenceError(
+            "BOOK_SOURCE_REQUEST_INVALID: la solicitud cambia al serializarla."
+        )
+    if len(raw.encode("utf-8")) > _MAX_BOOK_REQUEST_BYTES:
+        raise BookEvidenceError(
+            "BOOK_SOURCE_REQUEST_TOO_LARGE: solicitud bibliográfica mayor de 32 KiB."
+        )
+    return round_trip
+
+
+def _book_source_metadata(bundle: dict[str, Any]) -> dict[str, Any]:
+    manifest = bundle["manifest"]
+    return {
+        "book_id": manifest["book_id"],
+        "scope": manifest["scope"],
+        "knowledge_version": manifest["knowledge_version"],
+        "schema_version": manifest["schema_version"],
+        "source_manifest_sha256": manifest["source_manifest_sha256"],
+        "counts": manifest["counts"],
+        "source_page_count": manifest["source_page_count"],
+        "excluded_page_count": manifest["excluded_page_count"],
+        "files": manifest["files"],
+        "source_pdf_bytes_verified": bundle["source_pdf_bytes_verified"],
+        "provenance_note": bundle["provenance_note"],
+    }
+
+
+def _book_source_status(answer: dict[str, Any]) -> str:
+    knowledge = answer.get("knowledge")
+    provenance = answer.get("source_provenance")
+    if (not isinstance(knowledge, dict)
+            or knowledge.get("coverage") != "FULL_BOOK"
+            or knowledge.get("knowledge_version") != "1.2.0"
+            or not isinstance(knowledge.get("results"), list)
+            or not isinstance(provenance, list)):
+        raise BookEvidenceError(
+            "BLOCKED_BOOK_BUNDLE: Maestro no devolvió evidencia FULL_BOOK coherente."
+        )
+    if knowledge.get("total_matches") == 0:
+        if knowledge["results"] or provenance:
+            raise BookEvidenceError("NO_BOOK_MATCH inconsistente con las referencias.")
+        return "NO_BOOK_MATCH"
+    if not knowledge["results"] or len(provenance) != len(knowledge["results"]):
+        raise BookEvidenceError("La procedencia del libro no coincide con resultados.")
+    return "BOOK_EVIDENCE_PASS"
+
+
 def pilot_review(
     request: dict[str, Any], flow_review: dict[str, Any] | None = None,
+    *, bundle_dir: Path | str | None = None,
 ) -> dict[str, str]:
     """Calculate every deliverable from one already-structured Maestro request.
 
@@ -40,7 +130,15 @@ def pilot_review(
     """
     if type(request) is not dict or request.get("action") != "modular":
         raise PilotError("Piloto: se requiere action=modular con module_spec explícito.")
-    answer = consult_maestro(request)
+    has_query = "query" in request
+    if has_query and flow_review is not None:
+        raise BookEvidenceError(
+            "BOOK_FLOW_COMBINATION_UNSUPPORTED: separar consulta del libro y flow-review."
+        )
+    source_request = _book_source_request(request) if has_query else None
+    book = _book_bundle(bundle_dir) if has_query else None
+    answer = consult_maestro(request, bundle_dir=bundle_dir)
+    book_status = _book_source_status(answer) if has_query else None
     model = answer.get("modular")
     if not isinstance(model, dict) or answer["status"] != "DRAFT_NOT_FOR_CUTTING":
         raise PilotError(
@@ -92,6 +190,17 @@ def pilot_review(
             "FreeCAD y Blender deben ejecutar por separado el CADExchange con adaptadores auditados.",
         ],
     }
+    if has_query:
+        manifest.update({
+            "book_source_request": source_request,
+            "book_source_metadata": _book_source_metadata(book),
+            "book_source_status": book_status,
+        })
+    manifest_text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+    if has_query and len(manifest_text.encode("utf-8")) > _MAX_MANIFEST_BYTES:
+        raise BookEvidenceError(
+            "BOOK_SOURCE_REQUEST_TOO_LARGE: vínculo excede el límite de 65.536 bytes."
+        )
     flow_text = (json.dumps(flow_review, indent=2, ensure_ascii=False) + "\n"
                  if flow_review is not None else None)
     if flow_text is not None and len(flow_text.encode("utf-8")) > 262144:
@@ -101,7 +210,7 @@ def pilot_review(
         "front-review.svg": svg,
         "parts-review.csv": csv_text,
         "cad-exchange.json": json.dumps(exchange, indent=2, ensure_ascii=False) + "\n",
-        "manifest.json": json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        "manifest.json": manifest_text,
         **extras,
         **({"flow-review.json": flow_text} if flow_text is not None else {}),
     }
@@ -110,6 +219,7 @@ def pilot_review(
 def write_pilot_bundle(
     request: dict[str, Any], output_dir: Path,
     flow_review: dict[str, Any] | None = None,
+    *, bundle_dir: Path | str | None = None,
 ) -> dict[str, Any]:
     """Fail closed: stage complete files on the same filesystem before rename.
 
@@ -120,7 +230,7 @@ def write_pilot_bundle(
     parent = output_dir.parent
     if not parent.is_dir():
         raise PilotError("El directorio padre de salida debe existir.")
-    bundle = pilot_review(request, flow_review=flow_review)
+    bundle = pilot_review(request, flow_review=flow_review, bundle_dir=bundle_dir)
     with TemporaryDirectory(prefix=".carpinova-pilot-", dir=parent) as temp:
         staging = Path(temp) / "review"
         staging.mkdir()
@@ -134,7 +244,9 @@ def write_pilot_bundle(
 
 
 
-def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
+def verify_pilot_bundle(
+    project_folder: Path, *, bundle_dir: Path | str | None = None,
+) -> dict[str, Any]:
     """Verify all five immutable review artifacts against ONE Maestro model.
 
     The CAD digest alone is NOT provenance: it is an unkeyed checksum that
@@ -148,7 +260,7 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
         "front-review.svg": 1048576,
         "parts-review.csv": 1048576,
         "cad-exchange.json": 262144,
-        "manifest.json": 65536,
+        "manifest.json": _MAX_MANIFEST_BYTES,
         "flow-review.json": 262144,
     }
     if not folder.is_dir() or folder.is_symlink():
@@ -171,6 +283,48 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
         raise PilotError("Archivos JSON de revisión inválidos.") from exc
     if not isinstance(answer, dict) or not isinstance(manifest, dict):
         raise PilotError("No existe respuesta de Maestro o manifiesto de revisión válido.")
+    has_answer_book_data = (
+        answer.get("knowledge") is not None
+        or bool(answer.get("source_provenance"))
+    )
+    book_markers = {
+        "book_source_request", "book_source_metadata", "book_source_status",
+    }
+    has_manifest_book_data = any(key in manifest for key in book_markers)
+    if has_answer_book_data or has_manifest_book_data:
+        if not all(key in manifest for key in book_markers) or not has_answer_book_data:
+            raise BookEvidenceError(
+                "BOOK_EVIDENCE_BINDING_INCOMPLETE: falta vínculo bidireccional."
+            )
+        source_request = manifest.get("book_source_request")
+        if type(source_request) is not dict or "query" not in source_request:
+            raise BookEvidenceError(
+                "BOOK_EVIDENCE_BINDING_INCOMPLETE: falta solicitud original."
+            )
+        if "flow-review.json" in manifest.get("files", []):
+            raise BookEvidenceError(
+                "BOOK_FLOW_COMBINATION_UNSUPPORTED: paquete con libro y flow-review."
+            )
+        source_request = _book_source_request(source_request)
+        bundle = _book_bundle(bundle_dir)
+        expected_metadata = _book_source_metadata(bundle)
+        if manifest.get("book_source_metadata") != expected_metadata:
+            raise BookEvidenceError(
+                "BOOK_BUNDLE_METADATA_MISMATCH: cambió el alcance o la procedencia declarada."
+            )
+        expected_status = _book_source_status(answer)
+        if manifest.get("book_source_status") != expected_status:
+            raise BookEvidenceError("BOOK_SOURCE_STATUS_MISMATCH.")
+        try:
+            replayed_answer = consult_maestro(source_request, bundle_dir=bundle_dir)
+        except (MaestroError, BundleError, OSError, ValueError) as exc:
+            raise BookEvidenceError(
+                "BOOK_REPLAY_FAILED: no se pudo recalcular Maestro con el bundle."
+            ) from exc
+        if replayed_answer != answer:
+            raise BookEvidenceError(
+                "BOOK_REPLAY_MISMATCH: Maestro no reproduce íntegramente la respuesta guardada."
+            )
     model = answer.get("modular")
     if (not isinstance(model, dict)
             or answer.get("status") != "DRAFT_NOT_FOR_CUTTING"
@@ -205,7 +359,8 @@ def verify_pilot_bundle(project_folder: Path) -> dict[str, Any]:
         try:
             flow_record = json.loads(flow_path.read_text(encoding="utf-8"))
             flow_request = flow_record.get("source_request")
-            if type(flow_request) is not dict or consult_maestro(flow_request) != answer:
+            if (type(flow_request) is not dict or "query" in flow_request
+                    or consult_maestro(flow_request) != answer):
                 raise PilotError("Traza conversacional no reproduce el Maestro original.")
             validate_flow_review(flow_record, flow_request)
         except (OSError, UnicodeError, ValueError, TypeError, MaestroError, DesignError) as exc:
@@ -244,10 +399,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="JSON Maestro action=modular ya revisado")
     parser.add_argument("--output-dir", required=True, type=Path,
                         help="Carpeta NUEVA para cinco archivos de revisión")
+    parser.add_argument("--bundle-dir", type=Path,
+                        help="Bundle Knowledge requerido para solicitudes con query")
     args = parser.parse_args(argv)
     try:
         request = json.loads(args.input.read_text(encoding="utf-8"))
-        result = write_pilot_bundle(request, args.output_dir)
+        result = write_pilot_bundle(request, args.output_dir,
+                                    bundle_dir=args.bundle_dir)
         sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
         return 0
     except (OSError, ValueError, DesignError, MaestroError, PilotError) as exc:
