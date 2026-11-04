@@ -8,12 +8,14 @@ from __future__ import annotations
 import csv
 from html import escape
 from io import StringIO
+import json
 from textwrap import wrap
 from typing import Any
 from xml.etree import ElementTree
 
 from .cad_exchange import cad_exchange, validate_exchange
 from .core import DesignError
+from .wall_bar_sheets import edge_policy_rows
 
 STRUCTURE = (
     ("E01", "Cubierta", "BAR-COVER-TOP"),
@@ -78,6 +80,7 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
     from .wall_bar_sheets import format_mm_as_cm, wall_bar_review_dimensions
 
     rows = reference_rows(model)
+    edge_rows = edge_policy_rows(model)
     cad = validate_exchange(cad_exchange(model))
     human = wall_bar_review_dimensions(model)
     pieces = {p["piece_id"]: p for p in cad["boxes"]}
@@ -85,7 +88,17 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
     writer = csv.DictWriter(writer_buffer, fieldnames=list(rows[0]))
     writer.writeheader()
     writer.writerows(rows)
-    result = {"CN-BAR-001-referencias.csv": writer_buffer.getvalue()}
+    edge_buffer = StringIO()
+    edge_writer = csv.DictWriter(edge_buffer, fieldnames=list(edge_rows[0]))
+    edge_writer.writeheader()
+    edge_writer.writerows(edge_rows)
+    result = {
+        "CN-BAR-001-referencias.csv": writer_buffer.getvalue(),
+        "CN-BAR-001-cantos-por-borde-REVISION.csv": edge_buffer.getvalue(),
+        "CN-BAR-001-cantos-por-borde-REVISION.json": (
+            json.dumps(edge_rows, ensure_ascii=False, indent=2) + "\n"
+        ),
+    }
 
     def h_dimension(name: str, x1: float, x2: float, y: float,
                     source_y: float, label: str) -> str:
@@ -310,17 +323,116 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
         "2. Hay 60 cm libres bajo cubierta y una cajonera de 30 cm en el extremo.\n"
         "3. A va arriba, B en medio y C abajo; cada caja se desliza detrás de su frente.\n"
         "4. Los apoyos dibujados miden 4 cm y solo aparecen bajo la cajonera; no se eligió una pata física.\n"
-        "5. El dibujo muestra 2 mm nominales entre frentes; el canto puede consumir ese espacio.\n"
-        "6. Rieles, medidas terminadas, fijación en obra por instalador, cargas y estabilidad siguen pendientes.\n\n"
+        "5. A/B/C muestran 4 mm objetivo entre envolventes exteriores terminadas propuestas; la holgura física no está verificada.\n"
+        "6. El instalador define la fijación en obra; la cubierta tiene una revisión por borde en el CSV/JSON. Rieles, adhesivo y tolerancias siguen pendientes.\n\n"
         f"Fuente: CAD nominal de {len(cad['boxes'])} elementos; SHA {cad['geometry_sha256']}. "
         "Nada de este borrador autoriza corte, perforación, compra o fabricación.\n"
     )
     return result
 
 
+def wall_bar_review_cover_svg(model: dict[str, Any]) -> str:
+    """Human cover: reuse the actual CAD isometric and the canonical E01 rows."""
+    from .wall_bar_sheets import wall_bar_isometric_svg, wall_bar_review_dimensions
+
+    cad = validate_exchange(cad_exchange(model))
+    human = wall_bar_review_dimensions(model)
+    source = ElementTree.fromstring(wall_bar_isometric_svg(model))
+    edge_rows = {row["face_edge"]: row for row in edge_policy_rows(model)
+                 if row["piece_id"] == "BAR-COVER-TOP"}
+    if set(edge_rows) != {"x_min", "x_max", "y_min", "y_max"}:
+        raise DesignError("La cubierta E01 requiere sus cuatro bordes identificados.")
+    if cad["bounds_xyz_mm"] != [900, 900, 460]:
+        raise DesignError("Portada requiere la barra CN-BAR-001 de 900×460×900 mm.")
+
+    edge_labels = {
+        "x_min": "x_min muro",
+        "x_max": "x_max libre",
+        "y_min": "y_min frente usuario",
+        "y_max": "y_max posterior",
+    }
+
+    def policy_text(edge: str) -> str:
+        row = edge_rows[edge]
+        label = edge_labels[edge]
+        if row.get("conditional_candidate_policy") == "NO_DECORATIVE_EDGE_CANDIDATE":
+            return (f"{label}: sin cinta decorativa solo si queda oculto y seco; "
+                    "evaluar sellado.")
+        if row.get("conditional_candidate_policy") == "RIGID_PVC_2MM_CANDIDATE_MOISTURE_UNVERIFIED":
+            return (f"{label}: PVC rígido 2 mm candidato; "
+                    "humedad por verificar, no aprobado.")
+        if row["edge_policy"] == "RIGID_PVC_2MM_CANDIDATE":
+            return f"{label}: PVC rígido 2 mm candidato, no aprobado."
+        return f"{label}: revisar; visibilidad/agua no confirmadas."
+
+    def policy_block(edge: str, y: int) -> str:
+        lines = wrap(policy_text(edge), width=54, break_long_words=False,
+                     break_on_hyphens=False) or [policy_text(edge)]
+        color = ("#315d73" if edge_rows[edge]["edge_policy"]
+                 == "RIGID_PVC_2MM_CANDIDATE" else "#536b7e")
+        spans = "".join(
+            f'<tspan x="1090" dy="{0 if index == 0 else 17}">'
+            f'{escape(line)}</tspan>'
+            for index, line in enumerate(lines)
+        )
+        return (f'<text x="1090" y="{y}" font-size="14" font-weight="bold" '
+                f'fill="{color}">{spans}</text>')
+
+    source_children = "".join(
+        ElementTree.tostring(child, encoding="unicode") for child in list(source)
+    )
+    edge_colors = {
+        edge: ("#b37724" if edge_rows[edge]["certainty"] == "REVIEW_REQUIRED"
+               or edge_rows[edge]["certainty"] == "CONDITIONAL_NOT_VERIFIED"
+               else "#287b68")
+        for edge in edge_rows
+    }
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1130"
+ viewBox="0 0 1600 1130" role="img" aria-label="Portada isométrica y revisión por borde de la cubierta">
+<rect width="1600" height="1130" fill="#ffffff"/>
+<g font-family="Arial,sans-serif" fill="#20394b">
+<text x="52" y="56" font-size="34" font-weight="bold">Tu barra de cocina · propuesta para revisar</text>
+<text x="55" y="91" font-size="18" fill="#9e2733" font-weight="bold">BORRADOR · orientación A · 900 × 460 × 900 mm · NO FABRICAR, CORTAR NI PERFORAR</text>
+</g>
+<svg x="30" y="108" width="1010" height="720" viewBox="0 113 1038 740" preserveAspectRatio="xMidYMid meet">
+{source_children}
+</svg>
+<rect x="1060" y="112" width="500" height="760" rx="15" fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>
+<g font-family="Arial,sans-serif" fill="#20394b">
+<text x="1090" y="153" font-size="24" font-weight="bold">Lectura rápida</text>
+<text x="1090" y="190" font-size="18">90 cm largo × 46 cm fondo × 90 cm alto</text>
+<text x="1090" y="222" font-size="16">60 cm libres + 30 cm cajonera</text>
+<text x="1090" y="251" font-size="15">Apoyos conceptuales de 4 cm; no son patas elegidas.</text>
+<text x="1090" y="269" font-size="14">Cajones abren por el costado largo.</text>
+<line x1="1090" y1="286" x2="1530" y2="286" stroke="#d1dce4"/>
+<text x="1090" y="322" font-size="21" font-weight="bold">E01 · cubierta · vista superior</text>
+<text x="1090" y="349" font-size="14" fill="#536b7e">Eje X: largo · eje Z: fondo</text>
+<rect x="1197" y="395" width="250" height="133" fill="#ead7b4" stroke="#526879" stroke-width="2"/>
+<line data-edge="x_min" x1="1197" y1="395" x2="1197" y2="528" stroke="{edge_colors['x_min']}" stroke-width="7"/>
+<line data-edge="x_max" x1="1447" y1="395" x2="1447" y2="528" stroke="{edge_colors['x_max']}" stroke-width="7"/>
+<line data-edge="y_max" x1="1197" y1="395" x2="1447" y2="395" stroke="{edge_colors['y_max']}" stroke-width="7"/>
+<line data-edge="y_min" x1="1197" y1="528" x2="1447" y2="528" stroke="{edge_colors['y_min']}" stroke-width="7"/>
+<text x="1322" y="466" text-anchor="middle" font-size="16" font-weight="bold">E01 · 900 × 460 mm</text>
+<text x="1186" y="462" text-anchor="end" font-size="13" font-weight="bold">x_min · muro</text>
+<text x="1458" y="462" font-size="13" font-weight="bold">x_max · libre</text>
+<text x="1322" y="382" text-anchor="middle" font-size="13" font-weight="bold">y_max · posterior</text>
+<text x="1322" y="552" text-anchor="middle" font-size="13" font-weight="bold">y_min · frente usuario</text>
+{policy_block('x_max', 598)}
+{policy_block('y_min', 644)}
+{policy_block('x_min', 690)}
+{policy_block('y_max', 744)}
+<text x="1090" y="831" font-size="13" fill="#9e2733" font-weight="bold">Candidatos no aprobados · dimensión acabada y sellado sin validar.</text>
+</g>
+<text x="52" y="1078" font-family="Arial,sans-serif" font-size="15" fill="#617688">Isométrica tomada de CADExchange existente · geometría nominal · no representa herrajes, anclajes ni proceso de canto.</text>
+<text x="52" y="1104" font-family="Arial,sans-serif" font-size="12" fill="#617688">CAD SHA-256: {escape(cad['geometry_sha256'])}</text>
+</svg>'''
+    ElementTree.fromstring(svg)
+    return svg + "\n"
+
+
 def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
     """Seven human-first sheets followed by review notes and a technical annex."""
-    from .wall_bar_sheets import (format_mm_as_cm, wall_bar_orientation_svg,
+    from .wall_bar_sheets import (format_mm_as_cm,
                                   wall_bar_review_dimensions)
 
     files = review_files(model)
@@ -353,22 +465,29 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         return svg
 
     edge = model["wall_bar_review"]["front_edgebanding_review"]
-    if (edge.get("status") != "PENDING_FINISHED_VS_RAW_INTERPRETATION"
+    if (edge.get("status") != "FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED"
             or edge.get("cutting_dimensions_authorized") is not False):
-        raise DesignError("El análisis de cantos requiere interpretación pendiente y corte bloqueado.")
+        raise DesignError("El análisis requiere objetivo terminado propuesto y corte bloqueado.")
     gap_ab = human["front_gaps_mm"]["A_B"]
     gap_bc = human["front_gaps_mm"]["B_C"]
     faces = edge["fronts"]
-    raw_a = faces["D1"]["if_nominal_is_raw_resulting_width_mm"]
-    raw_c = faces["D3"]["if_nominal_is_raw_resulting_width_mm"]
+    raw_a_w = faces["D1"]["if_nominal_is_raw_resulting_width_mm"]
+    raw_a_h = faces["D1"]["if_nominal_is_raw_resulting_height_mm"]
+    raw_c_w = faces["D3"]["if_nominal_is_raw_resulting_width_mm"]
+    raw_c_h = faces["D3"]["if_nominal_is_raw_resulting_height_mm"]
     finish_a_w = faces["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"]
     finish_a_h = faces["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"]
     finish_c_w = faces["D3"]["if_nominal_is_finished_theoretical_raw_width_mm"]
     finish_c_h = faces["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"]
+    target_a_w, target_a_h = faces["D1"]["proposed_finished_outer_target_size_mm"]
+    target_c_w, target_c_h = faces["D3"]["proposed_finished_outer_target_size_mm"]
     band = faces["D1"]["rigid_edge_mm_each_side"]
+    invalid_raw = edge["raw_interpretation_scenario"]
+    if invalid_raw.get("status") != "INVALID_RAW_VS_FINISHED":
+        raise DesignError("La interpretación bruta que deja luz cero debe rechazarse.")
     gap_svg_body: list[str] = [
         '<text x="58" y="174" font-size="22" font-weight="bold" '
-        'fill="#20394b">El dibujo deja 2 mm nominales entre frentes; aún no sabemos si quedarán libres.</text>',
+        'fill="#20394b">Separación objetivo: 4 mm entre envolventes exteriores terminadas propuestas.</text>',
     ]
     for gap_id, upper, lower, value, left in (
         ("A-B", "Borde inferior A", "Borde superior B", gap_ab, 55),
@@ -390,7 +509,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             'stroke="#315d73" stroke-width="2.4" marker-start="url(#dim-arrow)" '
             'marker-end="url(#dim-arrow)"/>',
             f'<text x="{left+475}" y="373" font-size="20" font-weight="bold" '
-            f'fill="#315d73">{value} mm nominales</text>',
+            f'fill="#315d73">{value} mm objetivo</text>',
             '</g>',
             f'<text x="{left+475}" y="410" font-size="14" fill="#536b7e">'
             'Ampliación esquemática, no a escala</text>',
@@ -399,35 +518,34 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
         '<rect x="55" y="515" width="1490" height="110" rx="12" '
         'fill="#fff3cf" stroke="#e1b844" stroke-width="2"/>',
         '<text x="80" y="555" font-size="22" font-weight="bold" fill="#775b11">'
-        'El dibujo dice 2 mm; todavía no sabemos si después del canto quedará espacio real.</text>',
+        'Los 4 mm son un objetivo geométrico; la holgura física sigue sin verificar.</text>',
         '<text x="80" y="592" font-size="19" font-weight="bold" fill="#a12e35">'
-        'NO RESUELTO · NO CORTAR</text>',
+        'PROPUESTA NO APROBADA · NO CORTAR</text>',
         '<rect x="55" y="650" width="730" height="220" rx="12" '
         'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
         '<text x="80" y="691" font-size="21" font-weight="bold">'
-        'Si la medida es del tablero sin canto</text>',
+        'Si el objetivo se interpreta por error como sustrato bruto</text>',
         '<text x="80" y="730" font-size="18">'
-        f'{format_mm_as_cm(296)} cm + {band} mm de canto por borde '
-        f'→ {format_mm_as_cm(raw_a)} cm de ancho final teórico.',
-        '<tspan x="80" dy="30">En A-B y B-C, la luz pasaría a una interferencia teórica de -2 mm.</tspan>',
-        '<tspan x="80" dy="30">No es una predicción validada del taller ni una cota para fabricar.</tspan></text>',
+        f'A/B {target_a_w} × {target_a_h} + PVC {band} mm por borde '
+        f'→ {raw_a_w} × {raw_a_h} mm teóricos.',
+        f'<tspan x="80" dy="30">A-B y B-C: {invalid_raw["theoretical_interfront_gaps_mm"]["D2_D1"]} mm teóricos.</tspan>',
+        '<tspan x="80" dy="30">INVALID_RAW_VS_FINISHED · el cero no se acepta como holgura.</tspan></text>',
         '<rect x="815" y="650" width="730" height="220" rx="12" '
         'fill="#f8fafb" stroke="#d1dce4" stroke-width="2"/>',
         '<text x="840" y="691" font-size="21" font-weight="bold">'
-        'Si la medida es el frente terminado deseado</text>',
+        'Objetivos exteriores terminados propuestos</text>',
         '<text x="840" y="730" font-size="18">'
-        f'A/B: {finish_a_w} × {finish_a_h} mm ({format_mm_as_cm(finish_a_w)} × '
-        f'{format_mm_as_cm(finish_a_h)} cm) de sustrato teórico.',
-        f'<tspan x="840" dy="28">C: {finish_c_w} × {finish_c_h} mm '
-        f'({format_mm_as_cm(finish_c_w)} × {format_mm_as_cm(finish_c_h)} cm).</tspan>',
-        f'<tspan x="840" dy="28">{finish_a_w} mm teóricos, no para sierra.</tspan>',
-        '<tspan x="840" dy="28">Faltan proceso, adhesivo y tolerancias; no son medidas aprobadas.</tspan></text>',
+        f'A/B: {target_a_w} × {target_a_h} mm ({format_mm_as_cm(target_a_w)} × '
+        f'{format_mm_as_cm(target_a_h)} cm); C: {target_c_w} × {target_c_h} mm.',
+        f'<tspan x="840" dy="30">Sustrato teórico A/B: {finish_a_w} × {finish_a_h}; C: {finish_c_w} × {finish_c_h} mm.</tspan>',
+        f'<tspan x="840" dy="30">Lectura alternativa bruta produciría A/B {raw_a_w} × {raw_a_h}; C {raw_c_w} × {raw_c_h} mm.</tspan>',
+        '<tspan x="840" dy="30">Todo cálculo de sustrato es ilustrativo, no aprobado ni para sierra.</tspan></text>',
         '<text x="58" y="915" font-size="18" font-weight="bold" fill="#315d73">'
-        '3 mm finales: alternativa a evaluar, no seleccionada; no es norma ni cambió el CAD.</text>',
+        'Objetivo entre frentes terminados; no representa luz de corredera ni apertura.</text>',
         '<text x="58" y="952" font-size="17" fill="#536b7e">'
         'La separación entre frentes se ve de frente; no es la luz en profundidad para push-to-open. Ese sistema y su ficha siguen pendientes.</text>',
     ))
-    gap_svg = title_svg("Separaciones y canto: qué significa 2 mm", gap_svg_body)
+    gap_svg = title_svg("Separación objetivo y revisión de cantos", gap_svg_body)
 
     guidance = files["CN-BAR-001-guia-de-armado-REVISION.md"]
     steps = [line.split(". ", 1)[1] for line in guidance.splitlines()
@@ -514,7 +632,7 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
     bom_svg = title_svg("ANEXO TÉCNICO · códigos de referencia y medidas", bom)
 
     pages = [
-        wall_bar_orientation_svg(model),
+        wall_bar_review_cover_svg(model),
         *(files[f"CN-BAR-001-cajon-{letter}.svg"] for letter in "ABC"),
         gap_svg,
         guide_svg,

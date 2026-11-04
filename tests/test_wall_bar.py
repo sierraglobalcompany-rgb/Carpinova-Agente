@@ -17,7 +17,7 @@ from carpinova_agent.wall_bar_sheets import (part_schedule, part_schedule_csv,
 from xml.etree import ElementTree
 from integrations.cad_native import native_boxes
 
-FILE = Path(__file__).resolve().parents[1] / "examples/wall-bar-900-review.json"
+FILE = Path(__file__).resolve().parents[1] / "examples/wall-bar-900-review-p5.json"
 
 
 def spec():
@@ -89,32 +89,35 @@ class WallBarTests(unittest.TestCase):
                           summary["height_mm"]), (900, 460, 900))
         self.assertEqual((summary["free_span_mm"],
                           summary["cabinet_width_mm"]), (600, 300))
-        self.assertEqual(summary["front_gaps_mm"], {"B_C": 2, "A_B": 2})
+        self.assertEqual(summary["front_gaps_mm"], {"B_C": 4, "A_B": 4})
+        self.assertEqual(summary["front_perimeter_reveals_mm"], {
+            "left": 4, "right": 4, "bottom": 4, "top": 4,
+        })
         self.assertEqual((summary["left_front_reveal_mm"],
-                          summary["right_front_reveal_mm"]), (2, 2))
+                          summary["right_front_reveal_mm"]), (4, 4))
         box_a = summary["drawer_boxes"]["D1"]
         self.assertEqual((box_a["width_mm"], box_a["height_mm"],
                           box_a["depth_mm"]), (244, 120, 400))
         self.assertEqual(box_a["internal_clear_dimensions_mm"], [214, 105, 370])
         self.assertEqual(len(box_a["piece_ids"]), 5)
         pages = review_booklet_svgs(model)
-        self.assertIn("90 cm de largo", pages[0])
-        self.assertIn("46 cm de fondo", pages[0])
-        self.assertIn("90 cm de alto", pages[0])
+        self.assertIn("90 cm largo", pages[0])
+        self.assertIn("46 cm fondo", pages[0])
+        self.assertIn("90 cm alto", pages[0])
         self.assertIn("60 cm libres", pages[0])
         self.assertIn("30 cm cajonera", pages[0])
         self.assertIn("4 cm", pages[0])
         self.assertIn("orientación A", pages[0])
         self.assertIn("BAR-COVER-TOP", pages[0])
         self.assertIn("Cajón A · superior", pages[1])
-        self.assertIn("29,6 × 18 × 1,5 cm", pages[1])
+        self.assertIn("29,2 × 17,8 × 1,5 cm", pages[1])
         self.assertIn("24,4 × 12 × 40 cm", pages[1])
         self.assertIn("21,4 × 10,5 × 37 cm", pages[1])
         self.assertIn("Cajón C · inferior", pages[3])
         self.assertIn("24,4 × 39 × 40 cm", pages[3])
-        self.assertIn("2 mm nominales", pages[4])
-        self.assertIn("292 mm teóricos, no para sierra", pages[4])
-        self.assertIn("3 mm finales: alternativa a evaluar, no seleccionada", pages[4])
+        self.assertIn("4 mm entre envolventes exteriores terminadas propuestas", pages[4])
+        self.assertIn("INVALID_RAW_VS_FINISHED", pages[4])
+        self.assertIn("el cero no se acepta como holgura", pages[4])
         self.assertIn("push-to-open", pages[4])
         self.assertIn("E02", pages[6])
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
@@ -145,7 +148,7 @@ class WallBarTests(unittest.TestCase):
                  if b["role"] == "drawer_facade"}
         self.assertEqual(set(faces), {"D1", "D2", "D3"})
         self.assertEqual([faces[k]["size_xyz_mm"][1] for k in ("D1", "D2", "D3")],
-                         [180, 180, 477])
+                         [178, 178, 473])
         self.assertGreater(faces["D1"]["origin_xyz_mm"][1],
                            faces["D2"]["origin_xyz_mm"][1])
         self.assertGreater(faces["D2"]["origin_xyz_mm"][1],
@@ -158,7 +161,8 @@ class WallBarTests(unittest.TestCase):
         self.assertEqual(ids, {p["piece_id"] for p in schedule})
         self.assertIn("CAJONERA_DERECHA-D1-DRAWER_FACADE", part_schedule_csv(m))
         self.assertIn("BAR-COVER-TOP", part_schedule_svg(m))
-        self.assertEqual(sum(p["edge_policy"].startswith("RIGIDO") for p in schedule), 3)
+        self.assertEqual(sum(p["edge_policy"].startswith("RIGID_PVC")
+                             for p in schedule), 3)
 
     def test_orientation_A_is_explicit_and_cad_proven(self):
         model = self.model()
@@ -171,7 +175,7 @@ class WallBarTests(unittest.TestCase):
         self.assertTrue(all(b["origin_xyz_mm"][2] == 0 and
                             b["origin_xyz_mm"][0] >= 600 and
                             b["origin_xyz_mm"][0] + b["size_xyz_mm"][0] <= 900 and
-                            b["size_xyz_mm"][0] == 296 for b in fronts))
+                            b["size_xyz_mm"][0] == 292 for b in fronts))
         sheet = wall_bar_orientation_svg(model)
         ElementTree.fromstring(sheet)
         self.assertIn("orientación A", sheet)
@@ -190,7 +194,7 @@ class WallBarTests(unittest.TestCase):
                             in blocker for blocker in m["blockers"]))
         self.assertEqual(len(m["parts"]), 28)
         self.assertEqual(cad_exchange(m)["geometry_sha256"],
-                         "1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492")
+                         "5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947")
         self.assertFalse(m["fabrication_ready"])
         self.assertFalse(m["cutting_ready"])
         self.assertFalse(m["drilling_ready"])
@@ -276,17 +280,22 @@ class WallBarTests(unittest.TestCase):
     def test_four_edge_pvc_does_not_become_unapproved_cut_dimensions(self):
         model = self.model()
         review = model["wall_bar_review"]["front_edgebanding_review"]
-        self.assertEqual(review["status"], "PENDING_FINISHED_VS_RAW_INTERPRETATION")
+        self.assertEqual(review["status"], "FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED")
+        self.assertEqual(review["finished_outer_target"], "PROPOSED")
+        self.assertEqual(review["actual_gap"], "NOT_VERIFIED")
         self.assertFalse(review["cutting_dimensions_authorized"])
         self.assertEqual(review["nominal_gaps_between_fronts_mm"],
-                         {"D3_D2": 2, "D2_D1": 2})
+                         {"D3_D2": 4, "D2_D1": 4})
         self.assertEqual(review["gaps_if_nominal_panels_are_cut_raw_then_banded_mm"],
-                         {"D3_D2": -2, "D2_D1": -2})
-        self.assertEqual(review["nominal_cabinet_side_reveal_each_mm"], 2)
-        self.assertEqual(review["side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm"], 0)
-        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"], 292)
-        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"], 176)
-        self.assertEqual(review["fronts"]["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"], 473)
+                         {"D3_D2": 0, "D2_D1": 0})
+        self.assertEqual(review["raw_interpretation_scenario"]["status"],
+                         "INVALID_RAW_VS_FINISHED")
+        self.assertFalse(review["raw_interpretation_scenario"]["zero_gap_is_accepted"])
+        self.assertEqual(review["nominal_cabinet_side_reveal_each_mm"], 4)
+        self.assertEqual(review["side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm"], 2)
+        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_width_mm"], 288)
+        self.assertEqual(review["fronts"]["D1"]["if_nominal_is_finished_theoretical_raw_height_mm"], 174)
+        self.assertEqual(review["fronts"]["D3"]["if_nominal_is_finished_theoretical_raw_height_mm"], 469)
         self.assertTrue(all(p["finished_cut_dimensions_mm"] is None
                             for p in model["parts"]))
         self.assertFalse(model["cutting_ready"])
@@ -454,7 +463,7 @@ class WallBarTests(unittest.TestCase):
         cad = validate_exchange(cad_exchange(proposal))
         self.assertEqual(cad_exchange(proposal), cad_exchange(undecided))
         self.assertEqual(cad["geometry_sha256"],
-                         "1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492")
+                         "5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947")
         self.assertEqual(cad["bounds_xyz_mm"], [900, 900, 460])
         self.assertEqual(len(cad["boxes"]), 28)
         self.assertEqual(len({b["piece_id"] for b in cad["boxes"]}), 28)
@@ -555,7 +564,7 @@ class WallBarTests(unittest.TestCase):
         self.assertEqual(len(rows), 28)
         self.assertEqual(len({r["referencia"] for r in rows}), 28)
         self.assertEqual(len({r["id_cad"] for r in rows}), 28)
-        self.assertEqual(len(files), 5)
+        self.assertEqual(len(files), 7)
         self.assertIn("E01", files["CN-BAR-001-referencias.csv"])
         self.assertIn("C06", files["CN-BAR-001-referencias.csv"])
         for letter in "ABC":
@@ -600,8 +609,8 @@ class WallBarTests(unittest.TestCase):
             page = pages["ABC".index(letter) + 1]
             self.assertIn(f"Cajón {letter} · {position}", page)
             self.assertIn(f"CAJONERA_DERECHA-{drawer_id}-DRAWER_FACADE", page)
-        self.assertIn("Muro en el extremo corto", pages[0])
-        self.assertIn("cajones abren por el costado largo", pages[0])
+        self.assertIn("x_min · muro", pages[0])
+        self.assertIn("Cajones abren por el costado largo", pages[0])
         self.assertIn("BAR-COVER-TOP", pages[0])
 
         # Every visible BOM card maps back to the same reference, dimensions,

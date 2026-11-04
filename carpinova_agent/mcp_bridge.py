@@ -32,6 +32,8 @@ _ALLOWED_FILES = frozenset((
     "CN-BAR-001-referencias.csv", "CN-BAR-001-cajon-A.svg",
     "CN-BAR-001-cajon-B.svg", "CN-BAR-001-cajon-C.svg",
     "CN-BAR-001-guia-de-armado-REVISION.md",
+    "CN-BAR-001-cantos-por-borde-REVISION.csv",
+    "CN-BAR-001-cantos-por-borde-REVISION.json",
 ))
 _IMAGE_FILES = frozenset(("lamina/three-views.png", "native/presentation.png"))
 _FABRICATION = {

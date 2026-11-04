@@ -309,14 +309,16 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         did = front_part["drawer_id"]
         fw = front_part["nominal_face_x_mm"]
         fh = front_part["nominal_face_y_mm"]
+        edge_growth = 2 * front_edge
         edge_review[did] = {
             "nominal_face_width_mm": fw,
             "nominal_face_height_mm": fh,
             "rigid_edge_mm_each_side": front_edge,
+            "proposed_finished_outer_target_size_mm": [fw, fh],
             "if_nominal_is_finished_theoretical_raw_width_mm": fw - 2 * front_edge,
             "if_nominal_is_finished_theoretical_raw_height_mm": fh - 2 * front_edge,
-            "if_nominal_is_raw_resulting_width_mm": fw + 2 * front_edge,
-            "if_nominal_is_raw_resulting_height_mm": fh + 2 * front_edge,
+            "if_nominal_is_raw_resulting_width_mm": fw + edge_growth,
+            "if_nominal_is_raw_resulting_height_mm": fh + edge_growth,
             "theoretical_only_not_cut_dimensions": True,
         }
     nominal_reveals = {}
@@ -330,8 +332,26 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         nominal_reveals[f"{lower_id}_{upper_id}"] = nominal_gap
         uncompensated_reveals[f"{lower_id}_{upper_id}"] = compensated
     cabinet_front_reveal = (cabinet_w - finished_fronts[0]["nominal_face_x_mm"]) / 2
+    cabinet_x0, cabinet_x1 = result["wall_bar_review"]["cabinet_x_range_mm"]
+    cabinet_y0, cabinet_y1 = result["wall_bar_review"]["cabinet_y_range_mm"]
+    face_x0 = min(p["nominal_origin_xyz_mm"][0] for p in finished_fronts)
+    face_x1 = max(p["nominal_origin_xyz_mm"][0] + p["nominal_face_x_mm"]
+                  for p in finished_fronts)
+    front_y0 = min(p["nominal_origin_xyz_mm"][1] for p in finished_fronts)
+    front_y1 = max(p["nominal_origin_xyz_mm"][1] + p["nominal_face_y_mm"]
+                   for p in finished_fronts)
+    raw_interpretation_gaps = {
+        pair: gap - 2 * front_edge for pair, gap in nominal_reveals.items()
+    }
+    raw_interpretation_invalid = any(gap <= 0
+                                     for gap in raw_interpretation_gaps.values())
     result["wall_bar_review"]["front_edgebanding_review"] = {
-        "status": "PENDING_FINISHED_VS_RAW_INTERPRETATION",
+        "status": "FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED",
+        "finished_outer_target": "PROPOSED",
+        "physical_edge_model": "NOT_MODELED",
+        "cut_dimensions": "NOT_VERIFIED",
+        "actual_gap": "NOT_VERIFIED",
+        "finished_panel_edges_included": False,
         "nominal_panel_dimensions_are_not_cut_dimensions": True,
         "fronts": edge_review,
         "nominal_gaps_between_fronts_mm": nominal_reveals,
@@ -339,13 +359,34 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "nominal_cabinet_side_reveal_each_mm": cabinet_front_reveal,
         "side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm":
             cabinet_front_reveal - front_edge,
+        "front_perimeter_reveals_mm": {
+            "left": face_x0 - cabinet_x0,
+            "right": cabinet_x1 - face_x1,
+            "bottom": front_y0 - cabinet_y0,
+            "top": cabinet_y1 - front_y1,
+        },
+        "raw_interpretation_scenario": {
+            "status": ("INVALID_RAW_VS_FINISHED" if raw_interpretation_invalid
+                       else "NOT_REJECTED_BY_GEOMETRIC_REVIEW"),
+            "resulting_front_sizes_mm": {
+                did: [values["if_nominal_is_raw_resulting_width_mm"],
+                      values["if_nominal_is_raw_resulting_height_mm"]]
+                for did, values in edge_review.items()
+            },
+            "theoretical_interfront_gaps_mm": raw_interpretation_gaps,
+            "zero_gap_is_accepted": False,
+            "actual_clearance_verified": False,
+            "cut_dimensions_authorized": False,
+        },
         "cutting_dimensions_authorized": False,
     }
     result["blockers"].append(
-        "CANTO FRONTAL: hay holguras nominales de 2 mm entre frentes; "
-        "si se cortan a la medida nominal y se agrega PVC 2 mm por borde, "
-        "cada frente crece 4 mm por eje y las separaciones pasan a -2 mm. "
-        "Definir dimensiones terminadas, sustrato, merma y procesos antes de corte."
+        "FACHADAS A/B/C: separación geométrica nominal de "
+        f"{', '.join(str(v) for v in nominal_reveals.values())} mm; no es holgura "
+        "física verificada. Si el objetivo exterior terminado se interpreta por error "
+        "como sustrato y se añade PVC 2 mm en cuatro bordes, el escenario se rechaza "
+        "como INVALID_RAW_VS_FINISHED; su cálculo teórico no valida una luz real. "
+        "Proceso, adhesivo y tolerancias siguen pendientes."
     )
     result["blockers"].extend([
         f"D3: holgura vertical inferior nominal de {gaps['D3']} mm sin "
@@ -364,7 +405,7 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "Material, tamaño físico, SKU, capacidad y fijaciones SIN VALIDAR.",
         "Fachadas decorativas separadas: unión a pared frontal interior y ajuste SIN VALIDAR.",
         "Los solapes overlay proceden del fixture de revisión; no son dimensiones aprobadas.",
-        "Tapacanto rígido en frentes y flexible en restantes: dimensiones de corte pendientes.",
+        "Clasificación de cantos por borde: candidatos y exposiciones pendientes; no hay selección física.",
         "Prohibido inventar lateral izquierdo, faldón, escuadra o soporte físico.",
         "A confirmada: tres cajones abren hacia costado largo (Z negativo)."
     ])

@@ -92,6 +92,10 @@ def wall_bar_review_dimensions(model: dict[str, Any]) -> dict[str, Any]:
     face_x0 = min(box["origin_xyz_mm"][0] for box in fronts)
     face_x1 = max(box["origin_xyz_mm"][0] + box["size_xyz_mm"][0]
                   for box in fronts)
+    cabinet_y0, cabinet_y1 = review["cabinet_y_range_mm"]
+    face_y0 = min(box["origin_xyz_mm"][1] for box in fronts)
+    face_y1 = max(box["origin_xyz_mm"][1] + box["size_xyz_mm"][1]
+                  for box in fronts)
     sides = [box for box in boxes if box["role"] in ("left_side", "right_side")]
     if len(sides) != 2:
         raise DesignError("Laterales de carcasa LI/LD no coinciden con el CAD.")
@@ -112,10 +116,164 @@ def wall_bar_review_dimensions(model: dict[str, Any]) -> dict[str, Any]:
         "facades": face_summary,
         "drawer_boxes": drawer_boxes,
         "front_gaps_mm": gaps,
+        "front_perimeter_reveals_mm": {
+            "left": face_x0 - cabinet_x0,
+            "right": cabinet_x1 - face_x1,
+            "bottom": face_y0 - cabinet_y0,
+            "top": cabinet_y1 - face_y1,
+        },
         "left_front_reveal_mm": face_x0 - cabinet_x0,
         "right_front_reveal_mm": cabinet_x1 - face_x1,
         "carcass_side_size_xyz_mm": sides[0]["size_xyz_mm"],
     }
+
+
+EDGE_KEYS = ("x_min", "x_max", "y_min", "y_max")
+EDGE_POLICIES = {
+    "rigid": "RIGID_PVC_2MM_CANDIDATE",
+    "flexible": "FLEXIBLE_PVC_0_45MM_CANDIDATE",
+    "hidden": "NO_DECORATIVE_EDGE_CANDIDATE",
+    "moisture": "PROTECTION_OR_SEAL_REVIEW_REQUIRED",
+    "unknown": "REVIEW_REQUIRED",
+}
+
+
+def classify_edge_context(
+    exposure: str, contact: str, moisture: str, *, protected: bool = False,
+) -> dict[str, Any]:
+    """Classify an edge for review; never certifies a material or process."""
+    if (exposure not in {"visible", "hidden", "unknown"}
+            or contact not in {"impact", "low", "none", "unknown"}
+            or moisture not in {"dry", "exposed", "unknown"}
+            or type(protected) is not bool):
+        raise DesignError("Contexto de canto no reconocido.")
+    if moisture == "exposed":
+        policy, thickness, reason = (
+            EDGE_POLICIES["moisture"], None,
+            "Exposición a humedad: revisar protección y sellado aunque el borde quede oculto.",
+        )
+    elif exposure == "unknown" or contact == "unknown":
+        policy, thickness, reason = (
+            EDGE_POLICIES["unknown"], None,
+            "Visibilidad, instalación o exposición no confirmadas.",
+        )
+    elif exposure == "hidden":
+        if moisture == "dry" and protected:
+            policy, thickness, reason = (
+                EDGE_POLICIES["hidden"], None,
+                "Candidato sin cinta decorativa solo si permanece oculto, seco y protegido.",
+            )
+        else:
+            policy, thickness, reason = (
+                EDGE_POLICIES["unknown"], None,
+                "Condición oculta, humedad o protección no confirmadas.",
+            )
+    elif exposure == "visible" and contact == "impact":
+        policy, thickness, reason = (
+            EDGE_POLICIES["rigid"], 2,
+            "Borde visible expuesto a impacto o manipulación; PVC rígido candidato.",
+        )
+    elif exposure == "visible" and contact == "low":
+        policy, thickness, reason = (
+            EDGE_POLICIES["flexible"], 0.45,
+            "Borde visible de bajo contacto en pieza estructural/interior; flexible candidato.",
+        )
+    else:
+        policy, thickness, reason = (
+            EDGE_POLICIES["unknown"], None,
+            "La exposición conocida no determina una solución de canto segura.",
+        )
+    if thickness is not None and moisture == "unknown":
+        reason += " Humedad del sitio por verificar."
+    return {
+        "edge_policy": policy,
+        "candidate_thickness_mm": thickness,
+        "certainty": (
+            "CONDITIONAL_NOT_VERIFIED" if thickness is not None
+            and moisture == "unknown" else
+            "CANDIDATE_NOT_APPROVED" if thickness is not None
+            else "CONDITIONAL_OR_REVIEW_REQUIRED"
+        ),
+        "reason": reason,
+    }
+
+
+def edge_policy_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
+    """One deterministic review row per physical MDP panel edge from CAD."""
+    cad = validate_exchange(cad_exchange(model))
+    parts = {part["piece_id"]: part for part in model["parts"]}
+    panels = [box for box in cad["boxes"]
+              if box["role"] != "support_leg_concept"]
+    if (len(panels) != 24 or len(cad["boxes"]) != 28
+            or set(parts) != {box["piece_id"] for box in cad["boxes"]}):
+        raise DesignError("La política de cantos requiere 24 paneles y 4 conceptos CAD.")
+    rows = []
+    axes = {"XY": ("X", "Y"), "XZ": ("X", "Z"), "YZ": ("Y", "Z")}
+    cover_policy = {
+        "x_min": ("unknown", "none", "unknown", False,
+                  "Extremo corto contra el muro; sin canto decorativo solo si queda oculto y seco; sellado por revisar.",
+                  "CONDITIONAL_NOT_VERIFIED", "NO_DECORATIVE_EDGE_CANDIDATE"),
+        "x_max": ("visible", "impact", "unknown", False,
+                  "Extremo corto derecho libre; PVC rígido de 2 mm candidato, humedad por verificar.",
+                  "CONDITIONAL_NOT_VERIFIED", "RIGID_PVC_2MM_CANDIDATE_MOISTURE_UNVERIFIED"),
+        "y_min": ("visible", "impact", "unknown", False,
+                  "Borde largo frontal del usuario; PVC rígido de 2 mm candidato, humedad por verificar.",
+                  "CONDITIONAL_NOT_VERIFIED", "RIGID_PVC_2MM_CANDIDATE_MOISTURE_UNVERIFIED"),
+        "y_max": ("unknown", "unknown", "unknown", False,
+                  "Borde largo posterior; visibilidad y exposición a agua no confirmadas.",
+                  "REVIEW_REQUIRED", None),
+    }
+    for box in sorted(panels, key=lambda item: item["piece_id"]):
+        part = parts[box["piece_id"]]
+        plane = part.get("face_plane")
+        if plane not in axes:
+            raise DesignError("Plano de cara ausente para política de cantos: " + box["piece_id"])
+        role = box["role"]
+        for edge in EDGE_KEYS:
+            conditional_status = None
+            conditional_policy = None
+            if box["piece_id"] == "BAR-COVER-TOP":
+                (exposure, contact, moisture, protected, reason,
+                 conditional_status, conditional_policy) = cover_policy[edge]
+            elif role == "drawer_facade":
+                exposure, contact, moisture, protected = "visible", "impact", "unknown", False
+                conditional_status = "CONDITIONAL_NOT_VERIFIED"
+                conditional_policy = "RIGID_PVC_2MM_CANDIDATE_MOISTURE_UNVERIFIED"
+                reason = (
+                    "Frente visible al uso e impacto; PVC rígido de 2 mm candidato, "
+                    "humedad por verificar, no seleccionado."
+                )
+            else:
+                exposure, contact, moisture, protected = "unknown", "unknown", "unknown", False
+                reason = "Exposición del borde estructural/interior no verificada en sitio ni por humedad."
+            classified = classify_edge_context(
+                exposure, contact, moisture, protected=protected,
+            )
+            rows.append({
+                "piece_id": box["piece_id"],
+                "role": role,
+                "face_edge": edge,
+                "edge_axis": axes[plane][0 if edge.startswith("x_") else 1],
+                "context": ("cover_perimeter" if box["piece_id"] == "BAR-COVER-TOP"
+                            else "visible_facade" if role == "drawer_facade"
+                            else "site_exposure_unknown"),
+                "exposure": exposure,
+                "moisture": moisture,
+                "edge_policy": classified["edge_policy"],
+                "conditional_candidate_policy": conditional_policy,
+                "candidate_thickness_mm": classified["candidate_thickness_mm"],
+                "certainty": conditional_status or classified["certainty"],
+                "reason": reason,
+                "verification_required": ("Confirmar condición oculta/seca y evaluar sellado."
+                                          if box["piece_id"] == "BAR-COVER-TOP"
+                                          and edge == "x_min"
+                                          else "No implica selección, medida de corte ni fabricación."),
+                "physical_edge_model": "NOT_MODELED",
+                "geometry_sha256": cad["geometry_sha256"],
+            })
+    if len(rows) != 96 or len({(r["piece_id"], r["face_edge"]) for r in rows}) != 96:
+        raise DesignError("La política debe contener exactamente 96 bordes físicos únicos.")
+    return rows
 
 
 def part_schedule(model: dict[str, Any]) -> list[dict[str, Any]]:
@@ -126,13 +284,21 @@ def part_schedule(model: dict[str, Any]) -> list[dict[str, Any]]:
         raise DesignError("Piezas fuente con ID repetido.")
     if set(source) != {b["piece_id"] for b in cad["boxes"]}:
         raise DesignError("Inventario y CAD difieren.")
+    edge_policies: dict[str, set[str]] = {}
+    for edge in edge_policy_rows(model):
+        edge_policies.setdefault(edge["piece_id"], set()).add(edge["edge_policy"])
     rows = []
     for item in cad["boxes"]:
         part = source[item["piece_id"]]
-        front = item["role"] == "drawer_facade"
         support_concept = item["role"] == "support_leg_concept"
         role = item["role"]
         drawer_id = part.get("drawer_id", "")
+        policies = edge_policies.get(item["piece_id"], set())
+        edge_summary = (
+            "CONCEPTO_SIN_CANTO_APROBADO" if support_concept else
+            next(iter(policies)) if len(policies) == 1 else
+            "MIXTO_POR_BORDE_VER_MATRIZ"
+        )
         rows.append({
             "piece_id": item["piece_id"],
             "drawer_id": drawer_id,
@@ -143,12 +309,9 @@ def part_schedule(model: dict[str, Any]) -> list[dict[str, Any]]:
             "thickness_mm": part["thickness_mm"],
             "origin_xyz_mm": ",".join(map(str, item["origin_xyz_mm"])),
             "size_xyz_mm": ",".join(map(str, item["size_xyz_mm"])),
-            "edge_policy": ("CONCEPTO_SIN_CANTO_APROBADO" if support_concept
-                            else "RIGIDO_FRENTES_2MM_CANDIDATO" if front
-                            else "FLEXIBLE_RESTANTES_0_45MM_CANDIDATO"),
+            "edge_policy": edge_summary,
             "edge_positions": ("NO_APLICA_CONCEPTO" if support_concept
-                               else "CUATRO_BORDES_NOMINALES" if front
-                               else "PENDIENTE_POR_PIEZA"),
+                               else "DETALLE_EN_MATRIZ_96_BORDES"),
             "finished_cut_dimensions_mm": "NOT_VERIFIED",
             "cad_geometry_sha256": cad["geometry_sha256"],
         })

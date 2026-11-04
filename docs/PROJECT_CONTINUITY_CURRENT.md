@@ -1,6 +1,20 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PR #23 P4: cuadernillo humano y holguras (30-oct-2026)
+## ACTIVO — PR #23 P5 V5: objetivo exterior y cantos por borde (04-nov-2026)
+
+Trabajo local en `feat/carpn-ab-v1`, sobre el checkpoint P4 `ae638870770c27bc2cc23d4cc1bde010c4ea0bc4`; PR #23 sigue Draft. El fixture protegido `examples/wall-bar-900-review.json` se conserva intacto. P5 usa el fixture separado `examples/wall-bar-900-review-p5.json` para no alterar la procedencia LIVE01–LIVE03.
+
+P5 propone 4 mm entre envolventes exteriores terminadas de A/B/C y los seis revelados perimetrales; no representa holgura física, corredera ni apertura. Si 2 mm de PVC por borde se aplica por error a los objetivos como sustrato bruto, A/B darían 296 × 182 mm, C 296 × 477 mm y las luces entre frentes serían 0 mm teóricos; el escenario se rechaza como `INVALID_RAW_VS_FINISHED`. No se emiten dimensiones de corte. El estado es `FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED`.
+
+El CADExchange conserva 28 elementos (24 paneles nominales + 4 marcadores conceptuales), SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`; la geometría no frontal coincide con P4 por ID/rol/origen/tamaño. Una tabla determinista cubre 96 aristas físicas, alimenta CSV/JSON/PDF y no asigna cantos a los 4 marcadores. E01: `x_max` y `y_min` PVC rígido 2 mm candidato; humedad pendiente, no aprobado; `x_min` sin cinta decorativa solo si se confirma oculto/seco con sellado por revisar; `y_max` permanece en revisión. La matriz MCP permite leer solo los dos nombres nuevos explícitos. Sitio, exposición, humedad, material y proceso siguen sin verificar.
+
+Verificación local P5: 72 pruebas focales PASS (3 skips por symlink Windows); suite completa **697 PASS, 7 SKIP, 0 FAIL**. Los skips requieren privilegios de symlink no disponibles. Bun 1.4.0 parseó los 8 workflows YAML; los dos jobs nativos alcanzables por rutas de este PR tienen `if: ${{ false }}` al nivel del job. PDF de 7 páginas y lámina de 3 vistas se rasterizaron y revisaron; `verify_pilot_bundle` confirma 28 elementos y estado `DRAFT_NOT_FOR_CUTTING`. Exportación FreeCAD/Blender `NOT_RUN_BY_POLICY`; no corte, perforación ni compra. CI exacto del commit de publicación debe revisarse después del push; el propietario mantiene `OWNER_VISUAL_APPROVAL=PENDING`.
+
+`fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. PR #23 debe seguir Draft y sin merge.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW después de verificar CI asociado al SHA exacto.
+
+## HISTÓRICO — PR #23 P4: cuadernillo humano y holguras (30-oct-2026)
 
 Base protegida: `feature/wall-bar-freecad-v10@e2f20c5231bff3d384430b3a07146ecac93a0eeb`. Trabajo local sobre `feat/carpn-ab-v1`, iniciado en `d0c865f904596b3566cec79a542b4e5706bfddf5`; cambios P4 aún locales, sin commit ni publicación en este checkpoint. PR #23 debe seguir Draft y sin merge.
 

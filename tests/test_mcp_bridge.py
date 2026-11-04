@@ -350,7 +350,7 @@ class McpBridgeContractTests(unittest.TestCase):
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
                 response = carpinova_generar_borrador(request, "barra001")
                 self.assertEqual(response["piece_count"], 28)
-                self.assertEqual(len(response["files"]), 10)
+                self.assertEqual(len(response["files"]), 12)
                 for letter in "ABC":
                     filename = f"CN-BAR-001-cajon-{letter}.svg"
                     delivered = carpinova_leer_entregable("barra001", filename)
@@ -363,6 +363,12 @@ class McpBridgeContractTests(unittest.TestCase):
                     "barra001", "CN-BAR-001-referencias.csv")
                 self.assertIn("E01", schedule["contenido"])
                 self.assertIn("C06", schedule["contenido"])
+                edge_csv = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-cantos-por-borde-REVISION.csv")
+                self.assertEqual(len(edge_csv["contenido"].splitlines()), 97)
+                edge_json = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-cantos-por-borde-REVISION.json")
+                self.assertEqual(len(json.loads(edge_json["contenido"])), 96)
                 guide = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-guia-de-armado-REVISION.md")
                 self.assertIn("NO FABRICAR", guide["contenido"])

@@ -18,6 +18,7 @@ permissions:
   contents: read
 jobs:
   native-wall-bar:
+    if: ${{ false }} # desactivado por política P5; reactivación futura fuera del alcance
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:

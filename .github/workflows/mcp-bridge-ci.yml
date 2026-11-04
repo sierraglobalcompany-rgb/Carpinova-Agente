@@ -46,6 +46,7 @@ jobs:
           path: ${{ runner.temp }}/carpinova-mcp-output/
 
   native-cad-deliverables:
+    if: ${{ false }} # desactivado por política en PR/push; reactivación futura fuera de P5
     name: FreeCAD + Blender native files from exact MCP-generated furniture
     needs: mcp-protocol
     runs-on: ubuntu-22.04
