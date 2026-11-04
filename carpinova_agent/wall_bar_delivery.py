@@ -33,6 +33,425 @@ DRAWER_ROLES = (
     ("05", "Trasera", "DRAWER_REAR_WALL"),
     ("06", "Fondo", "DRAWER_BOTTOM"),
 )
+
+_P6_BOOK_SOURCES = (
+    ("CONTENT-CPNC-2025-P0067-001", 67, 45),
+    ("CONTENT-CPNC-2025-P0068-001", 68, 46),
+    ("CONTENT-CPNC-2025-P0073-001", 73, 51),
+    ("CONTENT-CPNC-2025-P0113-002", 113, 91),
+    ("CONTENT-CPNC-2025-P0113-003", 113, 91),
+    ("CONTENT-CPNC-2025-P0114-001", 114, 92),
+    ("CONTENT-CPNC-2025-P0114-002", 114, 92),
+    ("CONTENT-CPNC-2025-P0114-003", 114, 92),
+    ("CONTENT-CPNC-2025-P0114-004", 114, 92),
+    ("CONTENT-CPNC-2025-P0114-005", 114, 92),
+    ("CONTENT-CPNC-2025-P0115-001", 115, 93),
+    ("CONTENT-CPNC-2025-P0115-002", 115, 93),
+    ("CONTENT-CPNC-2025-P0115-003", 115, 93),
+    ("CONTENT-CPNC-2025-P0115-004", 115, 93),
+    ("CONTENT-CPNC-2025-P0116-001", 116, 94),
+    ("CONTENT-CPNC-2025-P0116-002", 116, 94),
+    ("CONTENT-CPNC-2025-P0118-001", 118, 96),
+    ("CONTENT-CPNC-2025-P0118-002", 118, 96),
+    ("CONTENT-CPNC-2025-P0118-003", 118, 96),
+    ("CONTENT-CPNC-2025-P0177-001", 177, 155),
+    ("CONTENT-CPNC-2025-P0177-002", 177, 155),
+    ("CONTENT-CPNC-2025-P0177-003", 177, 155),
+    ("CONTENT-CPNC-2025-P0177-004", 177, 155),
+    ("CONTENT-CPNC-2025-P0266-001", 266, 244),
+    ("CONTENT-CPNC-2025-P0267-001", 267, 245),
+)
+
+
+def _wall_bar_p6_review(
+    model: dict[str, Any], edge_rows: list[dict[str, Any]],
+    cad: dict[str, Any], human: dict[str, Any],
+) -> dict[str, Any]:
+    """Build book-first review metadata from existing CAD and edge policy."""
+    review = model.get("wall_bar_review")
+    if not isinstance(review, dict):
+        raise DesignError("P6 requiere el proyecto CN-BAR-001 de revisión.")
+    front_review = review.get("front_edgebanding_review")
+    if not isinstance(front_review, dict):
+        raise DesignError("P6 requiere la revisión vigente de frentes aplicados.")
+    boxes = {box["piece_id"]: box for box in cad["boxes"]}
+    if len(boxes) != 28 or len(edge_rows) != 96:
+        raise DesignError("P6 requiere los 28 elementos CAD y la matriz de 96 bordes.")
+
+    policy_counts: dict[str, int] = {}
+    for row in edge_rows:
+        policy = row["edge_policy"]
+        policy_counts[policy] = policy_counts.get(policy, 0) + 1
+    contact_edges = sum(row["cad_contact"] == "CAD_CONTACT_NOMINAL"
+                        for row in edge_rows)
+    physical_panels = {row["piece_id"] for row in edge_rows}
+
+    facade_summary = []
+    for letter, drawer_id in (("A", "D1"), ("B", "D2"), ("C", "D3")):
+        source = front_review.get("fronts", {}).get(drawer_id)
+        facade = human.get("facades", {}).get(letter)
+        if not isinstance(source, dict) or not isinstance(facade, dict):
+            raise DesignError("Falta el objetivo exterior de fachada " + letter + ".")
+        target = source.get("proposed_finished_outer_target_size_mm")
+        nominal = [facade.get("width_mm"), facade.get("height_mm")]
+        if (type(target) is not list or len(target) != 2
+                or any(type(value) is not int or value <= 0 for value in target)
+                or target != nominal):
+            raise DesignError("El objetivo de fachada no coincide con CAD: " + letter)
+        candidate_edges = [row for row in edge_rows
+                           if row["piece_id"] == facade["piece_id"]]
+        edge_band = source.get("rigid_edge_mm_each_side")
+        all_four_candidates = (
+            len(candidate_edges) == 4 and edge_band == 2
+            and all(row["edge_policy"] == "RIGID_PVC_2MM_CANDIDATE"
+                    and row["candidate_thickness_mm"] == 2
+                    for row in candidate_edges)
+        )
+        substrate = ([target[0] - 2 * edge_band, target[1] - 2 * edge_band]
+                     if all_four_candidates else None)
+        facade_summary.append({
+            "facade": letter,
+            "drawer_id": drawer_id,
+            "piece_id": facade["piece_id"],
+            "cad_nominal_dimensions_mm": nominal,
+            "finished_outer_target_mm": target,
+            "finished_outer_target_status": "OWNER_DESIGN_TARGET_PROPOSED",
+            "edge_candidate": "RIGID_PVC_2MM_CANDIDATE" if all_four_candidates
+            else "NOT_CONFIRMED",
+            "ideal_substrate_dimensions_mm": substrate,
+            "ideal_substrate_status": ("NOT_A_CUT_DIMENSION" if substrate
+                                       else "NOT_COMPUTABLE"),
+            "unverified_processes": [
+                "adhesive_or_application_allowance", "machine_tolerance",
+                "squareness", "physical_edge_measurement",
+            ],
+        })
+
+    cover_id = "BAR-COVER-TOP"
+    cover_edges = {row["face_edge"]: row for row in edge_rows
+                   if row["piece_id"] == cover_id}
+    if set(cover_edges) != {"x_min", "x_max", "y_min", "y_max"}:
+        raise DesignError("P6 necesita las cuatro aristas de la cubierta E01.")
+
+    left = boxes["CAJONERA_DERECHA-LEFT_SIDE"]
+    right = boxes["CAJONERA_DERECHA-RIGHT_SIDE"]
+    side_thickness = left["size_xyz_mm"][0]
+    inside_left = left["origin_xyz_mm"][0] + side_thickness
+    inside_right = right["origin_xyz_mm"][0]
+    opening_width = inside_right - inside_left
+    drawer_boxes = [boxes[f"CAJONERA_DERECHA-{drawer}-DRAWER_BOTTOM"]
+                    for drawer in ("D1", "D2", "D3")]
+    drawer_widths = {box["size_xyz_mm"][0] for box in drawer_boxes}
+    if len(drawer_widths) != 1:
+        raise DesignError("Las tres cajas no comparten el ancho CAD esperado.")
+    box_width = drawer_widths.pop()
+    drawer_left = drawer_boxes[0]["origin_xyz_mm"][0]
+    drawer_right = drawer_left + box_width
+    clearance_left = drawer_left - inside_left
+    clearance_right = inside_right - drawer_right
+    if min(opening_width, box_width, clearance_left, clearance_right) <= 0:
+        raise DesignError("La comparación nominal caja/carcasa no es positiva.")
+
+    drawer_bottom_id = "CAJONERA_DERECHA-D1-DRAWER_BOTTOM"
+    back_id = "CAJONERA_DERECHA-BACK_FULL"
+    bottom = boxes[drawer_bottom_id]
+    back = boxes[back_id]
+    drawer_front_z = bottom["origin_xyz_mm"][2]
+    drawer_back_z = drawer_front_z + bottom["size_xyz_mm"][2]
+    back_start_z = back["origin_xyz_mm"][2]
+    cavity_depth = back_start_z - drawer_front_z
+    rear_margin = back_start_z - drawer_back_z
+    if min(cavity_depth, rear_margin) <= 0:
+        raise DesignError("La caja nominal invade o excede la envolvente CAD posterior.")
+    external_depth = human["depth_mm"]
+    standard_lengths = tuple(range(200, 651, 50))
+    book_length_candidate = max(
+        (length for length in standard_lengths if length < external_depth),
+        default=None,
+    )
+    envelope_length_candidate = max(
+        (length for length in standard_lengths if length < cavity_depth),
+        default=None,
+    )
+    book_exception = (
+        "BOOK_HEURISTIC_REJECTED_BY_CAD_ENVELOPE"
+        if book_length_candidate is not None and book_length_candidate > cavity_depth
+        else "BOOK_HEURISTIC_NOT_REJECTED_BUT_FITMENT_UNVERIFIED"
+    )
+
+    raw_scenario = front_review.get("raw_interpretation_scenario", {})
+    if raw_scenario.get("status") != "INVALID_RAW_VS_FINISHED":
+        raise DesignError("P6 requiere conservar el rechazo de doble compensación.")
+    raw_sizes = raw_scenario.get("resulting_front_sizes_mm", {})
+    raw_gaps = raw_scenario.get("theoretical_interfront_gaps_mm", {})
+
+    return {
+        "schema_version": "1.0",
+        "project_id": "CN-BAR-001",
+        "status": "DRAFT_NOT_FOR_CUTTING",
+        "review_scope": "BOOK_FIRST_CONSTRUCTIVE_REVIEW",
+        "geometry_sha256": cad["geometry_sha256"],
+        "cad_element_count": len(boxes),
+        "physical_panel_count": len(physical_panels),
+        "conceptual_support_count_excluded_from_edgebanding": 4,
+        "edge_review": {
+            "source": "CADExchange",
+            "evidence_status": "CAD_OBSERVED",
+            "evidence_basis": "ROLE_AND_GEOMETRY",
+            "site_context": "SITE_UNKNOWN",
+            "edge_count": len(edge_rows),
+            "unique_piece_edge_count": len({
+                (row["piece_id"], row["face_edge"]) for row in edge_rows
+            }),
+            "nominal_contact_edge_count": contact_edges,
+            "edge_policy_counts": policy_counts,
+            "conditional_candidates_are_not_assignments": True,
+            "book_conditional_options": [
+                {"policy": "RIGID_PVC_2MM_CANDIDATE",
+                 "condition": "Borde de fachada realmente visible; humedad y proceso aún por verificar."},
+                {"policy": "FLEXIBLE_PVC_0_45MM_CANDIDATE",
+                 "condition": "Borde estructural/interior que sea realmente visible y reciba bajo contacto; no asignado sin contexto."},
+                {"policy": "SEMIRIGID_PVC_1_OR_1_5MM_BOOK_OPTION_ONLY",
+                 "condition": "Alternativa citada por el libro; ningún borde de este proyecto la tiene seleccionada."},
+                {"policy": "NO_DECORATIVE_EDGE_CANDIDATE",
+                 "condition": "Solo si el borde está completamente oculto, seco y protegido; condición del sitio no verificada."},
+            ],
+            "rows_file": "CN-BAR-001-cantos-por-borde-REVISION.json",
+            "csv_file": "CN-BAR-001-cantos-por-borde-REVISION.csv",
+            "interpretation": (
+                "CAD_CONTACT_NOMINAL solo informa contacto entre cajas geométricas; "
+                "no demuestra unión, fijación, canto físico, ocultamiento ni sequedad."
+            ),
+        },
+        "finished_targets_vs_substrate": {
+            "finished_panel_edges_included": False,
+            "facades": facade_summary,
+            "cover_E01_substrate": {
+                "status": "NOT_COMPUTABLE",
+                "dimensions": {
+                    "X": {"status": "NOT_COMPUTABLE",
+                          "edges": ["x_min", "x_max"],
+                          "reason": "x_min no confirma ocultamiento/sequedad y x_max es candidato sin validar."},
+                    "Z": {"status": "NOT_COMPUTABLE",
+                          "edges": ["y_min", "y_max"],
+                          "reason": "y_min es candidato sin validar y y_max permanece en revisión."},
+                },
+                "raw_substrate_dimensions_emitted": False,
+            },
+            "invalid_raw_vs_finished_example": {
+                "status": "INVALID_RAW_VS_FINISHED",
+                "raw_interpretation_front_sizes_mm": raw_sizes,
+                "theoretical_interfront_gaps_mm": raw_gaps,
+                "zero_gap_accepted": False,
+                "cut_dimensions_authorized": False,
+            },
+        },
+        "slide_review": {
+            "family_candidate": "TELESCOPIC_SIDE_MOUNT_BALL_BEARING_TRADITIONAL_CLOSE",
+            "family_status": "PRELIMINARY_BOOK_BASED_NOT_SELECTED",
+            "book_rule": {
+                "lateral_clearances_mm_each_side": {
+                    "light_duty": 13,
+                    "medium_or_heavy": 14,
+                    "soft_close_or_push_open": 15,
+                },
+                "under_mount_deduction_total_per_pair_mm": 15,
+                "standard_length_selection": "Immediately shorter standard length than external depth; compare with CAD cavity before review recommendation.",
+                "x_and_2x": "Educational vertical distribution; not the 4 mm facade gaps and not a drilling pattern.",
+            },
+            "book_source_ids": [
+                "CONTENT-CPNC-2025-P0113-002",
+                "CONTENT-CPNC-2025-P0113-003",
+                "CONTENT-CPNC-2025-P0114-001",
+                "CONTENT-CPNC-2025-P0114-002",
+                "CONTENT-CPNC-2025-P0114-003",
+                "CONTENT-CPNC-2025-P0114-004",
+                "CONTENT-CPNC-2025-P0115-002",
+                "CONTENT-CPNC-2025-P0115-004",
+                "CONTENT-CPNC-2025-P0116-002",
+            ],
+            "book_exception": book_exception,
+            "length_nominal_candidate_mm": envelope_length_candidate,
+            "length_fitment_verified": False,
+            "installation_verified": False,
+            "drilling_coordinates": [],
+            "sku_selected": None,
+            "weight_capacity_for_drawer": None,
+            "cad_derived_dimensions": {
+                "carcass_inner_opening_width_mm": opening_width,
+                "drawer_box_outer_width_mm": box_width,
+                "drawer_left_clearance_mm": clearance_left,
+                "drawer_right_clearance_mm": clearance_right,
+                "drawer_box_interior_clear_width_mm": human["drawer_boxes"]["D1"]["internal_clear_dimensions_mm"][0],
+                "external_depth_mm": external_depth,
+                "cavity_front_z_mm": drawer_front_z,
+                "cavity_rear_z_mm": back_start_z,
+                "cavity_front_to_back_mm": cavity_depth,
+                "drawer_box_front_z_mm": drawer_front_z,
+                "drawer_box_rear_z_mm": drawer_back_z,
+                "drawer_box_nominal_depth_mm": drawer_back_z - drawer_front_z,
+                "nominal_rear_margin_mm": rear_margin,
+                "drawer_bottom_piece_id": drawer_bottom_id,
+                "back_piece_id": back_id,
+            },
+            "lateral_options_mm_each_side": [
+                {"book_class": "LIGHT_DUTY", "allowance_each_side_mm": 13,
+                 "total_pair_mm": 26, "theoretical_box_outer_width_mm": opening_width - 26,
+                 "status": "REVIEW_ONLY_NOT_SELECTED"},
+                {"book_class": "MEDIUM_OR_HEAVY", "allowance_each_side_mm": 14,
+                 "total_pair_mm": 28, "theoretical_box_outer_width_mm": opening_width - 28,
+                 "status": "REVIEW_ONLY_NOT_SELECTED"},
+                {"book_class": "SOFT_CLOSE_OR_PUSH_OPEN", "allowance_each_side_mm": 15,
+                 "total_pair_mm": 30, "theoretical_box_outer_width_mm": opening_width - 30,
+                 "status": "REVIEW_ONLY_NOT_SELECTED"},
+            ],
+            "under_mount_option": {
+                "book_deduction_total_per_pair_mm": 15,
+                "family": "UNDER_MOUNT_SEPARATE_FROM_LATERAL",
+                "applied_to_current_geometry": False,
+            },
+            "book_example_344_interpretation": {
+                "source_id": "CONTENT-CPNC-2025-P0114-003",
+                "source_labels_344_mm_as": "internal_drawer_width",
+                "review_interpretation": "244/344 arithmetic is drawer-box outer width between side slides, not useful interior clear width.",
+                "current_cad_drawer_box_outer_width_mm": box_width,
+                "current_cad_drawer_interior_clear_width_mm": human["drawer_boxes"]["D1"]["internal_clear_dimensions_mm"][0],
+            },
+            "book_length_heuristic": {
+                "basis": "Immediately shorter standard length than external depth, per book.",
+                "external_depth_mm": external_depth,
+                "nominal_candidate_mm": book_length_candidate,
+                "cad_cavity_front_to_back_mm": cavity_depth,
+                "alternative_350_mm": "BOOK_EXAMPLE_ONLY_NOT_SELECTED",
+            },
+            "manufacturer_reference": {
+                "status": "VERIFIED_OFFICIAL_REFERENCE_ILLUSTRATIVE_ONLY",
+                "manufacturer": "Accuride",
+                "family": "DZ3832DO",
+                "variant": "DZ3832-0040DO",
+                "slide_length_SL_mm": 400,
+                "extension_travel_TR_mm": 406,
+                "slide_thickness_mm": 12.7,
+                "required_side_space_adjustment_mm": [0.2, 0.5],
+                "derived_slide_thickness_plus_adjustment_mm_each_side": [12.9, 13.2],
+                "hold_out_present": True,
+                "sku_selected": None,
+                "compatibility_verified": False,
+                "drilling_coordinates": [],
+                "datasheet_url": "https://hs-europe.accuride.com/hubfs/Datasheets/3832DO_en.pdf",
+            },
+            "source_frame_conflict": {
+                "id": "SOURCE_FRAME_CONFLICT_37_32",
+                "status": "UNRESOLVED",
+                "source_ids": ["CONTENT-CPNC-2025-P0067-001",
+                               "CONTENT-CPNC-2025-P0114-005",
+                               "CONTENT-CPNC-2025-P0116-001"],
+                "drilling_coordinates": [],
+            },
+        },
+        "knowledge_provenance": {
+            "book_id": "cpnc-2025",
+            "book_title": "Carpintería para no Carpinter@s",
+            "edition_year": 2025,
+            "repository": "sierraglobalcompany-rgb/CarpiNova-Knowledge",
+            "commit": "d350f3de1104977986f30498d212e018cbac5d29",
+            "reference_mode": "REFERENCE_DOCUMENTAL_AUDITADA",
+            "runtime_query_performed": False,
+            "content_references": [
+                {"content_id": content_id, "pdf_page": pdf_page,
+                 "printed_page": printed_page,
+                 "extraction_status": "VISUALLY_VERIFIED"}
+                for content_id, pdf_page, printed_page in _P6_BOOK_SOURCES
+            ],
+        },
+        "hardware_included": False,
+        "manufacturing_flags": {
+            "fabrication_ready": False,
+            "cutting_ready": False,
+            "drilling_ready": False,
+            "purchase_ready": False,
+        },
+        "fabrication_ready": False,
+        "cutting_ready": False,
+        "drilling_ready": False,
+        "purchase_ready": False,
+    }
+
+
+def _wall_bar_p6_criteria(review: dict[str, Any]) -> str:
+    """Explain book, CAD calculations and unresolved decisions plainly."""
+    edge = review["edge_review"]
+    dimensions = review["finished_targets_vs_substrate"]
+    rails = review["slide_review"]
+    lines = [
+        "# CN-BAR-001 · Revisión constructiva P6 (BORRADOR · NO FABRICAR)",
+        "",
+        "Este documento explica una revisión nominal del CAD existente. No es un despiece de corte, patrón de perforación ni selección aprobada de herrajes.",
+        "",
+        "## Qué recomienda el libro",
+        "",
+        "- Para frentes visibles, el libro presenta canto rígido de 2 mm; para piezas estructurales/interiores menciona canto flexible de 0,45 mm y semirrígido de 1 o 1,5 mm. La geometría no demuestra exposición, humedad ni protección, así que estas son referencias condicionadas, no órdenes de canto.",
+        "  Referencias: `CONTENT-CPNC-2025-P0177-001`, `CONTENT-CPNC-2025-P0177-002`, `CONTENT-CPNC-2025-P0177-003` y `CONTENT-CPNC-2025-P0177-004` (PDF p177, impresa p155). El flexible de 0,45 mm solo es opción para un borde interior realmente visible y de bajo contacto; el sitio sigue sin verificar.",
+        "- En correderas laterales, las referencias pedagógicas son 13 mm por lado para livianas, 14 mm por lado para medianas/pesadas y 15 mm por lado para cierre suave o push-open. Las correderas de montaje inferior son otra familia: el libro menciona 15 mm total por par; no se combina con los descuentos laterales. `CONTENT-CPNC-2025-P0113-002`, `CONTENT-CPNC-2025-P0113-003`, `CONTENT-CPNC-2025-P0114-002` y `CONTENT-CPNC-2025-P0114-004` (PDF p113–114, impresa p91–92).",
+        "- En el ejemplo del libro, 344 mm queda denominado “ancho interno”; al restar rieles laterales, ese resultado corresponde al ancho exterior de la caja, no a su espacio útil interior. Aquí el CAD da 244 mm exterior y 214 mm interior. `CONTENT-CPNC-2025-P0114-003` (PDF p114, impresa p92).",
+        "- El libro sugiere una longitud comercial inmediatamente menor que la profundidad exterior; el propio ejemplo 400→350 mm es una heurística, no una regla que confirme el espacio real de instalación. `CONTENT-CPNC-2025-P0114-001`.",
+        "- X y 2X ayudan a explicar la distribución de correderas. No son las luces de 4 mm entre frentes de esta barra ni un patrón de taladros aprobado. `CONTENT-CPNC-2025-P0115-002`, `CONTENT-CPNC-2025-P0115-004` y `CONTENT-CPNC-2025-P0116-002`.",
+        "- El texto 37/32 difiere en su referencia de borde entre `CONTENT-CPNC-2025-P0067-001`, `CONTENT-CPNC-2025-P0114-005` y `CONTENT-CPNC-2025-P0116-001`; se conserva como conflicto, sin coordenadas de perforación.",
+        "- Las páginas de revisión de entrega p266–267 piden separaciones parejas; no fijan 4 mm como medida universal. `CONTENT-CPNC-2025-P0266-001` y `CONTENT-CPNC-2025-P0267-001`.",
+        "- La fuente impresa de 45 kg/18 pulgadas y 30.000 ciclos de p118 pertenece al ejemplo reproducido allí; no se extrapola a otra referencia. `CONTENT-CPNC-2025-P0118-001`, `CONTENT-CPNC-2025-P0118-002` y `CONTENT-CPNC-2025-P0118-003`.",
+        "",
+        "## Qué calcula el diseño",
+        "",
+        f"- CADExchange: SHA `{review['geometry_sha256']}`, {review['physical_panel_count']} paneles nominales y 4 apoyos conceptuales excluidos de la matriz de cantos.",
+        f"- La única matriz contiene {edge['edge_count']} bordes únicos: {edge['edge_policy_counts'].get('RIGID_PVC_2MM_CANDIDATE', 0)} candidatos rígidos de 2 mm y {edge['edge_policy_counts'].get('REVIEW_REQUIRED', 0)} bordes en revisión. Contactos CAD registrados: {edge['nominal_contact_edge_count']}; `CAD_CONTACT_NOMINAL` no acredita una unión física.",
+        f"- El detalle completo está en `{edge['rows_file']}` y `{edge['csv_file']}`; este resumen no duplica sus 96 filas.",
+        "",
+        "| Frente | Objetivo exterior terminado propuesto (mm) | Sustrato ideal teórico (mm) | Estado |",
+        "|---|---:|---:|---|",
+    ]
+    for facade in dimensions["facades"]:
+        target = " × ".join(map(str, facade["finished_outer_target_mm"]))
+        substrate = (" × ".join(map(str, facade["ideal_substrate_dimensions_mm"]))
+                     if facade["ideal_substrate_dimensions_mm"] else "NOT_COMPUTABLE")
+        lines.append(
+            f"| {facade['facade']} | {target} | {substrate} | {facade['ideal_substrate_status']} |"
+        )
+    lines.extend([
+        "",
+        "Los sustratos son una resta ideal de 2 mm por cada borde de fachada, solo para mostrar la relación entre objetivo terminado y tablero. No incluyen adhesivo, tolerancias, proceso ni escuadría; no son medidas de corte. Para E01 no se publica un tamaño de sustrato: ambos ejes quedan `NOT_COMPUTABLE` porque faltan decisiones verificadas de canto/ocultamiento.",
+        "",
+        "**Control negativo:** interpretar A/B como tablero bruto y sumar 2 mm en cada borde daría 296 × 182 mm; para C daría 296 × 477 mm. El escenario registrado reduce las luces teóricas entre frentes a 0 mm y se rechaza como `INVALID_RAW_VS_FINISHED`; no se acepta ni autoriza corte.",
+        "",
+        "### Correderas: comparación educativa",
+        "",
+        "| Alternativa lateral del libro | Descuento por lado | Descuento del par | Caja exterior teórica desde abertura CAD 270 mm | Aplicada |",
+        "|---|---:|---:|---:|---|",
+    ])
+    for option in rails["lateral_options_mm_each_side"]:
+        lines.append(
+            f"| {option['book_class']} | {option['allowance_each_side_mm']} mm | "
+            f"{option['total_pair_mm']} mm | {option['theoretical_box_outer_width_mm']} mm | No |"
+        )
+    lines.extend([
+        "",
+        f"La caja CAD mide {rails['cad_derived_dimensions']['drawer_box_outer_width_mm']} mm por fuera y sus holguras laterales nominales son {rails['cad_derived_dimensions']['drawer_left_clearance_mm']} + {rails['cad_derived_dimensions']['drawer_right_clearance_mm']} mm. La coincidencia numérica con 13 mm por lado no selecciona una corredera ni valida montaje.",
+        "",
+        f"El criterio del libro produciría {rails['book_length_heuristic']['nominal_candidate_mm']} mm para {rails['book_length_heuristic']['external_depth_mm']} mm de profundidad exterior. La cavidad nominal frontal→respaldo, calculada entre `{rails['cad_derived_dimensions']['drawer_bottom_piece_id']}` y `{rails['cad_derived_dimensions']['back_piece_id']}`, es {rails['cad_derived_dimensions']['cavity_front_to_back_mm']} mm. La excepción queda `{rails['book_exception']}`. Se deja {rails['length_nominal_candidate_mm']} mm como candidato de revisión sin compatibilidad ni instalación verificadas; 350 mm solo aparece como ejemplo del libro y no se elige automáticamente.",
+        "",
+        "La ficha oficial Accuride DZ3832DO se conserva como referencia ilustrativa: la variante DZ3832-0040DO indica SL 400 mm y TR 406 mm. Espesor, margen lateral y función hold-out de esa ficha no prueban compatibilidad con esta caja. `sku_selected=null`; no hay capacidad de carga aprobada ni coordenadas de taladros.",
+        "",
+        "## Qué falta para instalar",
+        "",
+        "- Confirmar ambiente, humedad, exposición real, caras visibles, ocultamiento, protección y acabado de cada borde.",
+        "- Confirmar si los objetivos propuestos de fachada y los 4 mm siguen vigentes después de revisar el montaje real. Las páginas 266–267 solo piden uniformidad; no establecen ese valor.",
+        "- Elegir una familia y referencia de corredera con ficha exacta y verificar carga, recorrido, longitud retraída, ancho de instalación y espacio posterior.",
+        "- El texto 37/32 tiene referencias de borde diferentes en `SOURCE_FRAME_CONFLICT_37_32`; no se generan perforaciones.",
+        "- Revisar fijaciones, uniones, estabilidad, nivelación y condiciones del sitio por separado.",
+        "",
+        f"Estado: `{review['status']}`. Hardware incluido: `{str(review['hardware_included']).lower()}`. Permisos: fabrication/cutting/drilling/purchase = `false`. Fuente bibliográfica documental fijada en `{review['knowledge_provenance']['commit']}`; no se afirma consulta del bundle runtime.",
+        "",
+    ])
+    return "\n".join(lines)
 DRAWERS = (("A", "D1"), ("B", "D2"), ("C", "D3"))
 
 
@@ -99,6 +518,11 @@ def review_files(model: dict[str, Any]) -> dict[str, str]:
             json.dumps(edge_rows, ensure_ascii=False, indent=2) + "\n"
         ),
     }
+    p6_review = _wall_bar_p6_review(model, edge_rows, cad, human)
+    result["CN-BAR-001-P6-revision-constructiva.json"] = (
+        json.dumps(p6_review, ensure_ascii=False, indent=2) + "\n"
+    )
+    result["CN-BAR-001-P6-criterios.md"] = _wall_bar_p6_criteria(p6_review)
 
     def h_dimension(name: str, x1: float, x2: float, y: float,
                     source_y: float, label: str) -> str:

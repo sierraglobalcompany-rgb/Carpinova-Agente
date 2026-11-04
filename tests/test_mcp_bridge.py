@@ -350,7 +350,7 @@ class McpBridgeContractTests(unittest.TestCase):
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
                 response = carpinova_generar_borrador(request, "barra001")
                 self.assertEqual(response["piece_count"], 28)
-                self.assertEqual(len(response["files"]), 12)
+                self.assertEqual(len(response["files"]), 14)
                 for letter in "ABC":
                     filename = f"CN-BAR-001-cajon-{letter}.svg"
                     delivered = carpinova_leer_entregable("barra001", filename)
@@ -372,8 +372,23 @@ class McpBridgeContractTests(unittest.TestCase):
                 guide = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-guia-de-armado-REVISION.md")
                 self.assertIn("NO FABRICAR", guide["contenido"])
+                p6 = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-P6-revision-constructiva.json")
+                p6_review = json.loads(p6["contenido"])
+                self.assertEqual(p6_review["geometry_sha256"],
+                                 response["geometry_sha256"])
+                self.assertEqual(p6_review["edge_review"]["edge_count"], 96)
+                criteria = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-P6-criterios.md")
+                self.assertIn("Qué recomienda el libro", criteria["contenido"])
                 folder = Path(root) / "barra001"
                 original = verify_pilot_bundle(folder)
+                p6_path = folder / "CN-BAR-001-P6-revision-constructiva.json"
+                p6_bytes = p6_path.read_bytes()
+                p6_path.write_bytes(p6_bytes + b"ALTERADO")
+                with self.assertRaisesRegex(PilotError, "distinto del CAD"):
+                    verify_pilot_bundle(folder)
+                p6_path.write_bytes(p6_bytes)
                 path = folder / "CN-BAR-001-cajon-C.svg"
                 path.write_text(path.read_text(encoding="utf-8") + "ALTERADO",
                                 encoding="utf-8")

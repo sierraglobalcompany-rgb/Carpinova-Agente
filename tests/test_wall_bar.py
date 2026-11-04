@@ -564,7 +564,9 @@ class WallBarTests(unittest.TestCase):
         self.assertEqual(len(rows), 28)
         self.assertEqual(len({r["referencia"] for r in rows}), 28)
         self.assertEqual(len({r["id_cad"] for r in rows}), 28)
-        self.assertEqual(len(files), 7)
+        self.assertEqual(len(files), 9)
+        self.assertIn("CN-BAR-001-P6-revision-constructiva.json", files)
+        self.assertIn("CN-BAR-001-P6-criterios.md", files)
         self.assertIn("E01", files["CN-BAR-001-referencias.csv"])
         self.assertIn("C06", files["CN-BAR-001-referencias.csv"])
         for letter in "ABC":

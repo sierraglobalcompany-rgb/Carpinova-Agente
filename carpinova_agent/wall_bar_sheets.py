@@ -138,6 +138,57 @@ EDGE_POLICIES = {
 }
 
 
+def _cad_nominal_edge_neighbors(
+    panels: list[dict[str, Any]], parts: dict[str, dict[str, Any]],
+) -> dict[tuple[str, str], list[str]]:
+    """Find nominal CAD box contacts at each panel perimeter edge.
+
+    This records box-coordinate adjacency only. It does not assert a joint,
+    fastening, concealment, dryness, or a physical edge condition.
+    """
+    plane_axes = {"XY": (0, 1), "XZ": (0, 2), "YZ": (1, 2)}
+    result: dict[tuple[str, str], list[str]] = {}
+    for box in panels:
+        piece_id = box["piece_id"]
+        plane = parts[piece_id].get("face_plane")
+        if plane not in plane_axes:
+            raise DesignError("Plano de cara ausente para política de cantos: " + piece_id)
+        axis_a, axis_b = plane_axes[plane]
+        normal_axis = next(axis for axis in range(3)
+                           if axis not in (axis_a, axis_b))
+        origin = box["origin_xyz_mm"]
+        size = box["size_xyz_mm"]
+        for edge in EDGE_KEYS:
+            boundary_slot = 0 if edge.startswith("x_") else 1
+            tangent_slot = 1 - boundary_slot
+            boundary_axis = (axis_a, axis_b)[boundary_slot]
+            tangent_axis = (axis_a, axis_b)[tangent_slot]
+            boundary = origin[boundary_axis]
+            if edge.endswith("max"):
+                boundary += size[boundary_axis]
+            neighbors = []
+            for candidate in panels:
+                if candidate["piece_id"] == piece_id:
+                    continue
+                other_origin = candidate["origin_xyz_mm"]
+                other_size = candidate["size_xyz_mm"]
+                other_end = other_origin[boundary_axis] + other_size[boundary_axis]
+                if boundary not in (other_origin[boundary_axis], other_end):
+                    continue
+                tangent_overlap = min(
+                    origin[tangent_axis] + size[tangent_axis],
+                    other_origin[tangent_axis] + other_size[tangent_axis],
+                ) - max(origin[tangent_axis], other_origin[tangent_axis])
+                normal_overlap = min(
+                    origin[normal_axis] + size[normal_axis],
+                    other_origin[normal_axis] + other_size[normal_axis],
+                ) - max(origin[normal_axis], other_origin[normal_axis])
+                if tangent_overlap > 0 and normal_overlap > 0:
+                    neighbors.append(candidate["piece_id"])
+            result[(piece_id, edge)] = sorted(neighbors)
+    return result
+
+
 def classify_edge_context(
     exposure: str, contact: str, moisture: str, *, protected: bool = False,
 ) -> dict[str, Any]:
@@ -208,6 +259,7 @@ def edge_policy_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
             or set(parts) != {box["piece_id"] for box in cad["boxes"]}):
         raise DesignError("La política de cantos requiere 24 paneles y 4 conceptos CAD.")
     rows = []
+    edge_neighbors = _cad_nominal_edge_neighbors(panels, parts)
     axes = {"XY": ("X", "Y"), "XZ": ("X", "Z"), "YZ": ("Y", "Z")}
     cover_policy = {
         "x_min": ("unknown", "none", "unknown", False,
@@ -249,11 +301,19 @@ def edge_policy_rows(model: dict[str, Any]) -> list[dict[str, Any]]:
             classified = classify_edge_context(
                 exposure, contact, moisture, protected=protected,
             )
+            neighbor_ids = edge_neighbors[(box["piece_id"], edge)]
             rows.append({
                 "piece_id": box["piece_id"],
                 "role": role,
                 "face_edge": edge,
                 "edge_axis": axes[plane][0 if edge.startswith("x_") else 1],
+                "evidence_status": "CAD_OBSERVED",
+                "evidence_basis": "ROLE_AND_GEOMETRY",
+                "site_context": "SITE_UNKNOWN",
+                "neighbor_piece_id": neighbor_ids[0] if len(neighbor_ids) == 1 else None,
+                "neighbor_piece_ids": neighbor_ids,
+                "cad_contact": ("CAD_CONTACT_NOMINAL" if neighbor_ids
+                                else "NO_CAD_CONTACT_NOMINAL"),
                 "context": ("cover_perimeter" if box["piece_id"] == "BAR-COVER-TOP"
                             else "visible_facade" if role == "drawer_facade"
                             else "site_exposure_unknown"),

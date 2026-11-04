@@ -1,6 +1,23 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PR #23 P5 V5: objetivo exterior y cantos por borde (04-nov-2026)
+## ACTIVO — PR #23 P6 V3: libro primero, cantos, sustratos y correderas (04-nov-2026)
+
+Continuación en `feat/carpn-ab-v1`, worktree aislado `D:\codex\CARPN-WORKTREES\CARPN-GAVETAS-FRENTES-APLICADOS-P0`, desde el HEAD de PR #23 `ba8ddaaf3d0af0818097a7715b1bb494c4908c39`, PR OPEN/DRAFT. P6 reusa Maestro, `wall_bar_sheets.py::edge_policy_rows`, `wall_bar_delivery.py::review_files`, el piloto y la allowlist MCP; no crea motor geométrico alterno.
+
+P6 añade `CN-BAR-001-P6-revision-constructiva.json` y `CN-BAR-001-P6-criterios.md` al manifiesto y a la allowlist de lectura. La matriz existente sigue teniendo 96 aristas físicas únicas, 24 paneles y cuatro apoyos conceptuales excluidos. Cada arista diferencia evidencia `CAD_OBSERVED`, base `ROLE_AND_GEOMETRY`, sitio `SITE_UNKNOWN`, vecinos de geometría y `CAD_CONTACT_NOMINAL`; un contacto de cajas no demuestra unión, fijación, ocultamiento ni sequedad. En esta geometría hay 14 candidatos PVC rígido de 2 mm y 82 aristas `REVIEW_REQUIRED`, sin forzar asignaciones.
+
+Se separa objetivo exterior propuesto de sustrato ideal: A/B 292×178 → 288×174 mm y C 292×473 → 288×469 mm, todos `NOT_A_CUT_DIMENSION`; doble compensación sigue rechazada como `INVALID_RAW_VS_FINISHED`. Los dos ejes de E01 quedan `NOT_COMPUTABLE` por bordes no verificados. La revisión de correderas parte de `cpnc-2025@d350f3de1104977986f30498d212e018cbac5d29`: abertura CAD 270, caja exterior 244, holguras nominales 13+13, interior útil geométrico 214 mm; la longitud libro de 450 mm se rechaza frente a cavidad CAD 430 mm; 400 mm queda solo candidato de revisión. SKU, carga, instalación y taladros no seleccionados/verificados; `SOURCE_FRAME_CONFLICT_37_32` continúa bloqueando coordenadas.
+
+Las transcripciones Knowledge se contrastaron por ID, página PDF/impresa y `VISUALLY_VERIFIED` en el commit fijado. El bundle local runtime v1.2.0 no está disponible (`RUNTIME_BOOK_BUNDLE=UNAVAILABLE`); no se fingió consulta al cliente local ni se duplicó el corpus. La ficha oficial Accuride DZ3832DO es exclusivamente ilustrativa, no prueba compatibilidad.
+
+El fixture protegido `examples/wall-bar-900-review-p5.json` permanece byte-idéntico (SHA-256 `b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983`) y CADExchange preserva SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`, 28 elementos = 24 paneles + 4 conceptos. PDFs de P5 no se regeneran ni alteran: cuadernillo SHA-256 `c342a60fa8e83731d67a3ac1f2dc8d251d295ce9af80b1e0c293a5ce43be68e1`; plano general `d9ef86f75be441ede14d2181b826967711819637f6da819e9d2abd0b50eec56b`.
+
+Todos los contratos conservan `DRAFT_NOT_FOR_CUTTING`, `finished_panel_edges_included=false`, `hardware_included=false`, `drilling_coordinates=[]` y `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. FreeCAD/Blender nativos siguen `NOT_RUN_BY_POLICY`; no corte, perforación, compra, fabricación, merge ni cierre de PR. La aceptación P6 global requiere revisión independiente de ChatGPT.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW después de validar pruebas, evidencias y CI del SHA publicado.
+
+
+## HISTÓRICO — PR #23 P5 V5: objetivo exterior y cantos por borde (04-nov-2026)
 
 Trabajo local en `feat/carpn-ab-v1`, sobre el checkpoint P4 `ae638870770c27bc2cc23d4cc1bde010c4ea0bc4`; PR #23 sigue Draft. El fixture protegido `examples/wall-bar-900-review.json` se conserva intacto. P5 usa el fixture separado `examples/wall-bar-900-review-p5.json` para no alterar la procedencia LIVE01–LIVE03.
 
@@ -36,7 +53,7 @@ P3 deriva medidas y anotaciones de ese mismo CADExchange: página general y pág
 
 Verificación local del lote P2/P3: focales **45 PASS**, 18 subcasos; suite completa **682 PASS, 7 SKIP, 0 FAIL**, 414 subcasos. Los siete skips son las pruebas de enlaces simbólicos que requieren privilegios no disponibles en el host Windows. PDF y PNG finales rasterizados y revisados: isométrica, lámina de tres vistas, páginas 1, 2, detalle de cajón A y despiece. PR #23 permanece Draft; aprobación visual del propietario pendiente. SHA exacto del commit y CI se registran en el informe final de P2/P3. Todos los permisos permanecen fabrication_ready=false, cutting_ready=false, drilling_ready=false, purchase_ready=false; no exportar CAD nativo, fabricar, cortar, perforar ni comprar.
 
-## ACTIVO — CAJA COMPLETA Y FACHADA APLICADA (29-oct-2026, P0 en `feat/carpn-ab-v1`)
+## HISTÓRICO — CAJA COMPLETA Y FACHADA APLICADA (29-oct-2026, P0 en `feat/carpn-ab-v1`)
 
 El propietario fijó para cajones y gavetas nuevos la propuesta inicial **caja independiente con cuatro paredes y fondo, más fachada exterior decorativa aplicada/sobrepuesta**, instalada y ajustada después de presentar la caja. La fachada no sustituye la pared frontal interior. **Inset/embutida** queda como alternativa explícita; `integrated_overlay` se conserva únicamente para solicitudes LEGACY explícitas. La intención de tirador negro y acabado bicolor de CN-BAR-001 continúa visual y nominal; no implica SKU, perforación, unión ni herrajes comprobados.
 
@@ -46,7 +63,7 @@ La referencia histórica LIVE03 **sigue siendo el paquete original de 21 paneles
 
 Verificación local al checkpoint: `python -m unittest discover -s tests -v` con el entorno existente Python 3.12/MCP/resvg: **689 PASS, 7 skips, 0 fallas**; los skips corresponden a privilegios de symlink no disponibles en el host. Se renderizaron con `resvg_py` las hojas reales de cajón, contactos y vistas para revisión visual en `D:\Codex\_REPORTES\CarpiNova-Agente\CARPN-FRENTES-APLICADOS-P0\visual-review\`. El paquete histórico LIVE03 de 21 piezas permanece intacto. Para publicación, asociar checks al SHA exacto de `feat/carpn-ab-v1`; la revisión independiente de ChatGPT sigue siendo la aceptación final. Knowledge 1.2.0 ofrece únicamente referencia educativa de posicionar la tapa frontal tras medir holguras (cpnc-2025, PDF p.73 / impresa p.51, `VISUALLY_VERIFIED`), sin autoridad para dimensionar solapes, fijaciones o herrajes de este diseño. Los cuatro permisos siguen `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; sin exportación nativa FreeCAD/Blender, corte, perforación o compra.
 
-## ACTIVO — PRESET ILUSTRATIVO SOLO PARA GABINETE SENCILLO (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — PRESET ILUSTRATIVO SOLO PARA GABINETE SENCILLO (27-oct-2026, PR #21 Draft)
 
 **Rectificación KISS del usuario:** una solicitud sencilla debe producir propuesta visual corregible sin obligar a elegir marca de corredera, carga de cajón ni todas las uniones antes del primer boceto. Mantener las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente, antiping-pong.
 
@@ -59,7 +76,7 @@ Verificación local al checkpoint: `python -m unittest discover -s tests -v` con
 **Próxima prioridad de producto:** conectar una propuesta de distribución simple para muebles con cajones a partir de restricciones explícitas y una sola revisión, reutilizando F1/F7C, sin autoelegir herrajes ni añadir paneles invisibles. *Aún no está implementado*. PR #21 sigue Draft; main, 21 piezas V0.20 y 28 piezas de casos genéricos protegidos.
 
 
-## ACTIVO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
 
 **Motivo/decisión del propietario:** el agente debe partir de una descripción y medidas normales del mueble, producir una propuesta revisable y luego planos/despiece/manual, sin cuestionarios de herrajes o carga. Mantener KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong. No reabrir análisis D3/correderas sin defecto real o cambio de cliente.
 
@@ -72,7 +89,7 @@ Verificación local al checkpoint: `python -m unittest discover -s tests -v` con
 **Único NEXT útil:** confirmar CI exacto del nuevo HEAD; si todo PASS, cerrar este subalcance y avanzar hacia una capa mínima de propuestas F3/F6 con defaults **explícitamente ilustrativos** únicamente después de escoger la política de supuestos, sin inferir datos de producción.
 
 
-## ACTIVO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
 
 **Objetivo del propietario:** minimizar preguntas humanas y lograr un recorrido directo: descripción y medidas, propuesta de diseño, corrección del usuario, planos generales y por cajón, referencias y manual. Sin consultas sobre contenido/peso de cajones como prerrequisito ni selección automática de rieles, marca o montaje en pared. Continuar con las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
 
@@ -85,7 +102,7 @@ Verificación local al checkpoint: `python -m unittest discover -s tests -v` con
 **NEXT real:** verificar los seis checks del HEAD nuevo, corregir solo fallas demostradas, e investigar la ingesta mínima de datos explícitos (medidas/ubicación/cajones) desde lenguaje natural, con origen visible y **sin inventar datos faltantes**. Mantener los entregables globales y de cajón ya aprobados, evitar estudio repetido de herrajes.
 
 
-## ACTIVO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
 
 **Rectificación ordenada por el propietario:** CarpiNova debe producir diseño, correcciones, plano general, plano por cada cajón, despiece y manual sin preguntas reiteradas de herrajes o carga. Se deben ofrecer rieles convencionales por categoría con longitud/capacidad identificables; no elegir marcas ni preguntar qué contiene cada cajón para dibujar. Aplicar las seis leyes KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
 
