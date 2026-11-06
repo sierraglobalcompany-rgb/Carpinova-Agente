@@ -29,6 +29,8 @@ jobs:
           python-version: "3.12"
       - name: Install optional official MCP SDK
         run: python -m pip install -r requirements-mcp.txt
+      - name: Verify live MCP tool schema and optional conversation trace
+        run: python -m unittest discover -s tests -p "mcp_runtime_contract.py" -v
       - name: Unit-test safe local bridge
         run: python -m unittest discover -s tests -p "test_mcp_bridge.py" -v
       - name: Real stdio MCP client-server roundtrip (no FreeCAD Blender)
@@ -44,6 +46,7 @@ jobs:
           path: ${{ runner.temp }}/carpinova-mcp-output/
 
   native-cad-deliverables:
+    if: ${{ false }} # desactivado por política en PR/push; reactivación futura fuera de P5
     name: FreeCAD + Blender native files from exact MCP-generated furniture
     needs: mcp-protocol
     runs-on: ubuntu-22.04

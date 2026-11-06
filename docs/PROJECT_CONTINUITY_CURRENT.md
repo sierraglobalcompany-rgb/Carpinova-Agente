@@ -1,6 +1,86 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PRESET ILUSTRATIVO SOLO PARA GABINETE SENCILLO (27-oct-2026, PR #21 Draft)
+## ACTIVO — PR #23 P7: evidencia runtime libro→Maestro→borrador (04-nov-2026)
+
+P7 continúa únicamente en `feat/carpn-ab-v1`, PR #23 OPEN/DRAFT, desde el HEAD publicado `54685615bd70b3e147f400fbad278a0d1085db77` y base protegida PR #21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. No reabre P5/P6 ni modifica `main`, PR #21, geometría CAD, fixture P5, Knowledge, el trabajo G39 ni los jobs nativos.
+
+El cambio enlaza de forma reproducible la solicitud bibliográfica, la respuesta de Maestro, el bundle declarado y el CAD del borrador usando las rutas existentes `pilot_cli.py`, `mcp_bridge.py` y `drawing_sheet.py`. Solo los paquetes con `query` reciben `book_source_request` y metadatos de bundle en `manifest.json`; la generación, verificación, render y lectura exigen un bundle BOOK completo y repiten Maestro para comparar la respuesta estructurada. Las solicitudes sin consulta conservan el paquete histórico byte a byte. Consulta con `flow_review_json` se rechaza antes de crear la carpeta (`BOOK_FLOW_COMBINATION_UNSUPPORTED`). `NO_BOOK_MATCH` no crea citas ni se etiqueta como evidencia aprobada. Sin bundle, alcance parcial/corrupto, enlace incompleto o replay distinto, la ruta bibliográfica falla cerrada.
+
+Prueba local aislada en Python 3.12.13 y bundle Knowledge `cpnc-2025` v1.2.0/schema 0.1.0, `FULL_BOOK`, 252 páginas, 295 de origen y 43 excluidas. El bundle se construyó fuera del repositorio desde el checkpoint de workflow `CarpiNova-Knowledge@4df02ef54562fac5a820cbad92b0edee547c310b`; la procedencia declarada identifica `source_manifest_sha256=318ceb94569608bfe062e3e50c7032edee79febf06102f7eec760769a6dfd90c`. Las comparaciones de fuente documentadas para esta prueba cubren blobs de páginas p0067, p0113–p0116 y p0177 entre el checkpoint y `d350f3de1104977986f30498d212e018cbac5d29`, no el repositorio entero. `source_pdf_bytes_verified=false`: validar manifest/contenido del bundle no autentica los bytes del PDF original.
+
+El MCP stdio aislado con variable de entorno del proceso descubrió las seis herramientas y ejecutó `carpinova_estado`, consultas de barra y cocina, generación de ambos paquetes, replay completo, lectura de JSON/CSV/CAD, render PNG/PDF y lectura de imagen. Evidencia sanitizada: `real-mcp-book-e2e.json`; no contiene el corpus. El MCP conectado globalmente a Codex reportó al inicio `knowledge_bundle_configured=false`; no se modificó su configuración y esta prueba local no certifica ese proceso global. Los hashes sin clave detectan alteraciones individuales cubiertas por pruebas, pero no autentican a un usuario ni una edición coordinada de manifiesto y contenido.
+
+Verificación del lote: batería focal integrada **60 tests, OK, 4 SKIP**; suite completa **707 tests, OK, 7 SKIP**, todos los skips por privilegios/soporte de symlink de Windows. La primera ejecución encontró `NameError: name '_MAX_MANIFEST_BYTES' is not defined` al leer manifiestos; se añadió la constante local de 65.536 bytes y la prueba MCP real pasó después. Se conservan las salidas sin query con huellas combinadas `pilot-open-kitchen-800=ea7f52ab516f6a1cf2616927f8cfafe6e5ca27cd3ee1bbd0a3091ef52f904c7f`, `wall-bar-900-review-p5=368d7f9e686d3414fce7b00be807df7fa04ec5753d8274aff2c4d9280160b361`, `modular-kitchen-door-fronts=3afd46e50c3dabccf7eb588b0f5a242da11e39260742a11e9bcfa12cc6c47738`.
+
+El fixture `examples/wall-bar-900-review-p5.json` sigue en SHA-256 `b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983`; CAD protegido conserva SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`, 28 elementos y 96 bordes de revisión. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `manufacturing_holes=[]`, `drilling_coordinates=[]`; `hardware_included=false` y `finished_panel_edges_included=false` donde aplican. FreeCAD/Blender permanecen deshabilitados por política (`if: ${{ false }}`) y no fueron ejecutados. La CI del SHA que se publique deberá anotarse y revisarse en el informe P7 externo; en este punto local todavía no existe resultado de CI para el commit final.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW del informe, artefactos y CI del SHA exacto; PR #23 permanece Draft, sin merge.
+
+
+## HISTÓRICO — PR #23 P6 V3: libro primero, cantos, sustratos y correderas (04-nov-2026)
+
+Continuación en `feat/carpn-ab-v1`, worktree aislado `D:\codex\CARPN-WORKTREES\CARPN-GAVETAS-FRENTES-APLICADOS-P0`, desde el HEAD de PR #23 `ba8ddaaf3d0af0818097a7715b1bb494c4908c39`, PR OPEN/DRAFT. P6 reusa Maestro, `wall_bar_sheets.py::edge_policy_rows`, `wall_bar_delivery.py::review_files`, el piloto y la allowlist MCP; no crea motor geométrico alterno.
+
+P6 añade `CN-BAR-001-P6-revision-constructiva.json` y `CN-BAR-001-P6-criterios.md` al manifiesto y a la allowlist de lectura. La matriz existente sigue teniendo 96 aristas físicas únicas, 24 paneles y cuatro apoyos conceptuales excluidos. Cada arista diferencia evidencia `CAD_OBSERVED`, base `ROLE_AND_GEOMETRY`, sitio `SITE_UNKNOWN`, vecinos de geometría y `CAD_CONTACT_NOMINAL`; un contacto de cajas no demuestra unión, fijación, ocultamiento ni sequedad. En esta geometría hay 14 candidatos PVC rígido de 2 mm y 82 aristas `REVIEW_REQUIRED`, sin forzar asignaciones.
+
+Se separa objetivo exterior propuesto de sustrato ideal: A/B 292×178 → 288×174 mm y C 292×473 → 288×469 mm, todos `NOT_A_CUT_DIMENSION`; doble compensación sigue rechazada como `INVALID_RAW_VS_FINISHED`. Los dos ejes de E01 quedan `NOT_COMPUTABLE` por bordes no verificados. La revisión de correderas parte de `cpnc-2025@d350f3de1104977986f30498d212e018cbac5d29`: abertura CAD 270, caja exterior 244, holguras nominales 13+13, interior útil geométrico 214 mm; la longitud libro de 450 mm se rechaza frente a cavidad CAD 430 mm; 400 mm queda solo candidato de revisión. SKU, carga, instalación y taladros no seleccionados/verificados; `SOURCE_FRAME_CONFLICT_37_32` continúa bloqueando coordenadas.
+
+Las transcripciones Knowledge se contrastaron por ID, página PDF/impresa y `VISUALLY_VERIFIED` en el commit fijado. El bundle local runtime v1.2.0 no está disponible (`RUNTIME_BOOK_BUNDLE=UNAVAILABLE`); no se fingió consulta al cliente local ni se duplicó el corpus. La ficha oficial Accuride DZ3832DO es exclusivamente ilustrativa, no prueba compatibilidad.
+
+El fixture protegido `examples/wall-bar-900-review-p5.json` permanece byte-idéntico (SHA-256 `b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983`) y CADExchange preserva SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`, 28 elementos = 24 paneles + 4 conceptos. PDFs de P5 no se regeneran ni alteran: cuadernillo SHA-256 `c342a60fa8e83731d67a3ac1f2dc8d251d295ce9af80b1e0c293a5ce43be68e1`; plano general `d9ef86f75be441ede14d2181b826967711819637f6da819e9d2abd0b50eec56b`.
+
+Todos los contratos conservan `DRAFT_NOT_FOR_CUTTING`, `finished_panel_edges_included=false`, `hardware_included=false`, `drilling_coordinates=[]` y `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. FreeCAD/Blender nativos siguen `NOT_RUN_BY_POLICY`; no corte, perforación, compra, fabricación, merge ni cierre de PR. La aceptación P6 global requiere revisión independiente de ChatGPT.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW después de validar pruebas, evidencias y CI del SHA publicado.
+
+
+## HISTÓRICO — PR #23 P5 V5: objetivo exterior y cantos por borde (04-nov-2026)
+
+Trabajo local en `feat/carpn-ab-v1`, sobre el checkpoint P4 `ae638870770c27bc2cc23d4cc1bde010c4ea0bc4`; PR #23 sigue Draft. El fixture protegido `examples/wall-bar-900-review.json` se conserva intacto. P5 usa el fixture separado `examples/wall-bar-900-review-p5.json` para no alterar la procedencia LIVE01–LIVE03.
+
+P5 propone 4 mm entre envolventes exteriores terminadas de A/B/C y los seis revelados perimetrales; no representa holgura física, corredera ni apertura. Si 2 mm de PVC por borde se aplica por error a los objetivos como sustrato bruto, A/B darían 296 × 182 mm, C 296 × 477 mm y las luces entre frentes serían 0 mm teóricos; el escenario se rechaza como `INVALID_RAW_VS_FINISHED`. No se emiten dimensiones de corte. El estado es `FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED`.
+
+El CADExchange conserva 28 elementos (24 paneles nominales + 4 marcadores conceptuales), SHA geométrico `5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947`; la geometría no frontal coincide con P4 por ID/rol/origen/tamaño. Una tabla determinista cubre 96 aristas físicas, alimenta CSV/JSON/PDF y no asigna cantos a los 4 marcadores. E01: `x_max` y `y_min` PVC rígido 2 mm candidato; humedad pendiente, no aprobado; `x_min` sin cinta decorativa solo si se confirma oculto/seco con sellado por revisar; `y_max` permanece en revisión. La matriz MCP permite leer solo los dos nombres nuevos explícitos. Sitio, exposición, humedad, material y proceso siguen sin verificar.
+
+Verificación local P5: 72 pruebas focales PASS (3 skips por symlink Windows); suite completa **697 PASS, 7 SKIP, 0 FAIL**. Los skips requieren privilegios de symlink no disponibles. Bun 1.4.0 parseó los 8 workflows YAML; los dos jobs nativos alcanzables por rutas de este PR tienen `if: ${{ false }}` al nivel del job. PDF de 7 páginas y lámina de 3 vistas se rasterizaron y revisaron; `verify_pilot_bundle` confirma 28 elementos y estado `DRAFT_NOT_FOR_CUTTING`. Exportación FreeCAD/Blender `NOT_RUN_BY_POLICY`; no corte, perforación ni compra. CI exacto del commit de publicación debe revisarse después del push; el propietario mantiene `OWNER_VISUAL_APPROVAL=PENDING`.
+
+`fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. PR #23 debe seguir Draft y sin merge.
+
+**NEXT único:** CHATGPT_INDEPENDENT_REVIEW después de verificar CI asociado al SHA exacto.
+
+## HISTÓRICO — PR #23 P4: cuadernillo humano y holguras (30-oct-2026)
+
+Base protegida: `feature/wall-bar-freecad-v10@e2f20c5231bff3d384430b3a07146ecac93a0eeb`. Trabajo local sobre `feat/carpn-ab-v1`, iniciado en `d0c865f904596b3566cec79a542b4e5706bfddf5`; cambios P4 aún locales, sin commit ni publicación en este checkpoint. PR #23 debe seguir Draft y sin merge.
+
+P4 reorganiza la comunicación de CN-BAR-001 a siete hojas de revisión humana: vista del mueble, una hoja comparable por cajón A/B/C, detalle de holguras y canto, decisiones pendientes y anexo nominal. El CADExchange sigue siendo la fuente única; SHA geométrico conservado exactamente `1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492`. El paquete representa **24 paneles nominales de madera + 4 marcadores conceptuales de apoyo**, no 28 tableros para cortar. Se separan el frente visible del cajón y la caja deslizante; las medidas interiores son geométricas derivadas, no espacio útil validado para herrajes.
+
+Holguras A–B y B–C: 2 mm nominales. Si 296 mm fuese sustrato bruto y se añadiese PVC rígido de 2 mm en cada borde, la interferencia vertical sería teóricamente −2 mm; esto no es una medida de taller validada. La interpretación de dimensiones terminadas, proceso, adhesivo y tolerancias sigue pendiente. 3 mm finales aparece solo como alternativa no seleccionada. No cambiar el CAD a partir de esa ilustración.
+
+Verificación local P4: focales y vecinos **43 PASS, 21 subcasos**; suite completa **686 PASS, 7 SKIP, 0 FAIL, 417 subcasos** (Python 3.12.10 del entorno existente). Los skips son las pruebas de symlink dependientes de privilegios Windows. `verify_pilot_bundle` aprobó el paquete final; CSV/CAD/manifest/render conservan 28 IDs, SHA y estado `DRAFT_NOT_FOR_CUTTING`. Siete SVG de páginas parsean como XML; PNG legibles; PDF real de cuadernillo de siete páginas y PDF de vistas de una página rasterizados y revisados. `git diff --check` limpio. WIP protegido QA: 12 rutas y SHA-256 cotejados contra `wip_transfer_manifest.json` P2/P3, sin cambios de este lote. CI de un SHA P4 no existe hasta publicar un commit, así que no se afirma CI verde.
+
+`fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; sin autorización de exportación nativa, fabricación, corte, perforación o compra. `OWNER_VISUAL_APPROVAL=PENDING`. PR #23 permanece Draft.
+
+**NEXT único:** CHATGPT audita la entrega y propietario revisa.
+
+## HISTÓRICO — PR #23 P2/P3: patas conceptuales y cotas humanas (29-oct-2026)
+
+Sobre la rama feat/carpn-ab-v1, base feature/wall-bar-freecad-v10, desde 51ce7af1aa37fb04cfc0a0ccfd75820f4ec88b46. P2 incorpora cuatro marcadores CAD conceptuales de 40 mm bajo la cajonera, sin apoyo en el tramo libre. La huella 15 × 15 mm solo ilustra el espesor del tablero; no selecciona patas físicas, material ni SKU. Alto exterior conservado en 900 mm. El CADExchange pasa de 24 a 28 elementos nominales, cuatro de ellos marcadores; no cambia la composición de las tres cajas completas ni sus fachadas separadas. Geometría nueva: 1e560b4856e3483ff6772a4da477d967d10aa6070fb2e96242c58f494c003492.
+
+P3 deriva medidas y anotaciones de ese mismo CADExchange: página general y página explicativa apaisada; largo/fondo/alto 900 × 460 × 900 mm, luz 600 mm, cajonera 300 mm, frentes A/B/C, cajas como envolventes exteriores, revelados nominales, LI/LD y patas conceptuales. Incluye advertencia de que PVC rígido de 2 mm puede consumir las holguras. Los detalles conservan la caja completa de cinco piezas CAD más la fachada aplicada independiente. CSV, manifiesto, vistas y cuadernillo registran los 28 IDs.
+
+Verificación local del lote P2/P3: focales **45 PASS**, 18 subcasos; suite completa **682 PASS, 7 SKIP, 0 FAIL**, 414 subcasos. Los siete skips son las pruebas de enlaces simbólicos que requieren privilegios no disponibles en el host Windows. PDF y PNG finales rasterizados y revisados: isométrica, lámina de tres vistas, páginas 1, 2, detalle de cajón A y despiece. PR #23 permanece Draft; aprobación visual del propietario pendiente. SHA exacto del commit y CI se registran en el informe final de P2/P3. Todos los permisos permanecen fabrication_ready=false, cutting_ready=false, drilling_ready=false, purchase_ready=false; no exportar CAD nativo, fabricar, cortar, perforar ni comprar.
+
+## HISTÓRICO — CAJA COMPLETA Y FACHADA APLICADA (29-oct-2026, P0 en `feat/carpn-ab-v1`)
+
+El propietario fijó para cajones y gavetas nuevos la propuesta inicial **caja independiente con cuatro paredes y fondo, más fachada exterior decorativa aplicada/sobrepuesta**, instalada y ajustada después de presentar la caja. La fachada no sustituye la pared frontal interior. **Inset/embutida** queda como alternativa explícita; `integrated_overlay` se conserva únicamente para solicitudes LEGACY explícitas. La intención de tirador negro y acabado bicolor de CN-BAR-001 continúa visual y nominal; no implica SKU, perforación, unión ni herrajes comprobados.
+
+La causa del defecto previo estaba en dos consumidores: F7C exigía retranqueo mayor que el espesor incluso para un frente aplicado cuyo plano trasero puede tocar Z=0 sin interpenetrar, y `wall_bar` imponía `integrated_overlay`, que retiraba la pared frontal de la caja. La implementación local en `feat/carpn-ab-v1` corrige el guard según estilo, emite la preferencia de caja completa + overlay separado en las vistas conversacionales de cajones/gavetas (incluidos diseños desiguales, sin agregar cotas), y actualiza CN-BAR-001. El borrador nominal conserva seis paneles de estructura y seis por cada una de tres cajas: **24 paneles**, con `drawer_front_wall` separado de `drawer_facade` en cada cajón. Las superficies mostradas son contacto geométrico nominal, no una unión mecánica o una fijación especificada.
+
+La referencia histórica LIVE03 **sigue siendo el paquete original de 21 paneles**, `geometry_sha256=a689b5742709e83ae691ec5c16ec4d81b82ac19ba021ecc62f3d92211eeba58b`. El manifiesto conserva también los SHA de sus SVG, PNG y PDF. No editar ni sustituir sus archivos, hashes o revisión. El modelo actualizado obtiene una huella CAD nueva; no comparar sus piezas por igualdad con el paquete anterior.
+
+Verificación local al checkpoint: `python -m unittest discover -s tests -v` con el entorno existente Python 3.12/MCP/resvg: **689 PASS, 7 skips, 0 fallas**; los skips corresponden a privilegios de symlink no disponibles en el host. Se renderizaron con `resvg_py` las hojas reales de cajón, contactos y vistas para revisión visual en `D:\Codex\_REPORTES\CarpiNova-Agente\CARPN-FRENTES-APLICADOS-P0\visual-review\`. El paquete histórico LIVE03 de 21 piezas permanece intacto. Para publicación, asociar checks al SHA exacto de `feat/carpn-ab-v1`; la revisión independiente de ChatGPT sigue siendo la aceptación final. Knowledge 1.2.0 ofrece únicamente referencia educativa de posicionar la tapa frontal tras medir holguras (cpnc-2025, PDF p.73 / impresa p.51, `VISUALLY_VERIFIED`), sin autoridad para dimensionar solapes, fijaciones o herrajes de este diseño. Los cuatro permisos siguen `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; sin exportación nativa FreeCAD/Blender, corte, perforación o compra.
+
+## HISTÓRICO — PRESET ILUSTRATIVO SOLO PARA GABINETE SENCILLO (27-oct-2026, PR #21 Draft)
 
 **Rectificación KISS del usuario:** una solicitud sencilla debe producir propuesta visual corregible sin obligar a elegir marca de corredera, carga de cajón ni todas las uniones antes del primer boceto. Mantener las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente, antiping-pong.
 
@@ -13,7 +93,7 @@
 **Próxima prioridad de producto:** conectar una propuesta de distribución simple para muebles con cajones a partir de restricciones explícitas y una sola revisión, reutilizando F1/F7C, sin autoelegir herrajes ni añadir paneles invisibles. *Aún no está implementado*. PR #21 sigue Draft; main, 21 piezas V0.20 y 28 piezas de casos genéricos protegidos.
 
 
-## ACTIVO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — MEDIDAS EXPLÍCITAS DESDE TEXTO, SIN ALUCINACIÓN (27-oct-2026, PR #21 Draft)
 
 **Motivo/decisión del propietario:** el agente debe partir de una descripción y medidas normales del mueble, producir una propuesta revisable y luego planos/despiece/manual, sin cuestionarios de herrajes o carga. Mantener KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong. No reabrir análisis D3/correderas sin defecto real o cambio de cliente.
 
@@ -26,7 +106,7 @@
 **Único NEXT útil:** confirmar CI exacto del nuevo HEAD; si todo PASS, cerrar este subalcance y avanzar hacia una capa mínima de propuestas F3/F6 con defaults **explícitamente ilustrativos** únicamente después de escoger la política de supuestos, sin inferir datos de producción.
 
 
-## ACTIVO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — UN SOLO LLAMADO PARA BORRADOR + PLANOS (27-oct-2026, PR #21 Draft)
 
 **Objetivo del propietario:** minimizar preguntas humanas y lograr un recorrido directo: descripción y medidas, propuesta de diseño, corrección del usuario, planos generales y por cajón, referencias y manual. Sin consultas sobre contenido/peso de cajones como prerrequisito ni selección automática de rieles, marca o montaje en pared. Continuar con las seis leyes: KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
 
@@ -39,7 +119,7 @@
 **NEXT real:** verificar los seis checks del HEAD nuevo, corregir solo fallas demostradas, e investigar la ingesta mínima de datos explícitos (medidas/ubicación/cajones) desde lenguaje natural, con origen visible y **sin inventar datos faltantes**. Mantener los entregables globales y de cajón ya aprobados, evitar estudio repetido de herrajes.
 
 
-## ACTIVO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
+## HISTÓRICO — UX DE ENTREGA SENCILLA Y HOJAS A/B/C (27-oct-2026, PR #21 Draft)
 
 **Rectificación ordenada por el propietario:** CarpiNova debe producir diseño, correcciones, plano general, plano por cada cajón, despiece y manual sin preguntas reiteradas de herrajes o carga. Se deben ofrecer rieles convencionales por categoría con longitud/capacidad identificables; no elegir marcas ni preguntar qué contiene cada cajón para dibujar. Aplicar las seis leyes KISS/Ponytail, antirruido, antiparches, diseño humano, verificación independiente y antiping-pong.
 
