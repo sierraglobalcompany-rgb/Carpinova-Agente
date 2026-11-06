@@ -1060,6 +1060,14 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             "width": width, "height": height,
         }
     front_a, front_b, front_c = (front_intervals[key] for key in "ABC")
+    opening_intents = {part.get("opening_system", "pending")
+                       for part in model["parts"]
+                       if part["role"] == "drawer_facade"}
+    aesthetic = model.get("wall_bar_review", {}).get("design_choices", {}).get(
+        "aesthetic_presentation", "undecided")
+    handle_presentation = (
+        aesthetic == "bicolor_modern_preliminary"
+        and opening_intents == {"handle"})
     gap_values = {
         "PERIMETER-LEFT": front_a["x0"]-cabinet_x0,
         "PERIMETER-RIGHT": cabinet_x1-front_a["x1"],
@@ -1126,6 +1134,16 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             'fill="#315d73">'
             f'{letter}</text>',
         ))
+        if handle_presentation:
+            center_x = (fx0 + fx1) / 2
+            handle_y = fy0 + (fy1 - fy0) * 0.28
+            half_length = (fx1 - fx0) * 0.075
+            gap_svg_body.append(
+                f'<path data-concept="handle-visual-only" '
+                f'data-source-piece-id="{escape(front["piece_id"], quote=True)}" '
+                f'd="M{center_x-half_length:.2f} {handle_y:.2f} '
+                f'L{center_x+half_length:.2f} {handle_y:.2f}" fill="none" '
+                'stroke="#161616" stroke-width="4" stroke-linecap="round"/>')
     gap_svg_body.append('</g>')
 
     perimeter_callouts = (
@@ -1241,6 +1259,12 @@ def review_booklet_svgs(model: dict[str, Any]) -> list[str]:
             f'L748,{leader_y:.2f} H760" fill="none" stroke="#315d73" '
             'stroke-width="1.8"/>'
         )
+    if handle_presentation:
+        gap_svg_body.append(
+            '<text x="760" y="887" font-size="14" font-weight="bold" '
+            'fill="#273e56">'
+            'Tiradores negros ilustrativos; tamaño, posición y fijación NO definidos'
+            '</text>')
     gap_svg_body.extend((
         '<rect x="55" y="915" width="1490" height="130" rx="12" '
         'fill="#fff3cf" stroke="#e1b844" stroke-width="2"/>',

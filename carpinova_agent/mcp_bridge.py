@@ -20,7 +20,9 @@ from .native_export import export_native_project, REVIEW_CONFIRMATION
 from .pilot_cli import (
     BookEvidenceError, PilotError, write_pilot_bundle, verify_pilot_bundle,
 )
-from .conversation_flow import build_flow_review_from_envelope
+from .conversation_flow import (
+    build_flow_review_from_envelope, prepare_wall_bar_p5_nominal_review,
+)
 
 
 _MAX_REQUEST_BYTES = 65536
@@ -117,6 +119,21 @@ def carpinova_estado() -> dict[str, Any]:
 def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
     """Query existing deterministic Maestro. Text is not treated as code."""
     request = _request(solicitud_json)
+    if "review_kind" in request:
+        if set(request) != {"review_kind", "utterance", "corrections"}:
+            raise MaestroError(
+                "La revisión P5 exige solo review_kind, utterance y corrections."
+            )
+        if request["review_kind"] != "wall_bar_p5_nominal":
+            raise MaestroError("Tipo de revisión nominal desconocido.")
+        utterance = request["utterance"]
+        corrections = request["corrections"]
+        if type(utterance) is not str:
+            raise MaestroError("utterance debe ser texto explícito.")
+        if (type(corrections) is not list or len(corrections) > 12
+                or any(type(item) is not str for item in corrections)):
+            raise MaestroError("corrections debe ser una lista de hasta 12 textos.")
+        return prepare_wall_bar_p5_nominal_review(utterance, corrections)
     return consult_maestro(request, bundle_dir=_resolve_knowledge_bundle_dir())
 
 

@@ -14,12 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from .cad_exchange import cad_exchange
-from .drawer_modules import propose_drawer_layout
+from .drawer_modules import _apportion_nominal, propose_drawer_layout
 from .maestro import MaestroError, consult_maestro
 from .intake import _fold
 from .natural_intake import (
     OWNER_DIRECTIVE_SOURCE, extract_explicit_dimensions,
     is_drawer_correction_instruction, preview_natural_request,
+    _parse_drawer_correction,
     revise_drawer_concept,
 )
 
@@ -38,6 +39,9 @@ _MAX_DECISIONS = 40
 _PRIOR_REPORTED = "PRIOR_DESIGN_DECISION_REPORTED"
 _OWNER_DIRECTIVE = OWNER_DIRECTIVE_SOURCE
 _WALL_BAR_FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
+_WALL_BAR_P5_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "examples" / "wall-bar-900-review-p5.json"
+_WALL_BAR_P5_FIXTURE_SHA256 = "b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983"
+_WALL_BAR_P5_GEOMETRY_SHA256 = "5c0b8944ba015ef537688afac3ee58b9dd52011267c28278c9134a473cecf947"
 _WALL_BAR_PRIOR_DECISIONS = {
     "wall_side": "left",
     "drawer_opening_face": "long_side_front",
@@ -94,17 +98,12 @@ def _load_wall_bar_fixture() -> tuple[dict[str, Any], bytes, str]:
     return fixture, fixture_bytes, digest
 
 
-def _wall_bar_reference_review(text: str) -> dict[str, Any] | None:
-    """Compare literal bar requirements to the protected reference, without CAD."""
+def _wall_bar_owner_requirements(text: str) -> dict[str, Any] | None:
+    """Parse owner measurements without choosing a geometry fixture."""
     normalized = _fold(text)
     if not (re.search(r"(?<!\w)barra(?:\s+de\s+cocina)?(?!\w)", normalized)
             and re.search(r"(?<!\w)cajonera(?!\w)", normalized)):
         return None
-
-    fixture, fixture_bytes, fixture_sha = _load_wall_bar_fixture()
-    fixture_spec = fixture["module_spec"]
-    fixture_module = fixture_spec["cabinet_module"]
-
     evidence = extract_explicit_dimensions(text)
     dims = evidence["dimensions_mm"]
     free_matches = [m for m in _FREE_SPAN.finditer(normalized)
@@ -115,16 +114,54 @@ def _wall_bar_reference_review(text: str) -> dict[str, Any] | None:
     cabinet_values = {_measure_mm(m) for m in cabinet_matches}
     free_span = next(iter(free_values)) if len(free_values) == 1 else None
     cabinet_width = next(iter(cabinet_values)) if len(cabinet_values) == 1 else None
-
     drawer_count = 3 if re.search(
         r"(?<!\w)dos\s+cajones\s+pequenos\s+y\s+uno\s+grande\s+abajo(?!\w)",
         normalized,
     ) else None
-    large_bottom = drawer_count == 3
     feet = next((item["value_mm"] for item in evidence["component_measurements"]
                  if item.get("scope") == "patas" and item.get("field") == "height_mm"),
                 None)
-    rails_requested = bool(re.search(r"(?<!\w)(?:riel|rieles|corredera)(?!\w)", normalized))
+    return {
+        "evidence": evidence,
+        "free_matches": free_matches,
+        "cabinet_matches": cabinet_matches,
+        "rails_requested": bool(re.search(
+            r"(?<!\w)(?:riel|rieles|corredera)(?!\w)", normalized,
+        )),
+        "standard_claim_unverified": bool(
+            re.search(r"(?<!\w)estandar(?!\w)", normalized)
+        ),
+        "owner_values": {
+            "overall_width_mm": dims.get("width_mm"),
+            "overall_depth_mm": dims.get("depth_mm"),
+            "overall_height_mm": dims.get("height_mm"),
+            "free_span_horizontal_mm": free_span,
+            "cabinet_width_mm": cabinet_width,
+            "feet_height_mm": feet,
+            "drawer_count": drawer_count,
+            "large_drawer_position": "bottom" if drawer_count == 3 else None,
+        },
+    }
+
+
+def _wall_bar_reference_review(text: str) -> dict[str, Any] | None:
+    """Compare literal bar requirements to the protected reference, without CAD."""
+    requirements = _wall_bar_owner_requirements(text)
+    if requirements is None:
+        return None
+
+    fixture, fixture_bytes, fixture_sha = _load_wall_bar_fixture()
+    fixture_spec = fixture["module_spec"]
+    fixture_module = fixture_spec["cabinet_module"]
+    evidence = requirements["evidence"]
+    free_matches = requirements["free_matches"]
+    cabinet_matches = requirements["cabinet_matches"]
+    owner_values = requirements["owner_values"]
+    free_span = owner_values["free_span_horizontal_mm"]
+    cabinet_width = owner_values["cabinet_width_mm"]
+    drawer_count = owner_values["drawer_count"]
+    feet = owner_values["feet_height_mm"]
+    rails_requested = requirements["rails_requested"]
 
     reference = {
         "overall_width_mm": fixture_spec["overall_width_mm"],
@@ -134,16 +171,6 @@ def _wall_bar_reference_review(text: str) -> dict[str, Any] | None:
         "cabinet_width_mm": fixture_module["width_mm"],
         "feet_height_mm": fixture_spec["feet_height_mm"],
         "drawer_count": len(fixture_module["drawers"]),
-    }
-    owner_values = {
-        "overall_width_mm": dims.get("width_mm"),
-        "overall_depth_mm": dims.get("depth_mm"),
-        "overall_height_mm": dims.get("height_mm"),
-        "free_span_horizontal_mm": free_span,
-        "cabinet_width_mm": cabinet_width,
-        "feet_height_mm": feet,
-        "drawer_count": drawer_count,
-        "large_drawer_position": "bottom" if large_bottom else None,
     }
     comparisons = {
         key: {"owner_value": value, "reference_value": reference[key],
@@ -160,7 +187,7 @@ def _wall_bar_reference_review(text: str) -> dict[str, Any] | None:
             "matches": width - free_span == cabinet_width,
             "horizontal_allocation_only": True,
         }
-    standard_mentioned = bool(re.search(r"(?<!\w)estandar(?!\w)", normalized))
+    standard_mentioned = requirements["standard_claim_unverified"]
     prior_design_choices = {
         "wall_side": fixture_spec["wall_side"],
         "drawer_opening_face": fixture_spec["drawer_opening_face"],
@@ -631,6 +658,315 @@ def _derive(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], li
     if len(summary) > 24000:
         raise MaestroError("El resumen completo excede el límite de revisión.")
     return answer, exchange, openings, summary
+
+
+def _load_wall_bar_p5_fixture() -> tuple[dict[str, Any], str]:
+    try:
+        payload = _WALL_BAR_P5_FIXTURE_PATH.read_bytes()
+        fixture = json.loads(payload.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError) as exc:
+        raise MaestroError("Fixture P5 de barra ausente o inválido.") from exc
+    # Windows Git checkouts may convert the JSON fixture from LF to CRLF.
+    # Hash its canonical line endings so the pinned fixture identity survives
+    # checkout conversion without accepting other content changes.
+    digest = hashlib.sha256(payload.replace(b"\r\n", b"\n")).hexdigest()
+    if (digest != _WALL_BAR_P5_FIXTURE_SHA256
+            or type(fixture) is not dict
+            or set(fixture) != {"action", "module_spec"}
+            or fixture.get("action") != "modular"
+            or type(fixture.get("module_spec")) is not dict
+            or fixture["module_spec"].get("type") != "wall_bar"):
+        raise MaestroError("Fixture P5 protegido distinto del SHA esperado.")
+    return fixture, digest
+
+
+def _wall_bar_p5_owner_check(
+    text: str, fixture: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    parsed = _wall_bar_owner_requirements(text)
+    if parsed is None:
+        raise MaestroError("Se requiere el texto original explícito de barra y cajonera.")
+    evidence = parsed["evidence"]
+    spec = fixture["module_spec"]
+    cabinet = spec["cabinet_module"]
+    drawers = sorted(
+        cabinet["drawers"], key=lambda row: row["opening_bottom_offset_mm"],
+        reverse=True,
+    )
+    if [row.get("drawer_id") for row in drawers] != ["D1", "D2", "D3"]:
+        raise MaestroError("El orden D1/D2/D3 de P5 no coincide con A/B/C.")
+    if (evidence.get("ambiguous_fields")
+            or evidence.get("unit_requires_confirmation")):
+        raise MaestroError("La descripción contiene medidas ambiguas o unidades pendientes.")
+    owner = parsed["owner_values"]
+    reference = {
+        "overall_width_mm": spec["overall_width_mm"],
+        "overall_depth_mm": spec["overall_depth_mm"],
+        "overall_height_mm": spec["overall_height_mm"],
+        "free_span_horizontal_mm": spec["free_span_mm"],
+        "cabinet_width_mm": cabinet["width_mm"],
+        "feet_height_mm": spec["feet_height_mm"],
+        "drawer_count": len(drawers),
+        "large_drawer_position": "bottom" if drawers[-1]["drawer_id"] == "D3" else None,
+    }
+    comparison = {
+        key: {"owner_value": owner.get(key), "p5_value": value,
+              "matches": owner.get(key) == value}
+        for key, value in reference.items()
+    }
+    arithmetic_matches = (
+        owner.get("overall_width_mm") is not None
+        and owner.get("free_span_horizontal_mm") is not None
+        and owner.get("cabinet_width_mm") is not None
+        and owner["overall_width_mm"] - owner["free_span_horizontal_mm"]
+        == owner["cabinet_width_mm"]
+    )
+    if (not all(row["matches"] for row in comparison.values())
+            or not arithmetic_matches
+            or drawers[-1]["opening_height_mm"]
+            <= max(row["opening_height_mm"] for row in drawers[:-1])):
+        raise MaestroError("El texto del propietario no coincide con las medidas P5.")
+    return parsed, comparison
+
+
+def prepare_wall_bar_p5_nominal_review(
+    utterance: str, corrections: list[str] | None = None,
+) -> dict[str, Any]:
+    """Replay non-approved A/B/C revisions from the immutable P5 fixture."""
+    if (type(utterance) is not str or not utterance.strip()
+            or len(utterance) > _MAX_TEXT):
+        raise MaestroError("La descripción original debe tener 1–2000 caracteres.")
+    if corrections is None:
+        corrections = []
+    if (type(corrections) is not list or len(corrections) > 12
+            or any(type(item) is not str for item in corrections)):
+        raise MaestroError("La revisión admite hasta 12 correcciones de texto explícitas.")
+
+    fixture, fixture_sha = _load_wall_bar_p5_fixture()
+    parsed, owner_comparison = _wall_bar_p5_owner_check(utterance, fixture)
+    request = copy.deepcopy(fixture)
+    source_request = copy.deepcopy(fixture)
+    source_spec = source_request["module_spec"]
+    spec = request["module_spec"]
+    source_drawers = sorted(
+        source_spec["cabinet_module"]["drawers"],
+        key=lambda row: row["opening_bottom_offset_mm"], reverse=True,
+    )
+    drawers = sorted(
+        spec["cabinet_module"]["drawers"],
+        key=lambda row: row["opening_bottom_offset_mm"], reverse=True,
+    )
+    if len(drawers) != 3 or len({row["drawer_id"] for row in drawers}) != 3:
+        raise MaestroError("P5 debe conservar tres IDs de cajón únicos.")
+
+    heights = [row["opening_height_mm"] for row in source_drawers]
+    offsets = [row["opening_bottom_offset_mm"] for row in source_drawers]
+    cabinet_height = (spec["overall_height_mm"] - spec["feet_height_mm"]
+                      - spec["top_thickness_mm"])
+    top_margin = cabinet_height - (offsets[0] + heights[0])
+    bottom_margin = offsets[-1]
+    inter_opening_gaps = [
+        offsets[index] - (offsets[index + 1] + heights[index + 1])
+        for index in range(2)
+    ]
+    if (top_margin < 0 or bottom_margin < 0
+            or any(gap < 0 for gap in inter_opening_gaps)):
+        raise MaestroError("La distribución base P5 no conserva márgenes y separaciones válidos.")
+
+    from .natural_intake import _MIN_ILLUSTRATIVE_OPENING_MM
+    fixed: set[int] = set()
+    correction_history: list[dict[str, Any]] = []
+    for instruction in corrections:
+        ref, delta = _parse_drawer_correction(instruction, len(drawers))
+        position = ord(ref) - ord("A")
+        before = list(heights)
+        requested = before[position] + delta
+        fixed_others = fixed - {position}
+        free = [index for index in range(3)
+                if index != position and index not in fixed_others]
+        remaining = (sum(before) - requested
+                     - sum(before[index] for index in fixed_others))
+        if requested < _MIN_ILLUSTRATIVE_OPENING_MM:
+            raise MaestroError("La corrección deja el cajón solicitado por debajo de 60 mm.")
+        if not free and remaining != 0:
+            raise MaestroError("No quedan cajones libres para redistribuir la altura solicitada.")
+        if free and remaining < _MIN_ILLUSTRATIVE_OPENING_MM * len(free):
+            raise MaestroError("La corrección no deja altura nominal suficiente para cajones libres.")
+        from .core import DesignError
+        try:
+            redistributed = _apportion_nominal(
+                remaining, [before[index] for index in free],
+            ) if free else []
+        except DesignError as exc:
+            raise MaestroError("Redistribución F1 inválida: " + str(exc)) from exc
+        after = list(before)
+        after[position] = requested
+        for index, value in zip(free, redistributed):
+            after[index] = value
+        if min(after) < _MIN_ILLUSTRATIVE_OPENING_MM:
+            raise MaestroError("La corrección deja una abertura menor que el mínimo visual F1 de 60 mm.")
+        changed = []
+        for index, (old, new) in enumerate(zip(before, after)):
+            if old == new:
+                continue
+            changed.append({
+                "ref": chr(ord("A") + index),
+                "drawer_id": drawers[index]["drawer_id"],
+                "before_mm": old,
+                "after_mm": new,
+                "delta_mm": new - old,
+                "cause": ("INPUT_REQUESTED_NOT_APPROVED" if index == position
+                          else "AUTO_REDISTRIBUTED_TO_KEEP_TOTAL"),
+            })
+        correction_history.append({
+            "instruction": instruction,
+            "ref": ref,
+            "delta_mm": delta,
+            "source": "INPUT_DECLARED_NOT_AUTHENTICATED",
+            "changes": changed,
+        })
+        heights = after
+        fixed.add(position)
+
+    new_offsets = [0, 0, 0]
+    cursor = bottom_margin
+    for index in range(2, -1, -1):
+        new_offsets[index] = cursor
+        if index > 0:
+            cursor += heights[index] + inter_opening_gaps[index - 1]
+    if cabinet_height - (new_offsets[0] + heights[0]) != top_margin:
+        raise MaestroError("El replay alteró el margen superior de P5.")
+
+    allowed_drawer_fields = {
+        "opening_height_mm", "opening_bottom_offset_mm", "box_height_mm",
+    }
+    for index, (source_drawer, drawer) in enumerate(zip(source_drawers, drawers)):
+        box_clearance = (source_drawer["opening_height_mm"]
+                         - source_drawer["box_height_mm"])
+        box_height = heights[index] - box_clearance
+        if box_height <= 0:
+            raise MaestroError("La corrección deja una caja nominal sin altura positiva.")
+        drawer["opening_height_mm"] = heights[index]
+        drawer["opening_bottom_offset_mm"] = new_offsets[index]
+        drawer["box_height_mm"] = box_height
+        static_keys_before = source_drawer.keys() - allowed_drawer_fields
+        static_keys_after = drawer.keys() - allowed_drawer_fields
+        if (static_keys_before != static_keys_after
+                or any(source_drawer[key] != drawer[key]
+                       for key in static_keys_before)):
+            raise MaestroError("La revisión alteró un campo inmutable del cajón P5.")
+
+    source_static = copy.deepcopy(source_spec)
+    revised_static = copy.deepcopy(spec)
+    source_static["cabinet_module"].pop("drawers")
+    revised_static["cabinet_module"].pop("drawers")
+    if source_static != revised_static:
+        raise MaestroError("La revisión alteró dimensiones, acabados o decisiones de P5.")
+
+    base_answer, base_exchange, _, _ = _derive(source_request)
+    answer, exchange, openings, _ = _derive(request)
+    if (len(exchange["boxes"]) != 28
+            or len({box["piece_id"] for box in exchange["boxes"]}) != 28
+            or sorted(box["piece_id"] for box in exchange["boxes"])
+            != sorted(box["piece_id"] for box in base_exchange["boxes"])):
+        raise MaestroError("Maestro/CAD alteró las 28 identidades de elemento de P5.")
+    if (answer["modular"].get("dimensions_mm")
+            != base_answer["modular"].get("dimensions_mm")):
+        raise MaestroError("La revisión alteró la envolvente exterior de P5.")
+    if not corrections and exchange["geometry_sha256"] != _WALL_BAR_P5_GEOMETRY_SHA256:
+        raise MaestroError("La geometría base P5 no reproduce su SHA protegido.")
+
+    from .wall_bar_sheets import wall_bar_review_dimensions
+    human_dimensions = wall_bar_review_dimensions(answer["modular"])
+    front_gaps = {
+        **human_dimensions["front_perimeter_reveals_mm"],
+        **human_dimensions["front_gaps_mm"],
+    }
+    if len(front_gaps) != 6 or set(front_gaps.values()) != {4}:
+        raise MaestroError("Maestro no conserva las seis luces nominales de fachada de 4 mm.")
+
+    opening_rows = []
+    drawer_by_id = {row["drawer_id"]: row for row in drawers}
+    for row in openings:
+        drawer = drawer_by_id[row["drawer_id"]]
+        opening_rows.append({
+            **row,
+            "box_height_mm": drawer["box_height_mm"],
+        })
+    replay_sha = _digest({
+        "fixture_sha256": fixture_sha,
+        "utterance": utterance,
+        "corrections": corrections,
+    })
+    request_sha = _digest(request)
+    return {
+        "schema_version": _SCHEMA,
+        "mode": "F7D_WALL_BAR_P5_NOMINAL_REVIEW",
+        "status": "NEEDS_USER_CONFIRMATION",
+        "utterance": utterance,
+        "corrections": list(corrections),
+        "correction_history": correction_history,
+        "source_fixture": "examples/wall-bar-900-review-p5.json",
+        "source_fixture_sha256": fixture_sha,
+        "source_request": source_request,
+        "request": request,
+        "request_sha256": request_sha,
+        "replay_sha256": replay_sha,
+        "owner_measurement_comparison": owner_comparison,
+        "standard_claim_unverified": parsed["standard_claim_unverified"],
+        "rails_requested": parsed["rails_requested"],
+        "rails_exact_reference_verified": False,
+        "openings_top_to_bottom": opening_rows,
+        "envelope_mm": {
+            "overall_width_mm": spec["overall_width_mm"],
+            "overall_depth_mm": spec["overall_depth_mm"],
+            "overall_height_mm": spec["overall_height_mm"],
+            "free_span_mm": spec["free_span_mm"],
+            "cabinet_width_mm": spec["cabinet_module"]["width_mm"],
+            "feet_height_mm": spec["feet_height_mm"],
+        },
+        "front_gaps_nominal_mm": front_gaps,
+        "geometry_sha256": exchange["geometry_sha256"],
+        "cad_element_count": len(exchange["boxes"]),
+        "cad_piece_ids": sorted(box["piece_id"] for box in exchange["boxes"]),
+        "source_provenance": {
+            "owner_measurements": "INPUT_TEXT_NOT_AUTHENTICATED",
+            "prior_design_choices": _PRIOR_REPORTED,
+            "technical_fixture_values": "P5_FIXTURE_NOT_OWNER_CHOICE",
+            "corrections": "DECLARED_TEXT_REPLAY_NOT_AUTHENTICATED",
+        },
+        "owner_visual_acceptance": "PENDING",
+        "authorization": "NOT_FABRICATION_APPROVAL",
+        "piece_count": 0,
+        "can_generate_f7c": False,
+        "layout_approved": False,
+        "construction_approved": False,
+        **{flag: False for flag in _FLAGS},
+    }
+
+
+def validate_wall_bar_p5_nominal_review(review: dict[str, Any]) -> bool:
+    """Rebuild a client-held preview from P5 and reject edited derived state."""
+    if (type(review) is not dict or type(review.get("utterance")) is not str
+            or type(review.get("corrections")) is not list):
+        raise MaestroError("Vista previa/historial P5 inválidos.")
+    expected = prepare_wall_bar_p5_nominal_review(
+        review["utterance"], review["corrections"],
+    )
+    if _canonical(review) != _canonical(expected):
+        raise MaestroError("Vista previa o historial P5 editado; replay rechazado.")
+    return True
+
+
+def revise_wall_bar_p5_nominal_review(
+    previous_review: dict[str, Any], correction: str,
+) -> dict[str, Any]:
+    """Validate, then replay all declarations from the immutable P5 source."""
+    validate_wall_bar_p5_nominal_review(previous_review)
+    corrections = [*previous_review["corrections"], correction]
+    return prepare_wall_bar_p5_nominal_review(
+        previous_review["utterance"], corrections,
+    )
 
 
 def _geometry_engine(request: dict[str, Any], openings: list[dict[str, Any]]) -> str:

@@ -950,6 +950,8 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
             'Tirador recto negro · concepto</text>',
             '<text x="1070" y="806" font-size="11" fill="#53697e">'
             'Sin herraje, SKU, cantidad, posición ni taladros</text>',
+            '<text x="1070" y="820" font-size="11" fill="#53697e">'
+            'Tamaño y fijación NO definidos</text>',
             '</g>',
         ])
         foot_y, anchor_y = 819, 837
@@ -1031,6 +1033,22 @@ def wall_bar_isometric_svg(model: dict[str, Any]) -> str:
             f'{concept_attr}'
             f'points="{poly}" fill="{color}" stroke="#4f6576" '
             'stroke-width="1.05" stroke-linejoin="round"/>')
+    if (aesthetic == "bicolor_modern_preliminary"
+            and opening_intents == {"handle"}):
+        for front in (b for b in boxes if b["role"] == "drawer_facade"):
+            x, y, z = front["origin_xyz_mm"]
+            dx, dy, _ = front["size_xyz_mm"]
+            center_x = x + dx / 2
+            center_y = y + dy * 0.72
+            half_length = dx * 0.09
+            start = project(center_x - half_length, center_y, z)
+            end = project(center_x + half_length, center_y, z)
+            lines.append(
+                f'<path data-concept="handle-visual-only" '
+                f'data-source-piece-id="{escape(front["piece_id"], quote=True)}" '
+                f'd="M{start[0]:.2f} {start[1]:.2f} '
+                f'L{end[0]:.2f} {end[1]:.2f}" fill="none" '
+                'stroke="#161616" stroke-width="4" stroke-linecap="round"/>')
     if aesthetic == "bicolor_modern_preliminary":
         cover = next(b for b in boxes if b["piece_id"] == "BAR-COVER-TOP")
         x, y, z = cover["origin_xyz_mm"]
