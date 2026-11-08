@@ -26,7 +26,9 @@ ROOT_FIELDS = frozenset(("type", "application", "width_mm", "height_mm",
 MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "material_id", "construction", "fronts", "back",
                            "support", "finish", "drawers",
-                           "drawer_layout_reference", "support_concept"))
+                           "drawer_layout_reference", "support_concept",
+                           "horizontal_divider", "countertop",
+                           "upper_support"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -151,7 +153,8 @@ SUPPORT_CONCEPT_FIELDS = frozenset(
 
 def _support_concept(
     value: Any, *, module_id: str, carcass_height_mm: int,
-    existing_support: str, installation: str
+    existing_support: str, installation: str,
+    countertop_thickness_mm: int = 0,
 ) -> dict[str, Any]:
     """Preserve confirmed review geometry; never synthesize support parts."""
     data = _object(value, f"{module_id}.support_concept")
@@ -170,9 +173,9 @@ def _support_concept(
             raise DesignError(f"{module_id}: patas/zócalo necesitan altura positiva.")
     elif height != 0:
         raise DesignError(f"{module_id}: sin patas o suspendido exige altura AP cero.")
-    if carcass_height_mm + height != total:
+    if carcass_height_mm + height + countertop_thickness_mm != total:
         raise DesignError(
-            f"{module_id}: alto total y soporte no concuerdan con carcasa F1; "
+            f"{module_id}: alto total no coincide con carcasa, apoyo y cubierta; "
             "volver a revisar distribución de cajones."
         )
     expected_support = "wall" if style == "wall_mounted" else "floor"
@@ -185,10 +188,115 @@ def _support_concept(
     return {
         "style": style, "support_height_mm": height,
         "carcass_height_mm": carcass_height_mm, "overall_height_mm": total,
+        **({"countertop_thickness_mm": countertop_thickness_mm}
+           if countertop_thickness_mm else {}),
         "physical_support_parts": None,
         "physical_support_specification": "NOT_VERIFIED",
         "fabrication_ready": False,
     }
+
+
+def _countertop(value: Any, *, module_id: str, module_width_mm: int,
+                module_depth_mm: int) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    data = _object(value, f"{module_id}.countertop")
+    required = frozenset(("material_id", "thickness_mm", "width_mm", "depth_mm",
+                          "left_overhang_mm", "right_overhang_mm",
+                          "front_overhang_mm", "rear_overhang_mm"))
+    allowed = required | {"finish_note"}
+    _exact(data, allowed, f"{module_id}.countertop")
+    if required - data.keys():
+        raise DesignError(f"{module_id}.countertop: faltan cotas o material explícitos.")
+    material = data["material_id"]
+    if not isinstance(material, str) or not NAME_RE.fullmatch(material):
+        raise DesignError(f"{module_id}.countertop.material_id inválido.")
+    for field in ("thickness_mm", "width_mm", "depth_mm"):
+        _positive(data[field], f"{module_id}.countertop.{field}")
+    for field in ("left_overhang_mm", "right_overhang_mm",
+                  "front_overhang_mm", "rear_overhang_mm"):
+        if type(data[field]) is not int or data[field] < 0:
+            raise DesignError(f"{module_id}.countertop.{field}: milímetros enteros no negativos.")
+    if (data["width_mm"] != module_width_mm + data["left_overhang_mm"]
+            + data["right_overhang_mm"]):
+        raise DesignError(f"{module_id}.countertop: ancho y vuelos laterales no cierran.")
+    if (data["depth_mm"] != module_depth_mm + data["front_overhang_mm"]
+            + data["rear_overhang_mm"]):
+        raise DesignError(f"{module_id}.countertop: fondo y vuelos frontal/trasero no cierran.")
+    finish_note = data.get("finish_note", "")
+    if type(finish_note) is not str or len(finish_note) > 240:
+        raise DesignError(f"{module_id}.countertop.finish_note inválida.")
+    return {**data, "finish_note": finish_note}
+
+
+def _upper_support(value: Any, *, module_id: str, countertop: Any,
+                   construction: str, module_depth_mm: int,
+                   module_height_mm: int,
+                   panel_thickness_mm: int) -> dict[str, Any] | None:
+    """Validate the coffee-only, three-upright-tie review option."""
+    if value is None:
+        return None
+    data = _object(value, f"{module_id}.upper_support")
+    fields = frozenset(("style", "tie_height_mm", "tie_height_status"))
+    _exact(data, fields, f"{module_id}.upper_support")
+    if set(data) != fields:
+        raise DesignError(
+            f"{module_id}.upper_support: especificar style, tie_height_mm "
+            "y tie_height_status; ningún valor se infiere."
+        )
+    if data["style"] != "coffee_three_upright_ties":
+        raise DesignError(f"{module_id}.upper_support.style no admitido.")
+    if countertop is None:
+        raise DesignError(
+            f"{module_id}.upper_support requiere un mesón independiente explícito."
+        )
+    if construction != "sides_full":
+        raise DesignError(
+            f"{module_id}.upper_support requiere construction=sides_full; "
+            "no combinar juntas F1 distintas."
+        )
+    tie_height = _positive(data["tie_height_mm"],
+                           f"{module_id}.upper_support.tie_height_mm")
+    if 2 * panel_thickness_mm > module_depth_mm:
+        raise DesignError(
+            f"{module_id}.upper_support: los travesaños delantero y trasero "
+            "se solaparían en profundidad."
+        )
+    if 2 * tie_height + panel_thickness_mm > module_height_mm:
+        raise DesignError(
+            f"{module_id}.upper_support: correas superiores e inferior "
+            "se solaparían en altura."
+        )
+    height_status = _choice(
+        data["tie_height_status"],
+        frozenset(("REVIEW_HEIGHT_HYPOTHESIS_ONLY",)),
+        f"{module_id}.upper_support.tie_height_status",
+    )
+    return {"style": "coffee_three_upright_ties",
+            "tie_height_mm": tie_height,
+            "tie_height_status": height_status}
+
+
+def _horizontal_divider(value: Any, *, module_id: str,
+                        module_depth_mm: int) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    data = _object(value, f"{module_id}.horizontal_divider")
+    required = frozenset(("material_id", "thickness_mm",
+                          "position_from_clear_bottom_mm", "depth_mm",
+                          "depth_from_front_mm"))
+    _exact(data, required, f"{module_id}.horizontal_divider")
+    material = data["material_id"]
+    if not isinstance(material, str) or not NAME_RE.fullmatch(material):
+        raise DesignError(f"{module_id}.horizontal_divider.material_id inválido.")
+    _positive(data["thickness_mm"], f"{module_id}.horizontal_divider.thickness_mm")
+    _positive(data["depth_mm"], f"{module_id}.horizontal_divider.depth_mm")
+    for field in ("position_from_clear_bottom_mm", "depth_from_front_mm"):
+        if type(data[field]) is not int or data[field] < 0:
+            raise DesignError(f"{module_id}.horizontal_divider.{field}: milímetros enteros no negativos.")
+    if data["depth_from_front_mm"] + data["depth_mm"] > module_depth_mm:
+        raise DesignError(f"{module_id}.horizontal_divider: excede el fondo de carcasa.")
+    return data
 
 
 def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -211,8 +319,11 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(modules, list) or not 1 <= len(modules) <= 12:
         raise DesignError("modules: se requieren entre 1 y 12 módulos.")
     widths: list[int] = []
-    prepared: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+    prepared: list[tuple[dict[str, Any], dict[str, Any] | None,
+                         dict[str, Any] | None, dict[str, Any] | None]] = []
     support_concepts: dict[str, dict[str, Any]] = {}
+    upper_support_specs: dict[str, dict[str, Any]] = {}
+    upper_support_reviews: list[dict[str, Any]] = []
     seen: set[str] = set()
     for i, item in enumerate(modules):
         module = _object(item, f"modules[{i}]")
@@ -235,14 +346,54 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{module_id}: back requiere none, pending u objeto documentado.")
         if module.get("support") not in ("floor", "wall", "pending"):
             raise DesignError(f"{module_id}: indicar support=floor, wall o pending.")
+        countertop = _countertop(
+            module.get("countertop"), module_id=module_id,
+            module_width_mm=w, module_depth_mm=depth,
+        )
+        upper_support = _upper_support(
+            module.get("upper_support"), module_id=module_id,
+            countertop=countertop, construction=module["construction"],
+            module_depth_mm=depth,
+            module_height_mm=height,
+            panel_thickness_mm=module["panel_thickness_mm"],
+        )
+        if upper_support is not None:
+            upper_support_specs[module_id] = upper_support
+        divider = _horizontal_divider(
+            module.get("horizontal_divider"), module_id=module_id,
+            module_depth_mm=depth,
+        )
+        if upper_support is not None:
+            fronts = module["fronts"]
+            if (not isinstance(fronts, dict) or fronts.get("style") != "overlay"
+                    or fronts.get("leaf_count") != 2 or divider is None):
+                raise DesignError(
+                    f"{module_id}: coffee_three_upright_ties exige dos puertas "
+                    "overlay explícitas y repisa horizontal."
+                )
+        if countertop is not None and "support_concept" not in module:
+            raise DesignError(
+                f"{module_id}: una cubierta separada requiere support_concept "
+                "para cerrar la altura total."
+            )
         if "support_concept" in module:
             support_concepts[module_id] = _support_concept(
                 module["support_concept"], module_id=module_id,
                 carcass_height_mm=height,
                 existing_support=module["support"], installation=installation,
+                countertop_thickness_mm=(countertop["thickness_mm"]
+                                         if countertop else 0),
             )
-        prepared.append((module, _finish(module.get("finish"), module_id)))
+        prepared.append((module, _finish(module.get("finish"), module_id),
+                         divider, countertop))
         widths.append(w)
+
+    if any(countertop is not None for _, _, _, countertop in prepared):
+        if len(modules) != 1:
+            raise DesignError(
+                "La cubierta exterior P0 solo admite una carcasa; "
+                "no inferir una cubierta compartida para una fila modular."
+            )
 
     # One horizontal run has one baseline. Partial or contradictory AP heights
     # cannot be silently merged into the same F1 carcass geometry.
@@ -289,8 +440,15 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     all_parts: list[dict[str, Any]] = []
     out_modules: list[dict[str, Any]] = []
     x_offset = 0
-    for module, finish in prepared:
+    assembly_review: dict[str, Any] | None = None
+    for module, finish, divider, countertop in prepared:
         w, t = module["width_mm"], module["panel_thickness_mm"]
+        support = support_concepts.get(module["module_id"])
+        upper_support = upper_support_specs.get(module["module_id"])
+        origin_x = x_offset + (countertop["left_overhang_mm"] if countertop else 0)
+        origin_y = (support["support_height_mm"]
+                    if support and countertop else 0)
+        origin_z = countertop["front_overhang_mm"] if countertop else 0
         geometry = design({
             "type": "cabinet", "width_mm": w,
             "height_mm": height, "depth_mm": depth,
@@ -299,14 +457,23 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         _check_drawer_layout_reference(
             module, module_height_mm=height, module_depth_mm=depth
         )
+        if divider and (
+            divider["position_from_clear_bottom_mm"] + divider["thickness_mm"]
+            > geometry["dimensions"]["clear_height_mm"]
+        ):
+            raise DesignError(
+                f"{module['module_id']}.horizontal_divider: excede la altura libre interior."
+            )
         sides, caps = geometry["parts"]
         for role in ROLES:
+            if role == "top" and upper_support is not None:
+                continue
             part = sides if role.endswith("side") else caps
             if module["construction"] == "sides_full":
                 y_origin = 0 if role.endswith("side") else (height - t if role == "top" else 0)
             else:
                 y_origin = t if role.endswith("side") else (height - t if role == "top" else 0)
-            x_origin = x_offset + (w-t if role == "right_side" else 0)
+            x_origin = origin_x + (w-t if role == "right_side" else 0)
             if role in ("top", "bottom") and module["construction"] == "sides_full":
                 x_origin += t
             grain = finish["grain"][role] if finish else "UNCONFIRMED"
@@ -323,7 +490,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "thickness_mm": t,
                 "grain_axis": grain,
                 "face_plane": "YZ" if role.endswith("side") else "XZ",
-                "nominal_origin_xyz_mm": [x_origin, y_origin, 0],
+                "nominal_origin_xyz_mm": [x_origin, origin_y+y_origin, origin_z],
                 "edgebanding_edges": banded if finish else "UNCONFIRMED",
                 "edgebanding_thickness_mm":
                     finish.get("edgeband_thickness_mm") if finish else None,
@@ -332,13 +499,75 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "source_engine": "F1_CORE_CABINET",
                 "source_formula": part["calculation"],
             })
+        upper_tie_parts: list[dict[str, Any]] = []
+        upper_support_review: dict[str, Any] | None = None
+        if upper_support is not None:
+            clear_width = geometry["dimensions"]["clear_width_mm"]
+            tie_height = upper_support["tie_height_mm"]
+            rear_z = origin_z + depth - t
+            for role, y, z in (
+                ("upper_front_tie", origin_y + height - tie_height, origin_z),
+                ("upper_rear_tie", origin_y + height - tie_height, rear_z),
+                ("lower_rear_tie", origin_y + t, rear_z),
+            ):
+                upper_tie_parts.append({
+                    "piece_id": module["module_id"] + "-" + role.upper(),
+                    "module_id": module["module_id"], "role": role,
+                    "material_id": module["material_id"],
+                    "nominal_face_x_mm": clear_width,
+                    "nominal_face_y_mm": tie_height,
+                    "thickness_mm": t,
+                    "grain_axis": "UNCONFIRMED", "face_plane": "XY",
+                    "nominal_origin_xyz_mm": [origin_x + t, y, z],
+                    "edgebanding_edges": "UNCONFIRMED",
+                    "edgebanding_thickness_mm": None,
+                    "edgebanding_nominal_total_mm": None,
+                    "finished_cut_dimensions_mm": None,
+                    "source_engine": "F6_OPTIONAL_UPPER_SUPPORT",
+                    "source_formula": (
+                        "length=F1.clear_width_mm; height=explicit "
+                        "upper_support.tie_height_mm along Y; face=XY; "
+                        "thickness=F1.panel_thickness_mm along Z; positions="
+                        "upper-front/upper-rear/lower-rear; "
+                        "structural_capacity=UNVERIFIED; tie_height_status="
+                        + upper_support["tie_height_status"]
+                    ),
+                })
+            all_parts.extend(upper_tie_parts)
+            tie_ids = [piece["piece_id"] for piece in upper_tie_parts]
+            upper_support_review = {
+                "module_id": module["module_id"],
+                "style": "coffee_three_upright_ties",
+                "construction": "sides_full",
+                "piece_ids": tie_ids,
+                "length_mm": clear_width,
+                "length_basis": "F1.clear_width_mm",
+                "tie_height_mm": tie_height,
+                "tie_height_status": upper_support["tie_height_status"],
+                "material_id": module["material_id"],
+                "thickness_mm": t,
+                "source_engine": "F6_OPTIONAL_UPPER_SUPPORT",
+                "structural_engineering": "UNVERIFIED",
+                "wall_vertical_load_role": "NONE_OWNER_CONFIRMED",
+                "countertop_wall_vertical_support": "EXCLUDED_BY_OWNER",
+                "cabinet_wall_anchoring": "INSTALLER_STABILITY_ONLY_UNVERIFIED",
+            }
+            upper_support_reviews.append(upper_support_review)
+            blockers.append(
+                f"{module['module_id']}: tres correas de canto; altura "
+                f"{tie_height} mm ({upper_support['tie_height_status']}); "
+                "uniones y resistencia sin verificar; el muro no recibe carga vertical."
+            )
         rear_parts, rear_blockers = back_panels(
             module["back"], module_id=module["module_id"],
             module_height_mm=height, module_depth_mm=depth,
             clear_width_mm=geometry["dimensions"]["clear_width_mm"],
             clear_height_mm=geometry["dimensions"]["clear_height_mm"],
-            carcase_thickness_mm=t, start_x_mm=x_offset,
+            carcase_thickness_mm=t, start_x_mm=origin_x,
         )
+        for piece in rear_parts:
+            piece["nominal_origin_xyz_mm"][1] += origin_y
+            piece["nominal_origin_xyz_mm"][2] += origin_z
         all_parts.extend(rear_parts)
         blockers.extend(rear_blockers)
         doors, door_blockers = front_panels(
@@ -346,20 +575,108 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             module_width_mm=w, module_height_mm=height,
             clear_width_mm=geometry["dimensions"]["clear_width_mm"],
             clear_height_mm=geometry["dimensions"]["clear_height_mm"],
-            panel_thickness_mm=t, start_x_mm=x_offset,
+            panel_thickness_mm=t, start_x_mm=origin_x,
         )
+        for piece in doors:
+            piece["nominal_origin_xyz_mm"][1] += origin_y
+            piece["nominal_origin_xyz_mm"][2] += origin_z
         all_parts.extend(doors)
         blockers.extend(door_blockers)
         drawer_parts, drawer_blockers, drawer_ids = module_drawers(
             module.get("drawers", "none"), module_id=module["module_id"],
-            start_x_mm=x_offset, carcase_thickness_mm=t,
+            start_x_mm=origin_x, carcase_thickness_mm=t,
             clear_width_mm=geometry["dimensions"]["clear_width_mm"],
             clear_height_mm=geometry["dimensions"]["clear_height_mm"],
             module_depth_mm=depth, back_parts=rear_parts,
             has_doors=bool(doors),
         )
+        for piece in drawer_parts:
+            piece["nominal_origin_xyz_mm"][1] += origin_y
+            piece["nominal_origin_xyz_mm"][2] += origin_z
         all_parts.extend(drawer_parts)
         blockers.extend(drawer_blockers)
+        divider_parts: list[dict[str, Any]] = []
+        if divider:
+            divider_parts.append({
+                "piece_id": module["module_id"] + "-SHELF",
+                "module_id": module["module_id"],
+                "role": "shelf_horizontal",
+                "material_id": divider["material_id"],
+                "nominal_face_x_mm": geometry["dimensions"]["clear_width_mm"],
+                "nominal_face_y_mm": divider["depth_mm"],
+                "thickness_mm": divider["thickness_mm"],
+                "grain_axis": "UNCONFIRMED", "face_plane": "XZ",
+                "nominal_origin_xyz_mm": [
+                    origin_x+t,
+                    origin_y+t+divider["position_from_clear_bottom_mm"],
+                    origin_z+divider["depth_from_front_mm"],
+                ],
+                "edgebanding_edges": "UNCONFIRMED",
+                "edgebanding_thickness_mm": None,
+                "edgebanding_nominal_total_mm": None,
+                "finished_cut_dimensions_mm": None,
+                "source_engine": "F6_HORIZONTAL_DIVIDER",
+                "source_formula": (
+                    "width=F1.clear_width_mm; y=carcass_origin_y + "
+                    "panel_thickness_mm + position_from_clear_bottom_mm; "
+                    "depth=explicit depth_mm; z=carcass_origin_z + "
+                    "depth_from_front_mm"
+                ),
+            })
+            all_parts.extend(divider_parts)
+            blockers.append(
+                f"{module['module_id']}: repisa horizontal nominal; veta, cantos, "
+                "uniones y profundidad de uso requieren revisión."
+            )
+        countertop_parts: list[dict[str, Any]] = []
+        if countertop:
+            countertop_piece_id = module["module_id"] + "-COUNTERTOP"
+            countertop_parts.append({
+                "piece_id": countertop_piece_id,
+                "module_id": module["module_id"], "role": "countertop",
+                "material_id": countertop["material_id"],
+                "nominal_face_x_mm": countertop["width_mm"],
+                "nominal_face_y_mm": countertop["depth_mm"],
+                "thickness_mm": countertop["thickness_mm"],
+                "grain_axis": "UNCONFIRMED", "face_plane": "XZ",
+                "nominal_origin_xyz_mm": [
+                    x_offset,
+                    origin_y+height,
+                    0,
+                ],
+                "edgebanding_edges": "UNCONFIRMED",
+                "edgebanding_thickness_mm": None,
+                "edgebanding_nominal_total_mm": None,
+                "finished_cut_dimensions_mm": None,
+                "finish_note": countertop["finish_note"],
+                "source_engine": "F6_EXPLICIT_COUNTERTOP",
+                "source_formula": (
+                    "width=explicit countertop.width_mm; depth=explicit "
+                    "countertop.depth_mm; origin=assembly front/left; "
+                    "height=carcass_origin_y + F1.height_mm"
+                ),
+            })
+            all_parts.extend(countertop_parts)
+            blockers.append(
+                f"{module['module_id']}: cubierta y acabado son datos nominales; "
+                "sellado, soporte, cantos y resistencia al agua no verificados."
+            )
+            assembly_review = {
+                "carcass_origin_xyz_mm": [origin_x, origin_y, origin_z],
+                "carcass_dimensions_xyz_mm": [w, height, depth],
+                "support_style": support["style"],
+                "support_height_mm": support["support_height_mm"],
+                "physical_support_parts": "NOT_MODELED",
+                "countertop_piece_id": countertop_piece_id,
+                "countertop_thickness_mm": countertop["thickness_mm"],
+                "countertop_finish_note": countertop["finish_note"],
+                "review_status": "HYPOTHESIS_PREVIEW_ONLY",
+                "vertical_load_path": "CARCASS_TO_LEGS_TO_FLOOR_CONCEPT_ONLY",
+                "wall_vertical_load_role": "NONE_OWNER_CONFIRMED",
+                "countertop_wall_vertical_support": "EXCLUDED_BY_OWNER",
+                "front_gaps_status": "HYPOTHESIS_PREVIEW_ONLY",
+                "shelf_position_status": "HYPOTHESIS_PREVIEW_ONLY",
+            }
         if finish is None:
             blockers.append(f"{module['module_id']}: definir veta y cuatro lados de canto por pieza.")
         if module["fronts"] == "pending":
@@ -368,7 +685,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             blockers.append(f"{module['module_id']}: definir fondo, ranura o panel aplicado.")
         if module["support"] == "pending":
             blockers.append(f"{module['module_id']}: definir fijación/soporte.")
-        concept = support_concepts.get(module["module_id"])
+        concept = support
         if concept and concept["style"] in ("legs", "plinth"):
             blockers.append(
                 f"{module['module_id']}: {concept['style']} de "
@@ -378,18 +695,53 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "al CSV de paneles ni autorizar fabricación."
             )
         out_modules.append({
-            "module_id": module["module_id"], "start_x_mm": x_offset,
+            "module_id": module["module_id"], "start_x_mm": origin_x,
             "external_width_mm": w, "external_height_mm": height,
             "external_depth_mm": depth, "clear_width_mm": geometry["dimensions"]["clear_width_mm"],
             "clear_height_mm": geometry["dimensions"]["clear_height_mm"],
+            **({"origin_xyz_mm": [origin_x, origin_y, origin_z]}
+               if countertop else {}),
             "construction": module["construction"], "part_ids":
-                [module["module_id"] + "-" + role.upper() for role in ROLES] +
+                [module["module_id"] + "-" + role.upper() for role in ROLES
+                 if not (upper_support is not None and role == "top")] +
+                [piece["piece_id"] for piece in upper_tie_parts] +
                 [piece["piece_id"] for piece in rear_parts] +
                 [piece["piece_id"] for piece in doors] +
-                [piece["piece_id"] for piece in drawer_parts],
+                [piece["piece_id"] for piece in drawer_parts] +
+                [piece["piece_id"] for piece in divider_parts] +
+                [piece["piece_id"] for piece in countertop_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
             **({"support_review": concept} if concept is not None else {}),
+            **({"upper_support_review": upper_support_review}
+               if upper_support_review is not None else {}),
+            **({"countertop_review": {
+                "piece_id": countertop_parts[0]["piece_id"],
+                "overhangs_mm": {
+                    "left": countertop["left_overhang_mm"],
+                    "right": countertop["right_overhang_mm"],
+                    "front": countertop["front_overhang_mm"],
+                    "rear": countertop["rear_overhang_mm"],
+                },
+                "finish_note": countertop["finish_note"],
+            }} if countertop else {}),
+            **({"review_hypotheses": {
+                "status": "HYPOTHESIS_PREVIEW_ONLY",
+                "front_style": module["fronts"]["style"],
+                "front_leaf_count": module["fronts"]["leaf_count"],
+                "front_reveals_mm": {
+                    key: module["fronts"][key] for key in (
+                        "left_reveal_mm", "right_reveal_mm",
+                        "top_reveal_mm", "bottom_reveal_mm",
+                    )
+                },
+                "front_center_gap_mm": module["fronts"]["center_gap_mm"],
+                "shelf_position_from_clear_bottom_mm": (
+                    divider["position_from_clear_bottom_mm"]
+                ),
+                "shelf_depth_mm": divider["depth_mm"],
+                "shelf_depth_from_front_mm": divider["depth_from_front_mm"],
+            }} if upper_support is not None and divider is not None else {}),
             "drawer_ids": drawer_ids,
         })
         x_offset += w
@@ -400,7 +752,21 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     # second 3D model and no presumption that 500 mm carcass means 500 mm
     # assembled depth when an overlay decorative face extends forward.
     front_extension = nominal_front_extension_mm(all_parts)
-    assembled_depth = depth + front_extension
+    countertop_part = next(
+        (piece for piece in all_parts if piece["role"] == "countertop"), None
+    )
+    if countertop_part:
+        dimensions = {
+            "width": countertop_part["nominal_face_x_mm"],
+            "height": assembly_review["carcass_dimensions_xyz_mm"][1]
+                     + assembly_review["support_height_mm"]
+                     + countertop_part["thickness_mm"],
+            "depth": countertop_part["nominal_face_y_mm"],
+        }
+    else:
+        dimensions = {"width": width, "height": height, "depth": depth}
+    assembled_depth = (dimensions["depth"] if countertop_part
+                       else depth + front_extension)
     depth_conflict = (max_assembled_depth is not None
                       and assembled_depth > max_assembled_depth)
     depth_review = {
@@ -432,7 +798,14 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         "application": d["application"], "status": status,
         "fabrication_ready": False, "cutting_ready": False, "drilling_ready": False,
         "purchase_ready": False,
-        "dimensions_mm": {"width": width, "height": height, "depth": depth},
+        "dimensions_mm": dimensions,
+        **({"carcass_dimensions_mm": {
+            "width": width, "height": height, "depth": depth,
+        }} if countertop_part else {}),
+        **({"assembly_review": assembly_review}
+           if assembly_review is not None else {}),
+        **({"upper_support_review": upper_support_reviews[0]}
+           if upper_support_reviews else {}),
         "depth_review": depth_review,
         "installation": installation, "site": site, "modules": out_modules,
         "parts": all_parts, "piece_count": len(all_parts),

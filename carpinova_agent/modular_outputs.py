@@ -61,6 +61,16 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
         "drawer_facade_style", "opening_system_intent",
     ])
     for piece in draft["parts"]:
+        module = next((m for m in draft["modules"]
+                       if m["module_id"] == piece["module_id"]), None)
+        formula = piece["source_formula"]
+        if (piece["role"] in ("front_left", "front_right")
+                and module is not None
+                and "review_hypotheses" in module):
+            formula += " | HYPOTHESIS_PREVIEW_ONLY; no bisagra/giro verificados"
+        if piece["role"] in ("upper_front_tie", "upper_rear_tie",
+                             "lower_rear_tie"):
+            formula += " | REVIEW_HEIGHT_HYPOTHESIS_ONLY; uniones/resistencia no verificadas"
         writer.writerow([
             piece["piece_id"], piece["module_id"], piece["role"],
             piece["material_id"], piece["nominal_face_x_mm"],
@@ -72,7 +82,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
              piece["edgebanding_thickness_mm"] is not None else "UNCONFIRMED"),
             (piece["edgebanding_nominal_total_mm"] if
              piece["edgebanding_nominal_total_mm"] is not None else "UNCONFIRMED"),
-            *piece["nominal_origin_xyz_mm"], piece["source_formula"],
+            *piece["nominal_origin_xyz_mm"], formula,
             "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""), piece.get("drawer_id",""),
             *_drawer_review_labels(piece),
         ])
@@ -82,6 +92,14 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
 def modular_front_svg(model: dict[str, Any]) -> str:
     """Scaled elevation. All panel coordinates are from F6, not recalculated."""
     draft = _review_draft(model)
+    has_support_leg_concepts = any(
+        piece["role"] == "support_leg_concept" for piece in draft["parts"]
+    )
+    has_upper_support_review = "upper_support_review" in draft
+    support_review_y = (
+        715 if has_upper_support_review else
+        675 if has_support_leg_concepts else 700
+    )
     w, h = draft["dimensions_mm"]["width"], draft["dimensions_mm"]["height"]
     viewport_w, viewport_h = 1000, 790
     max_w, max_h = 850, 475
@@ -100,8 +118,11 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         role = piece["role"]
         if role in ("left_side", "right_side", "drawer_side_left", "drawer_side_right"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
-        elif role in ("top", "bottom", "drawer_bottom"):
+        elif role in ("top", "bottom", "drawer_bottom",
+                      "shelf_horizontal", "countertop"):
             pw, ph = piece["nominal_face_x_mm"], piece["thickness_mm"]
+        elif role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
+            pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         elif role in ("back_full", "back_top", "back_bottom",
                       "front_single", "front_left", "front_right",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
@@ -119,6 +140,18 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
+        if piece.get("finish_note"):
+            name += " | " + escape(piece["finish_note"], quote=True)
+        if role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
+            review = draft.get("upper_support_review", {})
+            name += (" | ALTURA " + str(review.get("tie_height_mm", "UNCONFIRMED"))
+                     + " mm " + escape(str(review.get("tie_height_status", "UNCONFIRMED")),
+                                       quote=True)
+                     + " | HYPOTHESIS_PREVIEW_ONLY | uniones/resistencia NO VERIFICADAS")
+        if (role in ("front_left", "front_right")
+                and any(m["module_id"] == piece["module_id"]
+                        and "review_hypotheses" in m for m in draft["modules"])):
+            name += " | HYPOTHESIS_PREVIEW_ONLY | giro/herraje NO VERIFICADOS"
         if role == "drawer_facade":
             style, intent = _drawer_review_labels(piece)
             # Explicit text metadata only; not a depiction of real hardware.
@@ -130,7 +163,8 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         if role == "support_leg_concept":
             name += " | APOYO CONCEPTUAL | SIN SKU"
         shapes.append(
-            f'<rect data-role="{escape(role, quote=True)}" '
+            f'<rect data-piece-id="{escape(str(piece["piece_id"]), quote=True)}" '
+            f'data-role="{escape(role, quote=True)}" '
             f'x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
             f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
         )
@@ -172,13 +206,31 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'M {x0-23:.3f} {y0:.3f} V {y0+scaled_h:.3f}"/>'
         f'<text x="{x0-34:.3f}" y="{y0+scaled_h/2:.3f}" text-anchor="middle" '
         f'transform="rotate(-90 {x0-34:.3f} {y0+scaled_h/2:.3f})">{h} mm</text>'
-        '<text x="45" y="730" class="note">Veta y canto están en el CSV de revisión. '
+        f'<text x="45" y="{740 if has_upper_support_review else 730}" class="note">'
+        'Veta y canto están en el CSV de revisión. '
         'Las dimensiones no compensan espesor de tapacanto.</text>'
-        '<text x="45" y="755" class="note">No muestra uniones de fondos, '
+        f'<text x="45" y="{765 if has_upper_support_review else 755}" class="note">'
+        'No muestra uniones de fondos, '
         'fijaciones ni verificación estructural. Comprobar en sitio.</text>'
-        + ('<text x="45" y="700" class="note">'
-           'Patas: geometría CAD conceptual bajo cajonera; sin material ni SKU.</text>'
-           if any(p["role"] == "support_leg_concept" for p in draft["parts"])
+        + ''.join(
+            f'<text x="45" y="{support_review_y}" class="note">'
+            f'AP: {escape(str(module["support_review"]["style"]))} '
+            f'{module["support_review"]["support_height_mm"]} mm conceptuales; '
+            'piezas no modeladas.</text>'
+            for module in draft["modules"] if "support_review" in module
+            and module["support_review"]["style"] in ("legs", "plinth")
+        )
+         + (f'<text x="45" y="675" class="note">'
+            f'Tres correas de canto: altura '
+            f'{draft["upper_support_review"]["tie_height_mm"]} mm '
+            f'{escape(draft["upper_support_review"]["tie_height_status"])}; '
+            '<tspan x="45" dy="18">'
+            'HYPOTHESIS_PREVIEW_ONLY; resistencia y uniones NO verificadas.'
+            '</tspan></text>'
+            if has_upper_support_review else "")
+         + ('<text x="45" y="700" class="note">'
+            'Patas: geometría CAD conceptual bajo cajonera; sin material ni SKU.</text>'
+            if has_support_leg_concepts
            else "")
         + '</svg>\n'
     )

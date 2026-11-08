@@ -75,6 +75,11 @@ class WallBarTests(unittest.TestCase):
                          and item.get("data-role") == "support_leg_concept"]
         self.assertEqual(len(support_rects), 4)
         self.assertIn("Patas: geometría CAD conceptual bajo cajonera", front)
+        note_text = [item for item in front_root.iter()
+                     if item.tag.endswith("text") and item.get("class") == "note"]
+        self.assertEqual(sum(item.get("y") == "700" for item in note_text), 1)
+        self.assertTrue(any(item.get("y") == "675" and "40 mm conceptuales" in
+                            "".join(item.itertext()) for item in note_text))
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
                     "purchase_ready"):
             self.assertIs(model[key], False)

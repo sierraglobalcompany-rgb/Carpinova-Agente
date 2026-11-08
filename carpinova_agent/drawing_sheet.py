@@ -26,7 +26,9 @@ _RELEASE_FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purch
 
 def _projection(exchange: dict[str, Any], *,
                 axes: tuple[int, int], panel: tuple[int, int, int, int],
-                title: str, dimensions: str, invert_v: bool) -> str:
+                title: str, dimensions: str, invert_v: bool,
+                visible_roles: set[str] | None = None,
+                invert_u: bool = False) -> str:
     """Project validated XYZ boxes onto two axes; never alter their dimensions."""
     left, top, width, height = panel
     bound_h, bound_v = (exchange["bounds_xyz_mm"][axis] for axis in axes)
@@ -37,18 +39,25 @@ def _projection(exchange: dict[str, Any], *,
     start_y = top + 37 + (usable_h - bound_v * scale) / 2
     shapes: list[str] = []
     for box in exchange["boxes"]:
+        if visible_roles is not None and box["role"] not in visible_roles:
+            continue
         loc, dim = box["origin_xyz_mm"], box["size_xyz_mm"]
-        px = start_x + loc[axes[0]] * scale
+        projected_u = (bound_h - loc[axes[0]] - dim[axes[0]]
+                       if invert_u else loc[axes[0]])
+        px = start_x + projected_u * scale
         py = start_y + ((bound_v - loc[axes[1]] - dim[axes[1]]) if invert_v
                         else loc[axes[1]]) * scale
         pw, ph = dim[axes[0]] * scale, dim[axes[1]] * scale
         name = escape(str(box["piece_id"]), quote=True)
         shapes.append(
-            f'<rect x="{px:.3f}" y="{py:.3f}" width="{pw:.3f}" '
+            f'<rect data-view="{escape(title, quote=True)}" '
+            f'data-piece-id="{name}" data-role="{escape(box["role"], quote=True)}" '
+            f'x="{px:.3f}" y="{py:.3f}" width="{pw:.3f}" '
             f'height="{ph:.3f}" class="part"><title>{name}</title></rect>'
         )
     return (
-        f'<rect x="{left}" y="{top}" width="{width}" height="{height}" rx="10" class="panel"/>'
+        f'<rect data-view="{escape(title, quote=True)}" x="{left}" y="{top}" '
+        f'width="{width}" height="{height}" rx="10" class="panel"/>'
         f'<text x="{left + 17}" y="{top + 27}" class="section">{escape(title)}</text>'
         + "".join(shapes) +
         f'<rect x="{start_x:.3f}" y="{start_y:.3f}" '
@@ -58,7 +67,46 @@ def _projection(exchange: dict[str, Any], *,
     )
 
 
-def three_views_svg(data: dict[str, Any]) -> str:
+def _coffee_review_notes(model: dict[str, Any]) -> str:
+    """Text-only engineering limits; wall anchors are deliberately not drawn."""
+    assembly = model["assembly_review"]
+    support = model["upper_support_review"]
+    module = model["modules"][0]
+    hypothesis = module["review_hypotheses"]
+    note_lines = (
+        f'3 correas de canto; altura {support["tie_height_mm"]} mm propuesta, '
+        'NO aprobada; uniones y resistencia sin verificar.',
+        'Frentes: dos puertas sobrepuestas; giro y bisagras pendientes.',
+        f'Luz central {hypothesis["front_center_gap_mm"]} mm: propuesta, NO aprobada; '
+        'sin SKU de bisagra.',
+        f'Repisa: posición desde claro inferior '
+        f'{hypothesis["shelf_position_from_clear_bottom_mm"]} mm; propuesta, NO aprobada.',
+        'Muro: estabilidad por instalador; NO soporta carga vertical; anclajes pendientes.',
+        'Camino de carga planteado: mesón → carcasa → patas → piso; estructura no verificada.',
+        'Bisagras, giro, uniones, patas y anclajes sin verificar; sin taladros.',
+        f'Mesón {model["dimensions_mm"]["width"]} × '
+        f'{model["dimensions_mm"]["depth"]} × '
+        f'{assembly["countertop_thickness_mm"]} mm · alto total '
+        f'{model["dimensions_mm"]["height"]} mm.',
+        f'Carcasa {model["carcass_dimensions_mm"]["width"]} × '
+        f'{model["carcass_dimensions_mm"]["height"]} × '
+        f'{model["carcass_dimensions_mm"]["depth"]} mm · patas '
+        f'{assembly["support_height_mm"]} mm conceptuales.',
+        'BORRADOR NOMINAL · NO CORTAR, PERFORAR, COMPRAR NI FABRICAR.',
+    )
+    return (
+        '<rect x="824" y="890" width="740" height="365" rx="10" class="panel"/>'
+        '<text x="846" y="923" class="section">LÍMITES Y PROPUESTAS · NO APROBADOS</text>'
+        + "".join(
+            f'<text x="846" y="{956 + i * 27}" class="support-note">'
+            f'{escape(line)}</text>'
+            for i, line in enumerate(note_lines)
+        )
+    )
+
+
+def three_views_svg(data: dict[str, Any], *,
+                    review_model: dict[str, Any] | None = None) -> str:
     """A dimensioned three-view visualization from canonical CAD boxes only."""
     cad = validate_exchange(data)
     w, h, d = cad["bounds_xyz_mm"]
@@ -67,6 +115,28 @@ def three_views_svg(data: dict[str, Any]) -> str:
     support_boxes = [box for box in cad["boxes"]
                      if box["role"] == "support_leg_concept"]
     support_note = ""
+    assembly_note = ""
+    countertop_note = ""
+    assembly = cad.get("assembly_review")
+    upper_support = cad.get("upper_support_review")
+    if isinstance(assembly, dict):
+        carcass = assembly["carcass_dimensions_xyz_mm"]
+        assembly_note = (
+            f'Carcasa {carcass[0]} × {carcass[1]} × {carcass[2]} mm · '
+            f'AP {assembly["support_style"]} conceptual: '
+            f'{assembly["support_height_mm"]} mm; no modelado.'
+        )
+        top = next(box for box in cad["boxes"]
+                   if box["piece_id"] == assembly["countertop_piece_id"])
+        finish_note = (
+            "acabado indicado; producto sin identificar"
+            if assembly["countertop_finish_note"] else "acabado sin especificar"
+        )
+        countertop_note = (
+            f'Cubierta nominal {top["material_id"]} · '
+            f'{assembly["countertop_thickness_mm"]} mm · '
+            f'{finish_note}'
+        )
     if support_boxes:
         if len(support_boxes) != 4:
             raise DesignError("La lámina de tres vistas exige cuatro apoyos conceptuales.")
@@ -82,21 +152,54 @@ def three_views_svg(data: dict[str, Any]) -> str:
         )
     else:
         support_foot_note = ""
-    drawing = [
-        _projection(cad, axes=(0, 1), panel=(36, 128, 536, 460),
-                    title="01  FRENTE / X-Y", dimensions=f"Ancho {w} mm · Alto {h} mm",
-                    invert_v=True),
-        _projection(cad, axes=(2, 1), panel=(588, 128, 536, 460),
-                    title="02  LATERAL / Z-Y", dimensions=f"Fondo {d} mm · Alto {h} mm",
-                    invert_v=True),
-        _projection(cad, axes=(0, 2), panel=(36, 605, 536, 410),
-                    title="03  PLANTA / X-Z", dimensions=f"Ancho {w} mm · Fondo {d} mm",
-                    invert_v=False),
-    ]
+    if upper_support is not None:
+        if review_model is None or "review_hypotheses" not in review_model["modules"][0]:
+            raise DesignError("La revisión de café requiere su modelo Maestro verificado.")
+        frame_roles = {"left_side", "right_side", "bottom", "countertop",
+                       "front_left", "front_right"}
+        interior_roles = {"left_side", "right_side", "bottom", "countertop",
+                          "upper_front_tie", "upper_rear_tie",
+                          "lower_rear_tie", "shelf_horizontal"}
+        rear_roles = {"left_side", "right_side", "bottom", "countertop",
+                      "upper_rear_tie", "lower_rear_tie", "shelf_horizontal"}
+        view_panels = (
+            ((36, 128, 740, 365), "01  FRENTE CERRADO / CAD",
+             f"Ancho {w} mm · Alto {h} mm", (0, 1), frame_roles, True, False),
+            ((824, 128, 740, 365), "02  FRENTE INTERIOR / CAD",
+             "Puertas omitidas por visibilidad", (0, 1), interior_roles, True, False),
+            ((36, 508, 740, 365), "03  POSTERIOR / CAD",
+             "Correas traseras en dos alturas", (0, 1), rear_roles, True, True),
+            ((824, 508, 740, 365), "04  LATERAL / Z-Y · CAD",
+             f"Fondo {d} mm · Alto {h} mm", (2, 1), None, True, False),
+            ((36, 888, 740, 365), "05  PLANTA / X-Z · CAD",
+             f"Ancho {w} mm · Fondo {d} mm · frente abajo", (0, 2), None, True, False),
+        )
+        drawing = [
+            _projection(cad, panel=panel, title=title, dimensions=dimensions,
+                        axes=axes, visible_roles=roles, invert_v=invert_v,
+                        invert_u=invert_u)
+            for panel, title, dimensions, axes, roles, invert_v, invert_u
+            in view_panels
+        ]
+        drawing.append(_coffee_review_notes(review_model))
+        sheet_width, sheet_height, hash_x, hash_y = 1600, 1300, 824, 1280
+    else:
+        drawing = [
+            _projection(cad, axes=(0, 1), panel=(36, 128, 536, 460),
+                        title="01  FRENTE / X-Y", dimensions=f"Ancho {w} mm · Alto {h} mm",
+                        invert_v=True),
+            _projection(cad, axes=(2, 1), panel=(588, 128, 536, 460),
+                        title="02  LATERAL / Z-Y", dimensions=f"Fondo {d} mm · Alto {h} mm",
+                        invert_v=True),
+            _projection(cad, axes=(0, 2), panel=(36, 605, 536, 410),
+                        title="03  PLANTA / X-Z", dimensions=f"Ancho {w} mm · Fondo {d} mm",
+                        invert_v=False),
+        ]
+        sheet_width, sheet_height, hash_x, hash_y = 1160, 1040, 598, 1015
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1040" '
-        'viewBox="0 0 1160 1040" role="img" '
-        'aria-label="Lámina de tres vistas nominales de un mueble, no fabricable">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{sheet_width}" height="{sheet_height}" '
+        f'viewBox="0 0 {sheet_width} {sheet_height}" role="img" '
+        'aria-label="Lámina de vistas CAD nominales de revisión; no fabricable">'
         '<style>'
         'svg{background:#fff}text{font-family:Arial,sans-serif;fill:#152537}'
         '.panel{fill:#f8fafc;stroke:#cbd5e1;stroke-width:1.5}'
@@ -107,24 +210,29 @@ def three_views_svg(data: dict[str, Any]) -> str:
         '.note{font-size:16px;fill:#334155}.support-note{font-size:13px;fill:#334155}'
         '.hash{font-size:13px;fill:#475569}'
         '</style>'
-        '<rect x="0" y="0" width="1160" height="1040" fill="#fff"/>'
+        f'<rect x="0" y="0" width="{sheet_width}" height="{sheet_height}" fill="#fff"/>'
         '<text x="36" y="42" class="heading">CARPINOVA  ·  Lámina de geometría nominal</text>'
         '<text x="36" y="76" class="warning">BORRADOR — NO CORTAR, PERFORAR NI FABRICAR</text>'
         f'<text x="36" y="104" class="note">{parts} piezas del CADExchange original, unidades mm; vistas superpuestas.</text>'
         + "".join(drawing) +
-        '<text x="598" y="660" class="section">LECTURA DE LA LÁMINA</text>'
-        '<text x="598" y="700" class="note">Cada rectángulo representa una pieza CAD.</text>'
-        '<text x="598" y="730" class="note">El dibujo superpone paneles transparentes:</text>'
-        '<text x="598" y="760" class="note">no resuelve líneas ocultas ni ensamblajes.</text>'
-        '<text x="598" y="805" class="note">Falta comprobar cantos, veta, uniones,</text>'
-        '<text x="598" y="835" class="note">herrajes, apoyo, cargas, tuberías y obra.</text>'
-        '<text x="598" y="880" class="note">Las cotas son exteriores nominales;</text>'
-        '<text x="598" y="910" class="note">no corresponden a medidas finales de corte.</text>'
-        + (f'<text x="598" y="943" class="support-note">'
-           f'{escape(support_note)}</text>' if support_note else "")
-        + (f'<text x="598" y="964" class="support-note">'
-           f'{escape(support_foot_note)}</text>' if support_note else "")
-        + f'<text x="598" y="1015" class="hash">CAD SHA-256: {escape(digest)}</text>'
+        ("" if upper_support is not None else
+           '<text x="598" y="660" class="section">LECTURA DE LA LÁMINA</text>'
+           '<text x="598" y="700" class="note">Cada rectángulo representa una pieza CAD.</text>'
+           '<text x="598" y="730" class="note">El dibujo superpone paneles transparentes:</text>'
+           '<text x="598" y="760" class="note">no resuelve líneas ocultas ni ensamblajes.</text>'
+           '<text x="598" y="805" class="note">Falta comprobar cantos, veta, uniones,</text>'
+           '<text x="598" y="835" class="note">herrajes, apoyo, cargas, tuberías y obra.</text>'
+           '<text x="598" y="880" class="note">Las cotas son exteriores nominales;</text>'
+           '<text x="598" y="910" class="note">no corresponden a medidas finales de corte.</text>'
+           + (f'<text x="598" y="943" class="support-note">'
+              f'{escape(support_note)}</text>' if support_note else "")
+           + (f'<text x="598" y="964" class="support-note">'
+              f'{escape(support_foot_note)}</text>' if support_note else "")
+           + (f'<text x="598" y="943" class="support-note">'
+              f'{escape(assembly_note)}</text>' if assembly_note else "")
+           + (f'<text x="598" y="964" class="support-note">'
+              f'{escape(countertop_note)}</text>' if countertop_note else ""))
+         + f'<text x="{hash_x}" y="{hash_y}" class="hash">CAD SHA-256: {escape(digest)}</text>'
         '</svg>\n'
     )
 
@@ -146,11 +254,11 @@ def create_render_bundle(
         cad = verify_pilot_bundle(folder, bundle_dir=bundle_dir)
     except (PilotError, DesignError) as exc:
         raise DesignError("Paquete de revisión inconsistente con Maestro.") from exc
-    svg = three_views_svg(cad)
     # Only the named wall-bar model has the 7-page supplementary booklet.
     # Read the already-verified Maestro snapshot, never recompute geometry.
     answer = json.loads((folder / "maestro-review.json").read_text(encoding="utf-8"))
     model = answer["modular"]
+    svg = three_views_svg(cad, review_model=model)
     booklet_svgs = []
     if model.get("wall_bar_review"):
         from .wall_bar_delivery import review_booklet_svgs
@@ -321,7 +429,7 @@ def generic_booklet_svgs(model: dict[str, Any], cad: dict[str, Any]) -> list[str
 
     # Reuse the existing general three-view renderer; overlay only client
     # references for real drawer facades at their CAD-backed XY positions.
-    overview = three_views_svg(cad)
+    overview = three_views_svg(cad, review_model=model)
     w, h, _ = cad["bounds_xyz_mm"]
     scale = min((536 - 76) / w, (460 - 76 - 30) / h)
     left = 36 + (536 - w * scale) / 2

@@ -190,6 +190,15 @@ def pilot_review(
             "FreeCAD y Blender deben ejecutar por separado el CADExchange con adaptadores auditados.",
         ],
     }
+    if model.get("upper_support_review") is not None:
+        manifest["upper_support_review"] = model["upper_support_review"]
+        manifest["assembly_review"] = model["assembly_review"]
+        manifest["piece_ids"] = [piece["piece_id"] for piece in model["parts"]]
+        manifest["review_hypotheses"] = {
+            module["module_id"]: module["review_hypotheses"]
+            for module in model["modules"]
+            if "review_hypotheses" in module
+        }
     if has_query:
         manifest.update({
             "book_source_request": source_request,
@@ -342,6 +351,18 @@ def verify_pilot_bundle(
             or manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
             or manifest.get("files") != expected_files
             or manifest.get("piece_count") != len(model.get("parts", []))
+            or manifest.get("upper_support_review") !=
+                model.get("upper_support_review")
+            or (model.get("upper_support_review") is not None
+                and (manifest.get("assembly_review") != model.get("assembly_review")
+                     or manifest.get("piece_ids") != [
+                         piece["piece_id"] for piece in model["parts"]
+                     ]
+                     or manifest.get("review_hypotheses") != {
+                         module["module_id"]: module["review_hypotheses"]
+                         for module in model["modules"]
+                         if "review_hypotheses" in module
+                     }))
             or any(manifest.get(flag) is not False for flag in _BLOCKED_FLAGS)):
         raise PilotError("Manifiesto no corresponde a la fuente Maestro.")
     expected_cad = cad_exchange(model)
