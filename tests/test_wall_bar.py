@@ -78,8 +78,8 @@ class WallBarTests(unittest.TestCase):
         note_text = [item for item in front_root.iter()
                      if item.tag.endswith("text") and item.get("class") == "note"]
         self.assertEqual(sum(item.get("y") == "700" for item in note_text), 1)
-        self.assertTrue(any(item.get("y") == "675" and "40 mm conceptuales" in
-                            "".join(item.itertext()) for item in note_text))
+        # Historical P7 omits AP notes without the coffee review opt-in.
+        self.assertNotIn("AP: legs 40 mm conceptuales", front)
         for key in ("fabrication_ready", "cutting_ready", "drilling_ready",
                     "purchase_ready"):
             self.assertIs(model[key], False)

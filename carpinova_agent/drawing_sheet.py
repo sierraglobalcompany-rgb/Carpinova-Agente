@@ -28,7 +28,7 @@ def _projection(exchange: dict[str, Any], *,
                 axes: tuple[int, int], panel: tuple[int, int, int, int],
                 title: str, dimensions: str, invert_v: bool,
                 visible_roles: set[str] | None = None,
-                invert_u: bool = False) -> str:
+                invert_u: bool = False, annotate: bool = False) -> str:
     """Project validated XYZ boxes onto two axes; never alter their dimensions."""
     left, top, width, height = panel
     bound_h, bound_v = (exchange["bounds_xyz_mm"][axis] for axis in axes)
@@ -49,14 +49,19 @@ def _projection(exchange: dict[str, Any], *,
                         else loc[axes[1]]) * scale
         pw, ph = dim[axes[0]] * scale, dim[axes[1]] * scale
         name = escape(str(box["piece_id"]), quote=True)
-        shapes.append(
-            f'<rect data-view="{escape(title, quote=True)}" '
+        piece_attributes = (
+            f'data-view="{escape(title, quote=True)}" '
             f'data-piece-id="{name}" data-role="{escape(box["role"], quote=True)}" '
+            if annotate else ""
+        )
+        shapes.append(
+            f'<rect {piece_attributes}'
             f'x="{px:.3f}" y="{py:.3f}" width="{pw:.3f}" '
             f'height="{ph:.3f}" class="part"><title>{name}</title></rect>'
         )
+    panel_attributes = f'data-view="{escape(title, quote=True)}" ' if annotate else ""
     return (
-        f'<rect data-view="{escape(title, quote=True)}" x="{left}" y="{top}" '
+        f'<rect {panel_attributes}x="{left}" y="{top}" '
         f'width="{width}" height="{height}" rx="10" class="panel"/>'
         f'<text x="{left + 17}" y="{top + 27}" class="section">{escape(title)}</text>'
         + "".join(shapes) +
@@ -119,7 +124,7 @@ def three_views_svg(data: dict[str, Any], *,
     countertop_note = ""
     assembly = cad.get("assembly_review")
     upper_support = cad.get("upper_support_review")
-    if isinstance(assembly, dict):
+    if upper_support is not None and isinstance(assembly, dict):
         carcass = assembly["carcass_dimensions_xyz_mm"]
         assembly_note = (
             f'Carcasa {carcass[0]} × {carcass[1]} × {carcass[2]} mm · '
@@ -177,7 +182,7 @@ def three_views_svg(data: dict[str, Any], *,
         drawing = [
             _projection(cad, panel=panel, title=title, dimensions=dimensions,
                         axes=axes, visible_roles=roles, invert_v=invert_v,
-                        invert_u=invert_u)
+                        invert_u=invert_u, annotate=True)
             for panel, title, dimensions, axes, roles, invert_v, invert_u
             in view_panels
         ]
@@ -196,10 +201,15 @@ def three_views_svg(data: dict[str, Any], *,
                         invert_v=False),
         ]
         sheet_width, sheet_height, hash_x, hash_y = 1160, 1040, 598, 1015
+    aria_label = (
+        "Lámina de vistas CAD nominales de revisión; no fabricable"
+        if upper_support is not None else
+        "Lámina de tres vistas nominales de un mueble, no fabricable"
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{sheet_width}" height="{sheet_height}" '
         f'viewBox="0 0 {sheet_width} {sheet_height}" role="img" '
-        'aria-label="Lámina de vistas CAD nominales de revisión; no fabricable">'
+        f'aria-label="{aria_label}">'
         '<style>'
         'svg{background:#fff}text{font-family:Arial,sans-serif;fill:#152537}'
         '.panel{fill:#f8fafc;stroke:#cbd5e1;stroke-width:1.5}'

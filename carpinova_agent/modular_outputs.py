@@ -96,10 +96,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         piece["role"] == "support_leg_concept" for piece in draft["parts"]
     )
     has_upper_support_review = "upper_support_review" in draft
-    support_review_y = (
-        715 if has_upper_support_review else
-        675 if has_support_leg_concepts else 700
-    )
+    support_review_y = 715 if has_upper_support_review else 700
     w, h = draft["dimensions_mm"]["width"], draft["dimensions_mm"]["height"]
     viewport_w, viewport_h = 1000, 790
     max_w, max_h = 850, 475
@@ -140,7 +137,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
-        if piece.get("finish_note"):
+        if has_upper_support_review and piece.get("finish_note"):
             name += " | " + escape(piece["finish_note"], quote=True)
         if role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
             review = draft.get("upper_support_review", {})
@@ -148,7 +145,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
                      + " mm " + escape(str(review.get("tie_height_status", "UNCONFIRMED")),
                                        quote=True)
                      + " | HYPOTHESIS_PREVIEW_ONLY | uniones/resistencia NO VERIFICADAS")
-        if (role in ("front_left", "front_right")
+        if (has_upper_support_review and role in ("front_left", "front_right")
                 and any(m["module_id"] == piece["module_id"]
                         and "review_hypotheses" in m for m in draft["modules"])):
             name += " | HYPOTHESIS_PREVIEW_ONLY | giro/herraje NO VERIFICADOS"
@@ -162,8 +159,12 @@ def modular_front_svg(model: dict[str, Any]) -> str:
                        "panel")
         if role == "support_leg_concept":
             name += " | APOYO CONCEPTUAL | SIN SKU"
+        piece_id_attribute = (
+            f'data-piece-id="{escape(str(piece["piece_id"]), quote=True)}" '
+            if has_upper_support_review else ""
+        )
         shapes.append(
-            f'<rect data-piece-id="{escape(str(piece["piece_id"]), quote=True)}" '
+            f'<rect {piece_id_attribute}'
             f'data-role="{escape(role, quote=True)}" '
             f'x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
             f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
@@ -217,7 +218,8 @@ def modular_front_svg(model: dict[str, Any]) -> str:
             f'AP: {escape(str(module["support_review"]["style"]))} '
             f'{module["support_review"]["support_height_mm"]} mm conceptuales; '
             'piezas no modeladas.</text>'
-            for module in draft["modules"] if "support_review" in module
+            for module in draft["modules"] if has_upper_support_review
+            and "support_review" in module
             and module["support_review"]["style"] in ("legs", "plinth")
         )
          + (f'<text x="45" y="675" class="note">'
