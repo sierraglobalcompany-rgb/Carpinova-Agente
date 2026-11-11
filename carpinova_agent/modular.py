@@ -924,7 +924,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         "schema_version": "0.1.0", "type": "modular_run",
         "application": d["application"], "status": status,
         "fabrication_ready": False, "cutting_ready": False, "drilling_ready": False,
-        "purchase_ready": False, "can_generate_f7c": False,
+        "purchase_ready": False,
         "dimensions_mm": dimensions,
         **({"carcass_dimensions_mm": {
             "width": width, "height": height, "depth": depth,
