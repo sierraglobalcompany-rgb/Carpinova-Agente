@@ -113,7 +113,8 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     ))
     for piece in ordered:
         role = piece["role"]
-        if role in ("left_side", "right_side", "drawer_side_left", "drawer_side_right"):
+        if role in ("left_side", "right_side", "divider_vertical",
+                    "drawer_side_left", "drawer_side_right"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
         elif role in ("top", "bottom", "drawer_bottom",
                       "shelf_horizontal", "countertop"):

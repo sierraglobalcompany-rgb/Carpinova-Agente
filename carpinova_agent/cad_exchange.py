@@ -47,7 +47,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         x,y,z=p["nominal_origin_xyz_mm"]
         if type(t) is not int or type(fx) is not int or type(fy) is not int:
             raise DesignError("Paneles sin cotas físicas enteras.")
-        if role in ("left_side","right_side"):
+        if role in ("left_side","right_side","divider_vertical"):
             size=[t,fy,fx]  # panel in YZ plane: thickness X; face_x -> depth Z
             grain_world={"face_x":"Z","face_y":"Y","none":"none"}
         elif role in ("top", "bottom", "shelf_horizontal", "countertop"):
@@ -222,7 +222,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                                 "drawer_front_wall","drawer_rear_wall",
                                 "drawer_bottom","drawer_facade",
                                 "support_leg_concept", "shelf_horizontal",
-                                "countertop", "upper_front_tie",
+                                "countertop", "divider_vertical", "upper_front_tie",
                                 "upper_rear_tie", "lower_rear_tie"):
             raise DesignError("Rol CAD no soportado.")
         a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
@@ -240,6 +240,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         fields = {
             "carcass_origin_xyz_mm", "carcass_dimensions_xyz_mm",
             "support_style", "support_height_mm", "physical_support_parts",
+            "countertop_support_status",
             "countertop_piece_id", "countertop_thickness_mm",
             "countertop_finish_note", "review_status", "vertical_load_path",
             "wall_vertical_load_role", "countertop_wall_vertical_support",
@@ -260,6 +261,10 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                 or type(assembly["support_height_mm"]) is not int
                 or assembly["support_height_mm"] < 0
                 or assembly["physical_support_parts"] != "NOT_MODELED"
+                or assembly["countertop_support_status"] not in (
+                    "CONCEPT_ONLY_NOT_STRUCTURALLY_VERIFIED",
+                    "PENDING_NO_UPPER_SUPPORT_SELECTED",
+                )
                 or type(assembly["countertop_thickness_mm"]) is not int
                 or assembly["countertop_thickness_mm"] <= 0
                 or type(assembly["countertop_finish_note"]) is not str

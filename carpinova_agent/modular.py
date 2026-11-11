@@ -28,7 +28,7 @@ MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "support", "finish", "drawers",
                            "drawer_layout_reference", "support_concept",
                            "horizontal_divider", "countertop",
-                           "upper_support"))
+                           "upper_support", "vertical_divider"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -299,6 +299,55 @@ def _horizontal_divider(value: Any, *, module_id: str,
     return data
 
 
+def _vertical_divider(value: Any, *, module_id: str,
+                      module_depth_mm: int) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    data = _object(value, f"{module_id}.vertical_divider")
+    required = frozenset((
+        "material_id", "thickness_mm", "position_from_clear_left_mm",
+        "depth_mm", "depth_from_front_mm",
+    ))
+    _exact(data, required, f"{module_id}.vertical_divider")
+    if set(data) != required:
+        raise DesignError(
+            f"{module_id}.vertical_divider: indicar material, espesor, "
+            "posición, profundidad y retiro frontal; no se infieren."
+        )
+    if (not isinstance(data["material_id"], str)
+            or not NAME_RE.fullmatch(data["material_id"])):
+        raise DesignError(f"{module_id}.vertical_divider.material_id inválido.")
+    _positive(data["thickness_mm"], f"{module_id}.vertical_divider.thickness_mm")
+    _positive(data["depth_mm"], f"{module_id}.vertical_divider.depth_mm")
+    for field in ("position_from_clear_left_mm", "depth_from_front_mm"):
+        if type(data[field]) is not int or data[field] < 0:
+            raise DesignError(
+                f"{module_id}.vertical_divider.{field}: milímetros enteros no negativos."
+            )
+    if data["depth_from_front_mm"] + data["depth_mm"] > module_depth_mm:
+        raise DesignError(f"{module_id}.vertical_divider: excede el fondo de carcasa.")
+    return data
+
+
+def _concept_only_result(spec: dict[str, Any], site: dict[str, Any],
+                         blockers: list[str]) -> dict[str, Any]:
+    """Return an explicit non-geometric review when F6 lacks a valid joint."""
+    result = {
+        "schema_version": "0.1.0", "type": "modular_run",
+        "application": spec["application"], "status": "CONCEPT_ONLY",
+        "fabrication_ready": False, "cutting_ready": False,
+        "drilling_ready": False, "purchase_ready": False,
+        "can_generate_f7c": False,
+        "dimensions_mm": {
+            "width": spec["width_mm"], "height": spec["height_mm"],
+            "depth": spec["depth_mm"],
+        },
+        "site": site, "modules": [], "parts": [], "piece_count": 0,
+        "blockers": blockers,
+    }
+    return result
+
+
 def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     """Return documented nominal carcasses, always blocking cut/installation."""
     d = _object(spec, "proyecto")
@@ -320,10 +369,12 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise DesignError("modules: se requieren entre 1 y 12 módulos.")
     widths: list[int] = []
     prepared: list[tuple[dict[str, Any], dict[str, Any] | None,
-                         dict[str, Any] | None, dict[str, Any] | None]] = []
+                         dict[str, Any] | None, dict[str, Any] | None,
+                         dict[str, Any] | None]] = []
     support_concepts: dict[str, dict[str, Any]] = {}
     upper_support_specs: dict[str, dict[str, Any]] = {}
     upper_support_reviews: list[dict[str, Any]] = []
+    concept_only_reasons: list[str] = []
     seen: set[str] = set()
     for i, item in enumerate(modules):
         module = _object(item, f"modules[{i}]")
@@ -363,13 +414,22 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             module.get("horizontal_divider"), module_id=module_id,
             module_depth_mm=depth,
         )
+        vertical_divider = _vertical_divider(
+            module.get("vertical_divider"), module_id=module_id,
+            module_depth_mm=depth,
+        )
+        if divider is not None and vertical_divider is not None:
+            concept_only_reasons.append(
+                f"{module_id}: división horizontal y vertical se cruzan; "
+                "CONCEPT_ONLY / JOINT_PENDING. No se generan piezas sin una unión validada."
+            )
         if upper_support is not None:
             fronts = module["fronts"]
             if (not isinstance(fronts, dict) or fronts.get("style") != "overlay"
-                    or fronts.get("leaf_count") != 2 or divider is None):
+                    or fronts.get("leaf_count") != 2):
                 raise DesignError(
                     f"{module_id}: coffee_three_upright_ties exige dos puertas "
-                    "overlay explícitas y repisa horizontal."
+                    "overlay explícitas; la repisa interior es independiente."
                 )
         if countertop is not None and "support_concept" not in module:
             raise DesignError(
@@ -385,10 +445,10 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                                          if countertop else 0),
             )
         prepared.append((module, _finish(module.get("finish"), module_id),
-                         divider, countertop))
+                         divider, countertop, vertical_divider))
         widths.append(w)
 
-    if any(countertop is not None for _, _, _, countertop in prepared):
+    if any(countertop is not None for _, _, _, countertop, _ in prepared):
         if len(modules) != 1:
             raise DesignError(
                 "La cubierta exterior P0 solo admite una carcasa; "
@@ -410,6 +470,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "Fila modular con apoyos/alturas incompatibles: dividir "
                 "o revisar físicamente antes de modelar."
             )
+    if concept_only_reasons:
+        return _concept_only_result(d, site, concept_only_reasons)
     total = sum(widths)
     blockers = [
         "Paneles nominales: sin compensación por tapacantos, sierra, cola o mecanizado.",
@@ -441,7 +503,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     out_modules: list[dict[str, Any]] = []
     x_offset = 0
     assembly_review: dict[str, Any] | None = None
-    for module, finish, divider, countertop in prepared:
+    for module, finish, divider, countertop, vertical_divider in prepared:
         w, t = module["width_mm"], module["panel_thickness_mm"]
         support = support_concepts.get(module["module_id"])
         upper_support = upper_support_specs.get(module["module_id"])
@@ -465,8 +527,9 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 f"{module['module_id']}.horizontal_divider: excede la altura libre interior."
             )
         sides, caps = geometry["parts"]
+        omit_top_panel = countertop is not None or upper_support is not None
         for role in ROLES:
-            if role == "top" and upper_support is not None:
+            if role == "top" and omit_top_panel:
                 continue
             part = sides if role.endswith("side") else caps
             if module["construction"] == "sides_full":
@@ -565,6 +628,13 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             clear_height_mm=geometry["dimensions"]["clear_height_mm"],
             carcase_thickness_mm=t, start_x_mm=origin_x,
         )
+        if upper_support is not None and rear_parts:
+            return _concept_only_result(d, site, [
+                f"{module['module_id']}: el fondo posterior ocupa el volumen de "
+                "las correas traseras y las bloquearía. Elija fondo o correas y "
+                "revise la estructura; no se presume equivalencia de fondo de 15 mm. "
+                "CONCEPT_ONLY por interferencia geométrica."
+            ])
         for piece in rear_parts:
             piece["nominal_origin_xyz_mm"][1] += origin_y
             piece["nominal_origin_xyz_mm"][2] += origin_z
@@ -628,6 +698,45 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 f"{module['module_id']}: repisa horizontal nominal; veta, cantos, "
                 "uniones y profundidad de uso requieren revisión."
             )
+        vertical_divider_parts: list[dict[str, Any]] = []
+        if vertical_divider:
+            clear_width = geometry["dimensions"]["clear_width_mm"]
+            clear_height = geometry["dimensions"]["clear_height_mm"]
+            offset = vertical_divider["position_from_clear_left_mm"]
+            thickness = vertical_divider["thickness_mm"]
+            if offset <= 0 or offset + thickness >= clear_width:
+                raise DesignError(
+                    f"{module['module_id']}.vertical_divider: la posición debe "
+                    "quedar dentro del claro F1 y sin invadir los laterales."
+                )
+            vertical_divider_parts.append({
+                "piece_id": module["module_id"] + "-DIVIDER-VERTICAL",
+                "module_id": module["module_id"], "role": "divider_vertical",
+                "material_id": vertical_divider["material_id"],
+                "nominal_face_x_mm": vertical_divider["depth_mm"],
+                "nominal_face_y_mm": clear_height,
+                "thickness_mm": thickness,
+                "grain_axis": "UNCONFIRMED", "face_plane": "YZ",
+                "nominal_origin_xyz_mm": [
+                    origin_x + t + offset, origin_y + t,
+                    origin_z + vertical_divider["depth_from_front_mm"],
+                ],
+                "edgebanding_edges": "UNCONFIRMED",
+                "edgebanding_thickness_mm": None,
+                "edgebanding_nominal_total_mm": None,
+                "finished_cut_dimensions_mm": None,
+                "source_engine": "F6_VERTICAL_DIVIDER_FROM_F1",
+                "source_formula": (
+                    "height=F1.clear_height_mm; x=carcass_origin_x + "
+                    "panel_thickness_mm + explicit position_from_clear_left_mm; "
+                    "depth and depth_from_front_mm are explicit review inputs"
+                ),
+            })
+            all_parts.extend(vertical_divider_parts)
+            blockers.append(
+                f"{module['module_id']}: división vertical nominal; contacto, "
+                "uniones, holguras y compatibilidad con puertas/cajones pendientes."
+            )
         countertop_parts: list[dict[str, Any]] = []
         if countertop:
             countertop_piece_id = module["module_id"] + "-COUNTERTOP"
@@ -661,12 +770,22 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 f"{module['module_id']}: cubierta y acabado son datos nominales; "
                 "sellado, soporte, cantos y resistencia al agua no verificados."
             )
+            if upper_support is None:
+                blockers.append(
+                    f"{module['module_id']}: se omite la tapa completa bajo el mesón; "
+                    "el sistema de apoyo superior sigue pendiente y no está verificado."
+                )
             assembly_review = {
                 "carcass_origin_xyz_mm": [origin_x, origin_y, origin_z],
                 "carcass_dimensions_xyz_mm": [w, height, depth],
                 "support_style": support["style"],
                 "support_height_mm": support["support_height_mm"],
                 "physical_support_parts": "NOT_MODELED",
+                "countertop_support_status": (
+                    "CONCEPT_ONLY_NOT_STRUCTURALLY_VERIFIED"
+                    if upper_support is not None else
+                    "PENDING_NO_UPPER_SUPPORT_SELECTED"
+                ),
                 "countertop_piece_id": countertop_piece_id,
                 "countertop_thickness_mm": countertop["thickness_mm"],
                 "countertop_finish_note": countertop["finish_note"],
@@ -703,12 +822,13 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                if countertop else {}),
             "construction": module["construction"], "part_ids":
                 [module["module_id"] + "-" + role.upper() for role in ROLES
-                 if not (upper_support is not None and role == "top")] +
+                 if not (role == "top" and omit_top_panel)] +
                 [piece["piece_id"] for piece in upper_tie_parts] +
                 [piece["piece_id"] for piece in rear_parts] +
                 [piece["piece_id"] for piece in doors] +
                 [piece["piece_id"] for piece in drawer_parts] +
                 [piece["piece_id"] for piece in divider_parts] +
+                [piece["piece_id"] for piece in vertical_divider_parts] +
                 [piece["piece_id"] for piece in countertop_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
@@ -743,6 +863,13 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "shelf_depth_from_front_mm": divider["depth_from_front_mm"],
             }} if upper_support is not None and divider is not None else {}),
             "drawer_ids": drawer_ids,
+            **({"vertical_divider_review": {
+                "piece_id": vertical_divider_parts[0]["piece_id"],
+                "position_from_clear_left_mm": vertical_divider["position_from_clear_left_mm"],
+                "depth_mm": vertical_divider["depth_mm"],
+                "depth_from_front_mm": vertical_divider["depth_from_front_mm"],
+                "status": "NOMINAL_REVIEW_ONLY",
+            }} if vertical_divider else {}),
         })
         x_offset += w
     if len(all_parts) > 72:
@@ -793,11 +920,11 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     if installation == "wall_mounted":
         blockers.insert(0, "Mueble suspendido: carga, muro y anclajes requieren cálculo competente.")
     blockers.append("La unión entre módulos y los apoyos entre cuerpos aún no están diseñados.")
-    return {
+    result = {
         "schema_version": "0.1.0", "type": "modular_run",
         "application": d["application"], "status": status,
         "fabrication_ready": False, "cutting_ready": False, "drilling_ready": False,
-        "purchase_ready": False,
+        "purchase_ready": False, "can_generate_f7c": False,
         "dimensions_mm": dimensions,
         **({"carcass_dimensions_mm": {
             "width": width, "height": height, "depth": depth,
@@ -818,3 +945,15 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             "independent_carcase_sides": True,
         },
     }
+    if (status == "DRAFT_NOT_FOR_CUTTING"
+            and any(vertical is not None for _, _, _, _, vertical in prepared)):
+        try:
+            from .cad_exchange import cad_exchange
+            cad_exchange(result)
+        except DesignError as exc:
+            return _concept_only_result(d, site, [
+                "División vertical incompatible con sólidos F6 existentes: "
+                f"{exc}. Ajustar posición/profundidad o revisar la junta; "
+                "CONCEPT_ONLY y cero piezas de producción."
+            ])
+    return result

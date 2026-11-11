@@ -1,4 +1,4 @@
-"""Nominal orthographic 3-view rendering; one verified CADExchange only."""
+"""Nominal orthographic review views; one verified CADExchange only."""
 from __future__ import annotations
 
 import json
@@ -31,13 +31,13 @@ class SheetTests(unittest.TestCase):
         self.assertIn(cad["geometry_sha256"], sheet)
         for text in ("800 mm", "720 mm", "550 mm", "4 piezas", "BORRADOR"):
             self.assertIn(text, sheet)
-        self.assertEqual(sheet.count('class="part"'), 12)  # 4 original boxes x 3 views
+        self.assertEqual(sheet.count('class="part"'), 16)  # four boxes × four selected projections
 
     def test_three_views_are_not_fabrication_authority(self):
         cad = cad_exchange(consult_maestro(REQUEST)["modular"])
         sheet = three_views_svg(cad)
         self.assertIn("NO CORTAR, PERFORAR NI FABRICAR", sheet)
-        self.assertIn("no resuelve líneas ocultas", sheet)
+        self.assertIn("no resuelven líneas ocultas ni ensamblajes", sheet)
         self.assertNotIn("finished_cut_dimensions", sheet)
 
     def test_tampered_sha_or_geometry_fails_closed(self):

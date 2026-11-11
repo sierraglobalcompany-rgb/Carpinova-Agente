@@ -77,15 +77,11 @@ def _coffee_review_notes(model: dict[str, Any]) -> str:
     assembly = model["assembly_review"]
     support = model["upper_support_review"]
     module = model["modules"][0]
-    hypothesis = module["review_hypotheses"]
-    note_lines = (
+    hypothesis = module.get("review_hypotheses", {})
+    note_lines = [
         f'3 correas de canto; altura {support["tie_height_mm"]} mm propuesta, '
         'NO aprobada; uniones y resistencia sin verificar.',
         'Frentes: dos puertas sobrepuestas; giro y bisagras pendientes.',
-        f'Luz central {hypothesis["front_center_gap_mm"]} mm: propuesta, NO aprobada; '
-        'sin SKU de bisagra.',
-        f'Repisa: posición desde claro inferior '
-        f'{hypothesis["shelf_position_from_clear_bottom_mm"]} mm; propuesta, NO aprobada.',
         'Muro: estabilidad por instalador; NO soporta carga vertical; anclajes pendientes.',
         'Camino de carga planteado: mesón → carcasa → patas → piso; estructura no verificada.',
         'Bisagras, giro, uniones, patas y anclajes sin verificar; sin taladros.',
@@ -98,7 +94,15 @@ def _coffee_review_notes(model: dict[str, Any]) -> str:
         f'{model["carcass_dimensions_mm"]["depth"]} mm · patas '
         f'{assembly["support_height_mm"]} mm conceptuales.',
         'BORRADOR NOMINAL · NO CORTAR, PERFORAR, COMPRAR NI FABRICAR.',
-    )
+    ]
+    if "front_center_gap_mm" in hypothesis:
+        note_lines.insert(2,
+            f'Luz central {hypothesis["front_center_gap_mm"]} mm: propuesta, NO aprobada; '
+            'sin SKU de bisagra.')
+    if "shelf_position_from_clear_bottom_mm" in hypothesis:
+        note_lines.insert(3,
+            f'Repisa interior desde claro inferior '
+            f'{hypothesis["shelf_position_from_clear_bottom_mm"]} mm: propuesta, NO aprobada.')
     return (
         '<rect x="824" y="890" width="740" height="365" rx="10" class="panel"/>'
         '<text x="846" y="923" class="section">LÍMITES Y PROPUESTAS · NO APROBADOS</text>'
@@ -122,9 +126,11 @@ def three_views_svg(data: dict[str, Any], *,
     support_note = ""
     assembly_note = ""
     countertop_note = ""
+    countertop_support_note = ""
+    generic_footer_svg = ""
     assembly = cad.get("assembly_review")
     upper_support = cad.get("upper_support_review")
-    if upper_support is not None and isinstance(assembly, dict):
+    if isinstance(assembly, dict):
         carcass = assembly["carcass_dimensions_xyz_mm"]
         assembly_note = (
             f'Carcasa {carcass[0]} × {carcass[1]} × {carcass[2]} mm · '
@@ -142,6 +148,14 @@ def three_views_svg(data: dict[str, Any], *,
             f'{assembly["countertop_thickness_mm"]} mm · '
             f'{finish_note}'
         )
+        if assembly["countertop_support_status"] == "PENDING_NO_UPPER_SUPPORT_SELECTED":
+            countertop_support_note = (
+                "Apoyo superior del mesón pendiente: no se seleccionaron correas."
+            )
+        else:
+            countertop_support_note = (
+                "Apoyo superior conceptual; uniones y resistencia no verificados."
+            )
     if support_boxes:
         if len(support_boxes) != 4:
             raise DesignError("La lámina de tres vistas exige cuatro apoyos conceptuales.")
@@ -189,22 +203,85 @@ def three_views_svg(data: dict[str, Any], *,
         drawing.append(_coffee_review_notes(review_model))
         sheet_width, sheet_height, hash_x, hash_y = 1600, 1300, 824, 1280
     else:
+        roles = {box["role"] for box in cad["boxes"]}
+        shell = {"left_side", "right_side", "top", "bottom", "countertop",
+                 "support_leg_concept"}
+        exterior_roles = shell | {
+            role for role in roles
+            if role.startswith("front_") or role == "drawer_facade"
+        }
+        interior_roles = shell | {
+            role for role in roles
+            if role in {
+                "shelf_horizontal", "divider_vertical", "drawer_side_left",
+                "drawer_side_right", "drawer_front_wall", "drawer_rear_wall",
+                "drawer_bottom",
+            }
+        }
+        rear_roles = shell | {
+            role for role in roles
+            if role.startswith("back_")
+            or role in {"upper_rear_tie", "lower_rear_tie",
+                        "shelf_horizontal", "divider_vertical"}
+        }
         drawing = [
-            _projection(cad, axes=(0, 1), panel=(36, 128, 536, 460),
-                        title="01  FRENTE / X-Y", dimensions=f"Ancho {w} mm · Alto {h} mm",
-                        invert_v=True),
-            _projection(cad, axes=(2, 1), panel=(588, 128, 536, 460),
-                        title="02  LATERAL / Z-Y", dimensions=f"Fondo {d} mm · Alto {h} mm",
-                        invert_v=True),
-            _projection(cad, axes=(0, 2), panel=(36, 605, 536, 410),
-                        title="03  PLANTA / X-Z", dimensions=f"Ancho {w} mm · Fondo {d} mm",
-                        invert_v=False),
+            _projection(cad, axes=(0, 1), panel=(36, 128, 536, 430),
+                        title="01  FRENTE EXTERIOR / cerrado",
+                        dimensions=f"Ancho {w} mm · Alto {h} mm",
+                        invert_v=True, visible_roles=exterior_roles, annotate=True),
+            _projection(cad, axes=(0, 1), panel=(588, 128, 536, 430),
+                        title="02  FRENTE INTERIOR / frentes omitidos",
+                        dimensions="Divisiones y componentes CAD incluidos",
+                        invert_v=True, visible_roles=interior_roles, annotate=True),
+            _projection(cad, axes=(0, 1), panel=(36, 580, 536, 430),
+                        title="03  POSTERIOR / piezas presentes en CAD",
+                        dimensions=("Fondo posterior modelado" if any(
+                            role.startswith("back_") for role in roles
+                        ) else "Trasera abierta: no hay panel posterior en CAD"),
+                        invert_v=True, invert_u=True,
+                        visible_roles=rear_roles, annotate=True),
+            _projection(cad, axes=(2, 1), panel=(588, 580, 536, 430),
+                        title="04  LATERAL / Z-Y",
+                        dimensions=f"Fondo {d} mm · Alto {h} mm",
+                        invert_v=True, annotate=True),
         ]
-        sheet_width, sheet_height, hash_x, hash_y = 1160, 1040, 598, 1015
+        footer = [
+            "Proyecciones esquemáticas: no resuelven líneas ocultas ni ensamblajes.",
+        ]
+        if any(role.startswith("front_") or role == "drawer_facade" for role in roles):
+            footer.append(
+                "Frentes/puertas: holguras, giro y herrajes son PROPUESTA SIN CONFIRMAR."
+            )
+        if {"shelf_horizontal", "divider_vertical"} & roles:
+            footer.append(
+                "Divisiones interiores: PROPUESTA SIN CONFIRMAR; unión y posición requieren revisión."
+            )
+        if support_note:
+            footer.append(support_note)
+            footer.append(support_foot_note)
+        else:
+            footer.append(
+                "Apoyos conceptuales no modelados/certificados; revisar carga y estabilidad."
+            )
+        if assembly_note:
+            footer.append(assembly_note)
+        if countertop_note:
+            footer.append(countertop_note)
+        if countertop_support_note:
+            footer.append(countertop_support_note)
+        footer_step = max(
+            14, min(19, 106 // max(1, len(footer) - 1))
+        )
+        generic_footer_svg = "".join(
+            f'<text x="36" y="{1022 + index * footer_step}" class="support-note">'
+            f'{escape(line)}</text>'
+            for index, line in enumerate(footer)
+        )
+        sheet_width, sheet_height, hash_x, hash_y = 1160, 1180, 36, 1150
     aria_label = (
         "Lámina de vistas CAD nominales de revisión; no fabricable"
         if upper_support is not None else
-        "Lámina de tres vistas nominales de un mueble, no fabricable"
+        "Lámina de vistas nominales de un mueble, no fabricable"
     )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{sheet_width}" height="{sheet_height}" '
@@ -225,23 +302,7 @@ def three_views_svg(data: dict[str, Any], *,
         '<text x="36" y="76" class="warning">BORRADOR — NO CORTAR, PERFORAR NI FABRICAR</text>'
         f'<text x="36" y="104" class="note">{parts} piezas del CADExchange original, unidades mm; vistas superpuestas.</text>'
         + "".join(drawing) +
-        ("" if upper_support is not None else
-           '<text x="598" y="660" class="section">LECTURA DE LA LÁMINA</text>'
-           '<text x="598" y="700" class="note">Cada rectángulo representa una pieza CAD.</text>'
-           '<text x="598" y="730" class="note">El dibujo superpone paneles transparentes:</text>'
-           '<text x="598" y="760" class="note">no resuelve líneas ocultas ni ensamblajes.</text>'
-           '<text x="598" y="805" class="note">Falta comprobar cantos, veta, uniones,</text>'
-           '<text x="598" y="835" class="note">herrajes, apoyo, cargas, tuberías y obra.</text>'
-           '<text x="598" y="880" class="note">Las cotas son exteriores nominales;</text>'
-           '<text x="598" y="910" class="note">no corresponden a medidas finales de corte.</text>'
-           + (f'<text x="598" y="943" class="support-note">'
-              f'{escape(support_note)}</text>' if support_note else "")
-           + (f'<text x="598" y="964" class="support-note">'
-              f'{escape(support_foot_note)}</text>' if support_note else "")
-           + (f'<text x="598" y="943" class="support-note">'
-              f'{escape(assembly_note)}</text>' if assembly_note else "")
-           + (f'<text x="598" y="964" class="support-note">'
-              f'{escape(countertop_note)}</text>' if countertop_note else ""))
+        ("" if upper_support is not None else generic_footer_svg)
          + f'<text x="{hash_x}" y="{hash_y}" class="hash">CAD SHA-256: {escape(digest)}</text>'
         '</svg>\n'
     )

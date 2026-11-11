@@ -21,7 +21,8 @@ from .pilot_cli import (
     BookEvidenceError, PilotError, write_pilot_bundle, verify_pilot_bundle,
 )
 from .conversation_flow import (
-    build_flow_review_from_envelope, prepare_wall_bar_p5_nominal_review,
+    build_flow_review_from_envelope, prepare_guided_design_v1,
+    prepare_wall_bar_p5_nominal_review,
 )
 from .board_plan_review import build_board_plan_review
 
@@ -121,6 +122,8 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
     """Query existing deterministic Maestro. Text is not treated as code."""
     request = _request(solicitud_json)
     if "review_kind" in request:
+        if request["review_kind"] == "guided_design_v1":
+            return prepare_guided_design_v1(request)
         if request["review_kind"] == "board_plan_nominal":
             return build_board_plan_review(request)
         if set(request) != {"review_kind", "utterance", "corrections"}:

@@ -20,6 +20,7 @@ from .intake import _fold
 from .natural_intake import (
     OWNER_DIRECTIVE_SOURCE, extract_explicit_dimensions,
     is_drawer_correction_instruction, preview_natural_request,
+    _explicit_project_type,
     _parse_drawer_correction,
     revise_drawer_concept,
 )
@@ -36,8 +37,52 @@ _RECORD_FIELDS = frozenset({
 _MAX_HISTORY = 100
 _MAX_TEXT = 2000
 _MAX_DECISIONS = 40
+_MAX_REVIEW_FIELDS = 40
+_MAX_REVIEW_HISTORY = 100
 _PRIOR_REPORTED = "PRIOR_DESIGN_DECISION_REPORTED"
 _OWNER_DIRECTIVE = OWNER_DIRECTIVE_SOURCE
+_REVIEW_STATUSES = frozenset(("confirmed", "proposed", "pending", "rejected"))
+_REVIEW_SOURCES = frozenset((
+    "OWNER_TEXT", "OWNER_PHOTO_CONFIRMED", "IMAGE_OBSERVED_UNCONFIRMED",
+    "BOOK_GUIDANCE", "ENGINE_CALCULATED",
+))
+_REVIEW_STATE_FIELDS = frozenset(("schema_version", "revision", "decisions", "history"))
+_REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+_REVIEW_QUESTION_ORDER = (
+    "project_type", "dimensions_mm", "use", "wall_contact", "countertop",
+    "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
+    "back", "internal_layout", "drawers", "doors", "front_style",
+    "opening_intent", "material", "thickness_mm", "construction",
+    "finish", "hardware_reference",
+)
+_REVIEW_QUESTIONS = {
+    "project_type": "¿Qué tipo de mueble quieres diseñar y para qué uso?",
+    "dimensions_mm": "¿Cuáles son las medidas exteriores confirmadas del mueble?",
+    "use": "¿Qué uso tendrá y qué debe guardar o sostener?",
+    "wall_contact": "¿El mueble irá contra la pared o separado de ella?",
+    "countertop": "¿Lleva mesón o cubierta? Indica sus medidas y espesor si los conoces.",
+    "support": "¿Apoyará en el piso, llevará patas o zócalo, o irá suspendido?",
+    "countertop_support": "¿Qué apoyará el mesón? Esto es distinto del amarre de la carcasa y del anclaje anti-vuelco.",
+    "cabinet_bracing": "¿Cómo se revisará el amarre de la carcasa? La pared no se considera apoyo vertical sin diseño.",
+    "anti_tip_anchor": "¿Un instalador revisará el anclaje anti-vuelco según pared y carga?",
+    "back": "¿Quieres revisar el fondo posterior, dejarlo abierto o decidirlo después?",
+    "internal_layout": "¿Prefieres el interior abierto, con división horizontal, vertical o ambas?",
+    "drawers": "¿Lleva cajones o gavetas? Si sí, ¿cuántos y dónde?",
+    "doors": "¿Lleva puertas? Si sí, ¿cuántas y cómo se distribuyen?",
+    "front_style": "¿Prefieres los frentes sobrepuestos o embutidos?",
+    "opening_intent": "¿Prefieres manija, uñero, perfil, apertura por presión o dejarlo pendiente?",
+    "material": "¿Qué material quieres usar? Si no lo sabes, puedo mostrar una propuesta sin aprobarla.",
+    "thickness_mm": "¿Qué espesor real de tablero usarás?",
+    "construction": "¿Prefieres laterales continuos o tapa y base entre los laterales?",
+    "finish": "¿Qué acabado o cantos quieres revisar?",
+    "hardware_reference": "¿Tienes la referencia exacta del herraje? Sin ella no se validan holguras ni taladros.",
+}
+_REVIEW_ALLOWED_FIELDS = frozenset((*_REVIEW_QUESTION_ORDER, "photo_observations"))
+_GUIDED_COUNT_WORDS = {
+    "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
+    "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
+    "diez": 10,
+}
 _WALL_BAR_FIXTURE_SHA256 = "966ba2aaf6f104d3483b5d8126e2ec443c12c54893f992be7e106ce9593d956c"
 _WALL_BAR_P5_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "examples" / "wall-bar-900-review-p5.json"
 _WALL_BAR_P5_FIXTURE_SHA256 = "b3beb2e93fe8651ba3a4022d3014aa0c3368fba73a253795639c0f48a4d61983"
@@ -274,7 +319,298 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
-def preview_conversation(utterance: str, corrections: list[str] | None = None) -> dict[str, Any]:
+def image_input_unavailable() -> dict[str, Any]:
+    """Report that this host/MCP contract does not receive image pixels."""
+    return {
+        "status": "IMAGE_INPUT_NOT_AVAILABLE_IN_HOST",
+        "visual_capability_available": False,
+        "pixels_received": False,
+        "next_step": "Describe lo visible o comparte medidas y partes que no aparecen en la imagen.",
+    }
+
+
+def _photo_observation(value: Any) -> dict[str, Any]:
+    fields = {
+        "visible_features", "ambiguous_or_occluded",
+        "dimensions_from_user_only", "questions",
+    }
+    if type(value) is not dict or set(value) != fields:
+        raise MaestroError(
+            "La observación de imagen requiere rasgos visibles, dudas, "
+            "medidas dichas por el usuario y preguntas; no admite archivos ni rutas."
+        )
+    for key in ("visible_features", "ambiguous_or_occluded", "questions"):
+        items = value[key]
+        if (type(items) is not list or len(items) > 40
+                or any(type(item) is not str or not item.strip() or len(item) > 300
+                       for item in items)):
+            raise MaestroError(f"photo_observations.{key} debe ser una lista breve de textos.")
+    dims = value["dimensions_from_user_only"]
+    if type(dims) is not dict or len(dims) > 12:
+        raise MaestroError("Las medidas de foto solo admiten cotas dichas por el usuario.")
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+        raise MaestroError("La observación de imagen debe ser JSON simple.") from exc
+    if len(encoded.encode("utf-8")) > 12000:
+        raise MaestroError("La observación de imagen excede el límite de revisión.")
+    return copy.deepcopy(value)
+
+
+def update_review_state(
+    previous_state: dict[str, Any] | None = None,
+    *,
+    updates: list[dict[str, Any]] | None = None,
+    pending_fields: list[str] | None = None,
+    max_questions: int = 3,
+) -> dict[str, Any]:
+    """Apply explicit conversation decisions to a visible, client-carried trace.
+
+    This is a review record, not authentication or a fabrication permission.
+    A later explicit owner decision replaces an earlier value; suggestions and
+    observations cannot silently overwrite an owner-confirmed choice.
+    """
+    if type(max_questions) is not int or not 1 <= max_questions <= 3:
+        raise MaestroError("La conversación admite de una a tres preguntas por turno.")
+    if previous_state is None:
+        state: dict[str, Any] = {
+            "schema_version": "1.0", "revision": 0,
+            "decisions": {}, "history": [],
+        }
+    else:
+        if (type(previous_state) is not dict
+                or set(previous_state) != _REVIEW_STATE_FIELDS
+                or previous_state.get("schema_version") != "1.0"
+                or type(previous_state.get("revision")) is not int
+                or not 0 <= previous_state["revision"] <= _MAX_REVIEW_HISTORY
+                or type(previous_state.get("decisions")) is not dict
+                or type(previous_state.get("history")) is not list
+                or len(previous_state["history"]) > _MAX_REVIEW_HISTORY):
+            raise MaestroError("review_state previo inválido o de versión desconocida.")
+        state = copy.deepcopy(previous_state)
+        try:
+            encoded_state = json.dumps(state, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+            raise MaestroError("review_state previo no es JSON finito.") from exc
+        if len(encoded_state.encode("utf-8")) > 48000:
+            raise MaestroError("review_state previo supera el límite de 48 KB.")
+        if len(state["decisions"]) > _MAX_REVIEW_FIELDS or state["revision"] != len(state["history"]):
+            raise MaestroError("review_state previo no conserva su secuencia completa de revisiones.")
+        history_decisions: dict[str, dict[str, Any]] = {}
+        for index, event in enumerate(state["history"], start=1):
+            if (type(event) is not dict
+                    or set(event) != {"revision", "field", "previous", "current"}
+                    or event["revision"] != index
+                    or type(event["field"]) is not str
+                    or event["field"] not in _REVIEW_ALLOWED_FIELDS
+                    or type(event["current"]) is not dict):
+                raise MaestroError("Historial de review_state inválido.")
+            field = event["field"]
+            current = event["current"]
+            previous = history_decisions.get(field)
+            if (event["previous"] != previous
+                    or set(current) != {"value", "status", "source", "revision"}
+                    or type(current["status"]) is not str
+                    or current["status"] not in _REVIEW_STATUSES
+                    or type(current["source"]) is not str
+                    or current["source"] not in _REVIEW_SOURCES
+                    or type(current["revision"]) is not int
+                    or current["revision"] != index):
+                raise MaestroError("La secuencia de review_state fue alterada.")
+            if (current["source"] in (
+                    "IMAGE_OBSERVED_UNCONFIRMED", "BOOK_GUIDANCE", "ENGINE_CALCULATED"
+            ) and current["status"] not in ("proposed", "pending")):
+                raise MaestroError("Una fuente no humana no puede confirmar una decisión.")
+            if (field == "photo_observations"
+                    and (current["source"] != "IMAGE_OBSERVED_UNCONFIRMED"
+                         or current["status"] not in ("proposed", "pending"))):
+                raise MaestroError("Una observación de imagen debe permanecer sin confirmar.")
+            if field == "photo_observations":
+                _photo_observation(current["value"])
+            try:
+                encoded_value = json.dumps(
+                    current["value"], ensure_ascii=False, allow_nan=False,
+                )
+            except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+                raise MaestroError("Los valores guardados deben ser JSON finito.") from exc
+            if len(encoded_value.encode("utf-8")) > 12000:
+                raise MaestroError("Un valor guardado excede el límite de 12 KB.")
+            history_decisions[field] = copy.deepcopy(current)
+        if history_decisions != state["decisions"]:
+            raise MaestroError("Las decisiones no coinciden con el historial completo.")
+
+    if updates is None:
+        updates = []
+    if type(updates) is not list or len(updates) > _MAX_REVIEW_FIELDS:
+        raise MaestroError("La revisión admite hasta 40 decisiones explícitas.")
+    if pending_fields is None:
+        pending_fields = []
+    if (type(pending_fields) is not list or len(pending_fields) > _MAX_REVIEW_FIELDS
+            or any(type(field) is not str or not _REVIEW_FIELD_RE.fullmatch(field)
+                   or field not in _REVIEW_ALLOWED_FIELDS
+                   for field in pending_fields)):
+        raise MaestroError("pending_fields debe contener campos de revisión válidos.")
+
+    decisions = state["decisions"]
+    for field, entry in decisions.items():
+        if (type(field) is not str or not _REVIEW_FIELD_RE.fullmatch(field)
+                or field not in _REVIEW_ALLOWED_FIELDS or type(entry) is not dict
+                or set(entry) != {"value", "status", "source", "revision"}
+                or type(entry["status"]) is not str
+                or entry["status"] not in _REVIEW_STATUSES
+                or type(entry["source"]) is not str
+                or entry["source"] not in _REVIEW_SOURCES
+                or type(entry["revision"]) is not int
+                or not 1 <= entry["revision"] <= state["revision"]):
+            raise MaestroError("Una decisión guardada en review_state está dañada.")
+
+    for update in updates:
+        if type(update) is not dict or set(update) != {"field", "value", "status", "source"}:
+            raise MaestroError("Cada decisión requiere field, value, status y source.")
+        field, status, source = update["field"], update["status"], update["source"]
+        if (type(field) is not str or not _REVIEW_FIELD_RE.fullmatch(field)
+                or field not in _REVIEW_ALLOWED_FIELDS
+                or type(status) is not str or type(source) is not str
+                or status not in _REVIEW_STATUSES or source not in _REVIEW_SOURCES):
+            raise MaestroError("Campo, estado o procedencia de decisión no admitido.")
+        if source in ("IMAGE_OBSERVED_UNCONFIRMED", "BOOK_GUIDANCE", "ENGINE_CALCULATED") \
+                and status not in ("proposed", "pending"):
+            raise MaestroError(f"{source} no puede confirmar ni rechazar una decisión humana.")
+        value = (_photo_observation(update["value"])
+                 if field == "photo_observations" else copy.deepcopy(update["value"]))
+        try:
+            encoded_value = json.dumps(value, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+            raise MaestroError("Los valores de revisión deben ser JSON finito.") from exc
+        if len(encoded_value.encode("utf-8")) > 12000:
+            raise MaestroError("Un valor de revisión excede el límite de 12 KB.")
+        old = decisions.get(field)
+        owner_correction = (
+            source in ("OWNER_TEXT", "OWNER_PHOTO_CONFIRMED")
+            and status in ("confirmed", "rejected")
+        )
+        if (old is not None and old["status"] in ("confirmed", "rejected")
+                and not owner_correction):
+            # Keep a settled owner decision; a suggestion is not a correction.
+            continue
+        if state["revision"] >= _MAX_REVIEW_HISTORY:
+            raise MaestroError("La revisión alcanzó el límite acumulado de cambios.")
+        state["revision"] += 1
+        decisions[field] = {
+            "value": value, "status": status, "source": source,
+            "revision": state["revision"],
+        }
+        state["history"].append({
+            "revision": state["revision"], "field": field,
+            "previous": copy.deepcopy(old), "current": copy.deepcopy(decisions[field]),
+        })
+
+    for field in pending_fields:
+        if field not in decisions:
+            if state["revision"] >= _MAX_REVIEW_HISTORY:
+                raise MaestroError("La revisión alcanzó el límite acumulado de cambios.")
+            state["revision"] += 1
+            decisions[field] = {
+                "value": None, "status": "pending", "source": "ENGINE_CALCULATED",
+                "revision": state["revision"],
+            }
+            state["history"].append({
+                "revision": state["revision"], "field": field,
+                "previous": None, "current": copy.deepcopy(decisions[field]),
+            })
+    if len(decisions) > _MAX_REVIEW_FIELDS or len(state["history"]) > _MAX_REVIEW_HISTORY:
+        raise MaestroError("review_state excede su límite seguro de tamaño.")
+
+    order = {field: i for i, field in enumerate(_REVIEW_QUESTION_ORDER)}
+    candidates = [field for field, entry in decisions.items()
+                  if field != "photo_observations"
+                  and entry["status"] in ("pending", "proposed")]
+    candidates = sorted(set(candidates), key=lambda field: (order.get(field, len(order)), field))
+    questions = [{
+        "field": field,
+        "question": _REVIEW_QUESTIONS.get(
+            field, f"¿Qué prefieres para {field.replace('_', ' ')}?"
+        ),
+        "status": decisions[field]["status"],
+        "unit": "choice_or_description",
+    } for field in candidates[:max_questions]]
+
+    wall = decisions.get("wall_contact")
+    back = decisions.get("back")
+    structure_options = None
+    if wall and wall["status"] in ("confirmed", "proposed"):
+        if wall["value"] is True:
+            back_value = back["value"] if back and back["status"] == "confirmed" else None
+            suggestions = (
+                ["rear_ties"] if back_value == "none" else
+                ["evaluate_rear_ties_only_after_collision_review"]
+                if back_value == "thin_3mm" else
+                ["compare_back_and_ties_separately_without_assuming_equivalence"]
+                if back_value in ("same_board_15mm", "15mm") else []
+            )
+            structure_options = {
+                "status": "PROPOSAL_ONLY",
+                "wall_contact": True,
+                "back_choice": back_value if back_value is not None else "PENDING",
+                "suggested_options": suggestions,
+                "limitations": [
+                    "No se decide automáticamente fondo ni correas.",
+                    "La unión y resistencia no están comprobadas.",
+                    "El anclaje de estabilidad requiere revisión de instalador.",
+                ],
+                "support_roles": {
+                    "countertop_vertical_load": (
+                        decisions.get("countertop_support", {}).get("value", "PENDING")
+                    ),
+                    "carcass_bracing": decisions.get("cabinet_bracing", {}).get(
+                        "value", "PENDING"
+                    ),
+                    "anti_tip_anchor": decisions.get("anti_tip_anchor", {}).get(
+                        "value", "PENDING"
+                    ),
+                    "wall_is_vertical_support": False,
+                },
+            }
+        elif wall["value"] is False:
+            structure_options = {
+                "status": "PROPOSAL_ONLY", "wall_contact": False,
+                "back_choice": (back["value"] if back else "PENDING"),
+                "suggested_options": ["visible_rear_finish", "back_panel_to_define"],
+                "limitations": ["No se presupone fondo, apoyo ni resistencia estructural."],
+            }
+    opening = decisions.get("opening_intent")
+    opening_guidance = None
+    if opening:
+        is_wood_t = opening["value"] == "profile_t_wood_inverted"
+        opening_guidance = {
+            "intent": opening["value"], "status": opening["status"],
+            "options": ["handle", "finger_pull", "profile", "push_to_open", "pending"],
+            "educational_only": is_wood_t,
+            "manufacturing_sku_selected": False,
+            "drilling_validated": False,
+            "note": ("La T invertida de madera es un concepto educativo; "
+                     "no define montaje, herraje ni mecanizado." if is_wood_t else
+                     "La intención de apertura no selecciona herraje ni valida perforaciones."),
+        }
+    return {
+        "review_state": state, "questions": questions,
+        "structure_options": structure_options,
+        "opening_guidance": opening_guidance,
+        "status": "NEEDS_USER_CONFIRMATION" if questions else "REVIEW_ONLY",
+        "can_generate_f7c": False,
+        **{flag: False for flag in _FLAGS},
+    }
+
+
+def preview_conversation(
+    utterance: str,
+    corrections: list[str] | None = None,
+    *,
+    review_state: dict[str, Any] | None = None,
+    review_updates: list[dict[str, Any]] | None = None,
+    pending_fields: list[str] | None = None,
+    max_questions: int = 3,
+) -> dict[str, Any]:
     """Keep requirement clarifications cumulative; replay only strict F1 edits."""
     if corrections is None:
         corrections = []
@@ -324,6 +660,28 @@ def preview_conversation(utterance: str, corrections: list[str] | None = None) -
                 "la aceptación visual del propietario pendiente."
             ),
         })
+    state_updates = list(review_updates or [])
+    existing_fields = {
+        item.get("field") for item in state_updates if type(item) is dict
+    }
+    if (result.get("explicit_measurements")
+            and "dimensions_mm" not in existing_fields
+            and not (review_state and "dimensions_mm" in
+                     review_state.get("decisions", {}))):
+        state_updates.append({
+            "field": "dimensions_mm", "value": result["explicit_measurements"],
+            "status": "proposed", "source": "OWNER_TEXT",
+        })
+    guided = update_review_state(
+        review_state, updates=state_updates,
+        pending_fields=pending_fields, max_questions=max_questions,
+    )
+    result["review_state"] = guided["review_state"]
+    result["guided_questions"] = guided["questions"]
+    if guided["structure_options"] is not None:
+        result["structure_options"] = guided["structure_options"]
+    if guided["opening_guidance"] is not None:
+        result["opening_guidance"] = guided["opening_guidance"]
     result["conversation_original_utterance"] = utterance
     result["requirement_clarifications"] = list(clarifications)
     result["drawer_corrections"] = list(drawer_corrections)
@@ -339,6 +697,641 @@ def preview_conversation(utterance: str, corrections: list[str] | None = None) -
         "piece_count": 0,
         **{flag: False for flag in _FLAGS},
     })
+    return result
+
+
+def _guided_dimension_value(
+    natural_preview: dict[str, Any], utterance: str,
+    previous_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    normalized = _fold(utterance)
+    component = re.search(r"\b(?:meson|cubierta|encimera)\b", normalized)
+    evidence = (extract_explicit_dimensions(utterance[:component.start()])
+                if component else None)
+    if evidence is not None and evidence.get("dimensions_mm"):
+        measurements = evidence["dimensions_mm"]
+        ambiguous = set(evidence.get("ambiguous_fields", []))
+    else:
+        measurements = natural_preview.get("explicit_measurements")
+        ambiguous = set(natural_preview.get("ambiguous_fields", []))
+    if type(measurements) is not dict or not measurements:
+        return None
+    previous = ((previous_state or {}).get("decisions", {}).get("dimensions_mm", {}))
+    previous_value = previous.get("value") if type(previous) is dict else None
+    previous_complete = (
+        type(previous_value) is dict
+        and set(previous_value) == {"width_mm", "height_mm", "depth_mm"}
+        and all(type(value) is int and value > 0 for value in previous_value.values())
+    )
+    if set(measurements) != {"width_mm", "height_mm", "depth_mm"} and previous_complete:
+        merged = dict(previous_value)
+        merged.update(measurements)
+        measurements = merged
+    complete = set(measurements) == {"width_mm", "height_mm", "depth_mm"}
+    unambiguous = not ambiguous.intersection({"width_mm", "height_mm", "depth_mm"})
+    exterior = bool(re.search(
+        r"\b(?:exterior(?:es)?|externo|externa|carcasa|caja exterior)\b",
+        normalized,
+    ))
+    already_confirmed = (
+        type(previous) is dict and previous.get("status") == "confirmed"
+    )
+    return {
+        "value": copy.deepcopy(measurements),
+        "status": "confirmed" if complete and unambiguous and (exterior or already_confirmed)
+        else "proposed",
+    }
+
+
+def _guided_countertop_value(utterance: str) -> tuple[dict[str, Any], str] | None:
+    match = re.search(r"\b(mes[oó]n|cubierta|encimera)\b(.*)", utterance, re.IGNORECASE)
+    if not match:
+        return None
+    segment = re.split(r"[.;\n]", match.group(2), maxsplit=1)[0][:400]
+    value: dict[str, Any] = {"present": True}
+    explicit = extract_explicit_dimensions(segment)
+    dimensions = dict(explicit.get("dimensions_mm", {}))
+    if not {"width_mm", "depth_mm"}.issubset(dimensions):
+        pair = re.search(
+            r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(mm|cm)?\s*(?:por|[x×])\s*"
+            r"(\d+(?:[.,]\d+)?)\s*(mm|cm)?\b",
+            segment, re.IGNORECASE,
+        )
+        if pair:
+            left_unit = (pair.group(2) or pair.group(4) or "").casefold()
+            right_unit = (pair.group(4) or pair.group(2) or "").casefold()
+            if left_unit and right_unit:
+                left = Decimal(pair.group(1).replace(",", ".")) * (
+                    10 if left_unit == "cm" else 1
+                )
+                right = Decimal(pair.group(3).replace(",", ".")) * (
+                    10 if right_unit == "cm" else 1
+                )
+                if left == left.to_integral_value() and right == right.to_integral_value():
+                    dimensions.setdefault("width_mm", int(left))
+                    dimensions.setdefault("depth_mm", int(right))
+    if dimensions:
+        value["dimensions_mm"] = dimensions
+    sequence = re.search(
+        r"(?<!\d)(\d+(?:[.,]\d+)?)\s*(mm|cm)?\s*[x×]\s*"
+        r"(\d+(?:[.,]\d+)?)\s*(mm|cm)?\s*[x×]\s*"
+        r"(\d+(?:[.,]\d+)?)\s*(mm|cm)\b",
+        segment, re.IGNORECASE,
+    )
+    if sequence:
+        unit = next((item for item in reversed((sequence.group(6), sequence.group(4), sequence.group(2)))
+                     if item), "mm").casefold()
+        multiplier = 10 if unit == "cm" else 1
+        value["dimensions_literal_mm"] = [
+            int(Decimal(sequence.group(i).replace(",", ".")) * multiplier)
+            for i in (1, 3, 5)
+        ]
+    thickness_match = re.search(
+        r"(?:espesor|grosor)\s*(?:de|del)?\s*(\d+(?:[.,]\d+)?)\s*(mm|cm)\b|"
+        r"(\d+(?:[.,]\d+)?)\s*(mm|cm)\s+(?:de\s+)?(?:espesor|grosor)\b",
+        segment, re.IGNORECASE,
+    )
+    if thickness_match:
+        amount = thickness_match.group(1) or thickness_match.group(3)
+        unit = thickness_match.group(2) or thickness_match.group(4)
+        value["thickness_mm"] = int(
+            Decimal(amount.replace(",", ".")) * (10 if unit.casefold() == "cm" else 1)
+        )
+    labelled_complete = (
+        {"width_mm", "depth_mm"}.issubset(dimensions)
+        and "thickness_mm" in value
+    )
+    return value, "confirmed" if labelled_complete else "proposed"
+
+
+def _guided_count(token: str) -> int:
+    normalized = _fold(token)
+    return int(normalized) if normalized.isdigit() else _GUIDED_COUNT_WORDS[normalized]
+
+
+def _guided_count_items(text: str, nouns: str) -> list[tuple[int, str]]:
+    count = r"(?:\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)"
+    return [(_guided_count(match.group("count")), match.group("noun"))
+            for match in re.finditer(
+                rf"\b(?P<count>{count})\s+(?P<noun>{nouns})\b", text)]
+
+
+def _guided_negated(text: str, start: int) -> bool:
+    prefix = text[max(0, start - 32):start]
+    return bool(re.search(
+        r"\b(?:no|sin|ni)\s+(?:(?:quiero|deseo|lleva|llevar|tiene|usar|use|va|ira|queda|esta)\s+)?$",
+        prefix,
+    ))
+
+
+def _guided_text_updates(
+    utterance: str, natural_preview: dict[str, Any],
+    previous_state: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Extract only explicit review choices; unparsed detail stays a question."""
+    text = _fold(utterance)
+    updates: list[dict[str, Any]] = []
+
+    def add(field: str, value: Any, status: str = "confirmed") -> None:
+        updates.append({
+            "field": field, "value": value, "status": status,
+            "source": "OWNER_TEXT",
+        })
+
+    project = natural_preview.get("proposed_request")
+    project_data = project.get("project", {}) if type(project) is dict else {}
+    project_type = project_data.get("project_type") or _explicit_project_type(utterance)
+    if project_type is None and re.search(r"\b(?:gabinete|cajonera)\b", text):
+        project_type = "gabinete"
+    if project_type:
+        add("project_type", project_type)
+    dimension = _guided_dimension_value(natural_preview, utterance, previous_state)
+    if dimension:
+        add("dimensions_mm", dimension["value"], dimension["status"])
+
+    if re.search(r"\b(caf[eé]|cafetera|coffee)\b", text):
+        add("use", "coffee")
+    elif re.search(r"\b(cocina|cocin[aá])\b", text):
+        add("use", "kitchen")
+
+    material_pattern = re.compile(r"\b(melamina|mdp|mdf(?:\s+rh)?)\b")
+    material_matches = list(material_pattern.finditer(text))
+    body_materials = []
+    for material_match in material_matches:
+        if _guided_negated(text, material_match.start()):
+            continue
+        boundary = max(text.rfind(".", 0, material_match.start()),
+                       text.rfind(";", 0, material_match.start()),
+                       text.rfind("\n", 0, material_match.start()))
+        prefix = text[boundary + 1:material_match.start()]
+        if not re.search(r"\b(?:meson|cubierta|encimera)\b", prefix):
+            body_materials.append(material_match)
+    selected_material = body_materials[-1] if body_materials else None
+    if selected_material:
+        material_name = _fold(selected_material.group(1)).replace(" ", "_")
+        add("material", material_name)
+        thickness = re.search(
+            r"\b(?:melamina|mdp|mdf(?:\s+rh)?|tablero(?:s)?|carcasa|cuerpo|"
+            r"laterales|costados)\s+(?:de\s+)?(\d+(?:[.,]\d+)?)\s*mm\b",
+            text[selected_material.start():],
+        )
+        if thickness:
+            amount = Decimal(thickness.group(1).replace(",", "."))
+            if amount == amount.to_integral_value():
+                add("thickness_mm", int(amount))
+    if "thickness_mm" not in {item["field"] for item in updates}:
+        thickness = re.search(
+            r"\b(?:espesor|grosor)\s*(?:del\s+(?:tablero|cuerpo|mueble))?\s*"
+            r"(?:de\s+)?(\d+(?:[.,]\d+)?)\s*mm\b", text,
+        )
+        if thickness:
+            clause_start = max(text.rfind(".", 0, thickness.start()),
+                               text.rfind(";", 0, thickness.start()),
+                               text.rfind("\n", 0, thickness.start()))
+            clause = text[clause_start + 1:thickness.start()]
+            if not re.search(r"\b(?:meson|cubierta|encimera)\b", clause):
+                amount = Decimal(thickness.group(1).replace(",", "."))
+                if amount == amount.to_integral_value():
+                    add("thickness_mm", int(amount))
+
+    sides_full = re.search(r"\b(?:laterales|costados)\s+continuos\b|\bsides_full\b", text)
+    top_bottom = re.search(
+        r"\b(?:tapa\s+y\s+base|tapas\s+y\s+base)\s+entre\s+(?:los\s+)?"
+        r"(?:laterales|costados)\b|\btop_bottom_full\b", text,
+    )
+    if sides_full and not _guided_negated(text, sides_full.start()):
+        add("construction", "sides_full")
+    elif top_bottom and not _guided_negated(text, top_bottom.start()):
+        add("construction", "top_bottom_full")
+
+    wall_positive = re.search(r"\b(?:contra|pegad[oa] a|junto a)\s+(?:la\s+)?pared\b", text)
+    if wall_positive and _guided_negated(text, wall_positive.start()):
+        add("wall_contact", False)
+    elif wall_positive:
+        add("wall_contact", True)
+    elif re.search(r"\b(?:separad[oa] de\s+(?:la\s+)?pared|exento|independiente)\b", text):
+        add("wall_contact", False)
+
+    countertop_match = re.search(r"\b(mes[oó]n|cubierta|encimera)\b", utterance, re.IGNORECASE)
+    if countertop_match and _guided_negated(text, countertop_match.start()):
+        add("countertop", {"present": False})
+    countertop = _guided_countertop_value(utterance)
+    if countertop and not (countertop_match and _guided_negated(text, countertop_match.start())):
+        add("countertop", countertop[0], countertop[1])
+
+    floor_support = re.search(r"\b(?:directamente\s+al\s+piso|al\s+suelo)\b", text)
+    if floor_support and not _guided_negated(text, floor_support.start()):
+        add("support", {"style": "floor_direct"})
+    elif re.search(r"\bpatas?\b", text):
+        legs_match = re.search(r"\bpatas?\b", text)
+        legs = re.search(r"\bpatas?\b([^.;\n]{0,100})", text)
+        if legs_match and _guided_negated(text, legs_match.start()):
+            add("support", {"style": "legs_absent_support_unspecified"}, "proposed")
+            legs = None
+        height = (re.search(
+            r"(\d+(?:[.,]\d+)?)\s*(mm|cm)\s+(?:de\s+)?(?:alto|altura)",
+            legs.group(1),
+        ) if legs else None)
+        support: dict[str, Any] = {"style": "legs"}
+        status = "proposed"
+        if height and legs is not None:
+            amount = Decimal(height.group(1).replace(",", "."))
+            mm = amount * (10 if height.group(2) == "cm" else 1)
+            if mm == mm.to_integral_value():
+                support["height_mm"] = int(mm)
+                status = "confirmed"
+        if legs is not None:
+            add("support", support, status)
+    elif re.search(r"\bz[oó]calo\b", text):
+        add("support", {"style": "plinth"}, "proposed")
+    elif re.search(r"\b(?:suspendido|colgado|anclado\s+a\s+la\s+pared)\b", text):
+        add("support", {"style": "wall_mounted"}, "proposed")
+
+    layout: list[str] = []
+    horizontal = re.search(r"\b(?:repisa|divisi[oó]n|divisor)\s+horizontal\b|"
+                           r"\bhorizontal\s+(?:repisa|divisi[oó]n)\b", text)
+    vertical = re.search(r"\b(?:divisi[oó]n|divisor)\s+vertical\b|"
+                         r"\bvertical\s+(?:divisi[oó]n|divisor)\b", text)
+    if horizontal and not _guided_negated(text, horizontal.start()):
+        layout.append("horizontal")
+    if vertical and not _guided_negated(text, vertical.start()):
+        layout.append("vertical")
+    if re.search(r"\binterior\s+(?:abierto|libre)\b", text):
+        layout.append("open")
+    if layout:
+        add("internal_layout", layout)
+
+    if re.search(r"\b(?:sin\s+(?:ning[uú]n(?:a)?\s+)?(?:cajones?|gavetas?)|"
+                 r"no\s+(?:lleva|llevar[aá]|tiene|tendr[aá]|quiero)\s+"
+                 r"(?:ning[uú]n(?:a)?\s+)?(?:cajones?|gavetas?)|"
+                 r"ning[uú]n(?:a)?\s+(?:cajones?|gavetas?))\b", text):
+        add("drawers", "none")
+    else:
+        drawer_counts = _guided_count_items(text, r"cajones?|gavetas?")
+        implicit = re.search(
+            r"\b(?:cajones?|gavetas?)\b[^.;\n]{0,35}\by\s+"
+            r"(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+"
+            r"(?:pequenos?|grandes?)\b",
+            text,
+        )
+        if implicit:
+            following = text[implicit.end():implicit.end() + 20]
+            if not re.match(r"\s+(?:cajones?|gavetas?)\b", following):
+                drawer_counts.append((_guided_count(implicit.group("count")), "cajon"))
+        if drawer_counts:
+            add("drawers", {
+                "count": sum(count for count, _ in drawer_counts),
+                "items": [{"count": count, "type": noun} for count, noun in drawer_counts],
+            })
+        elif re.search(r"\b(?:cajones?|gavetas?)\b", text):
+            add("drawers", {"description": utterance.strip()}, "proposed")
+
+    overlay_match = re.search(r"\bsobrepuest[oa]s?\b", text)
+    inset_match = re.search(r"\bembutid[oa]s?\b", text)
+    front_style = (
+        "overlay" if overlay_match and not _guided_negated(text, overlay_match.start()) else
+        "inset" if inset_match and not _guided_negated(text, inset_match.start()) else None
+    )
+    if front_style:
+        add("front_style", front_style)
+    if re.search(r"\b(?:sin\s+puertas?|no\s+(?:lleva|tiene|quiero)\s+puertas?)\b", text):
+        add("doors", "none")
+    else:
+        door_counts = _guided_count_items(text, r"puertas?")
+        if door_counts:
+            add("doors", {
+                "count": sum(count for count, _ in door_counts),
+                "items": [{"count": count, "type": noun} for count, noun in door_counts],
+                "arrangement": "side_by_side" if re.search(r"\blado\s+a\s+lado\b", text) else None,
+            })
+        elif re.search(r"\bpuertas?\b", text):
+            add("doors", {
+                "count": None,
+                "arrangement": "side_by_side" if re.search(r"\blado\s+a\s+lado\b", text) else None,
+            }, "proposed")
+
+    opening = None
+    handle_match = re.search(r"\b(?:manijas?|tiradores?)\b", text)
+    finger_match = re.search(r"\bu[nñ]eros?\b", text)
+    profile_match = re.search(r"\bperfil\b", text)
+    push_match = re.search(r"\b(?:push\s*[- ]?to\s*[- ]?open|apertura\s+por\s+presi[oó]n)\b", text)
+    if handle_match and not _guided_negated(text, handle_match.start()):
+        opening = "handle"
+    elif finger_match and not _guided_negated(text, finger_match.start()):
+        opening = "finger_pull"
+    elif profile_match and not _guided_negated(text, profile_match.start()):
+        opening = "profile"
+    elif push_match and not _guided_negated(text, push_match.start()):
+        opening = "push_to_open"
+    if opening:
+        add("opening_intent", opening)
+
+    if re.search(r"\b(?:sin\s+fondo|abierto\s+por\s+atr[aá]s)\b", text):
+        add("back", "none")
+    else:
+        back_pending = re.search(
+            r"\bfondo\b(?:\s+(?:posterior|trasero))?\s+"
+            r"(?:(?:queda|est[aá])\s+)?"
+            r"(?:pendiente|para\s+despu[eé]s|despu[eé]s|m[aá]s\s+adelante)\b",
+            text,
+        )
+        back_thickness = re.search(
+            r"\bfondo\b(?:\s+(?:posterior|trasero))?\s+"
+            r"(?:(?:de|en|con|es\s+de|ser[aá]\s+de|queda\s+de)\s+)?"
+            r"(?:(?:melamina|mdp|mdf)\s+(?:de\s+)?)?"
+            r"(?P<mm>3|15)\s*mm\b",
+            text,
+        )
+        if back_pending and not _guided_negated(text, back_pending.start()):
+            add("back", "pending")
+        elif (back_thickness
+              and not _guided_negated(text, back_thickness.start())):
+            thickness_value = (
+                "thin_3mm" if back_thickness.group("mm") == "3"
+                else "same_board_15mm"
+            )
+            add("back", thickness_value)
+
+    return updates
+
+
+def _guided_confirmation_updates(
+    utterance: str, previous_state: dict[str, Any] | None,
+    already_updated: set[str],
+) -> list[dict[str, Any]]:
+    if not previous_state:
+        return []
+    text = _fold(utterance).strip()
+    affirmative = (
+        bool(re.match(r"^(?:si|ok|vale|de acuerdo|correcto)\b", text))
+        or bool(re.search(r"\bconfirmo\b", text))
+    )
+    if not affirmative or (text.startswith("no ") and "confirmo" not in text):
+        return []
+    decisions = previous_state.get("decisions", {})
+    proposed = {
+        field: entry for field, entry in decisions.items()
+        if field != "photo_observations" and entry.get("status") == "proposed"
+    }
+    aliases = (
+        (r"\b(?:medidas?|dimensiones?)\b", "dimensions_mm"),
+        (r"\b(?:meson|cubierta|encimera)\b", "countertop"),
+        (r"\b(?:pared|muro)\b", "wall_contact"),
+        (r"\bmaterial\b", "material"),
+        (r"\b(?:espesor|grosor)\b", "thickness_mm"),
+        (r"\b(?:construccion|laterales|costados)\b", "construction"),
+        (r"\b(?:interior|repisa|division|divisor)\b", "internal_layout"),
+        (r"\b(?:cajones?|gavetas?)\b", "drawers"),
+        (r"\bpuertas?\b", "doors"),
+        (r"\b(?:sobrepuest[oa]s?|embutid[oa]s?|frentes?)\b", "front_style"),
+        (r"\b(?:patas?|zocalo|suelo|piso)\b", "support"),
+        (r"\bfondo\b", "back"),
+        (r"\b(?:cafe|cafetera)\b", "use"),
+    )
+    targets = {field for pattern, field in aliases if re.search(pattern, text)}
+    if not targets and re.search(r"\b(?:todo|todas?|ambas?)\b", text):
+        targets = set(proposed)
+    elif not targets and len(proposed) == 1:
+        targets = set(proposed)
+    updates = []
+    for field in targets:
+        entry = proposed.get(field)
+        if entry is None or field in already_updated:
+            continue
+        if field == "dimensions_mm" and (
+            type(entry.get("value")) is not dict
+            or set(entry["value"]) != {"width_mm", "height_mm", "depth_mm"}
+        ):
+            continue
+        if field == "countertop" and (
+            type(entry.get("value")) is not dict
+            or not {"width_mm", "depth_mm"}.issubset(
+                entry["value"].get("dimensions_mm", {})
+            )
+            or "thickness_mm" not in entry["value"]
+        ):
+            continue
+        updates.append({
+            "field": field, "value": copy.deepcopy(entry["value"]),
+            "status": "confirmed", "source": "OWNER_TEXT",
+        })
+    return updates
+
+
+def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
+    project_type = decisions.get("project_type", {}).get("value")
+    if not project_type:
+        return ["project_type", "dimensions_mm", "use"]
+    is_cabinet = _fold(str(project_type)) in {"gabinete", "cabinet", "cajonera"}
+    if not is_cabinet:
+        return ["dimensions_mm", "material", "thickness_mm", "construction"]
+    coffee = decisions.get("use", {}).get("value") == "coffee"
+    fields = ["dimensions_mm", "use", "wall_contact"]
+    if coffee:
+        fields.extend(("countertop", "support"))
+    fields.extend(("internal_layout", "drawers", "doors", "back", "material",
+                   "thickness_mm", "construction"))
+    if not coffee:
+        fields.append("support")
+    door_value = decisions.get("doors", {}).get("value")
+    drawer_value = decisions.get("drawers", {}).get("value")
+    has_doors = (type(door_value) is dict and type(door_value.get("count")) is int
+                 and door_value["count"] > 0)
+    has_drawers = (type(drawer_value) is dict and type(drawer_value.get("count")) is int
+                   and drawer_value["count"] > 0)
+    if has_doors and "front_style" not in decisions:
+        fields.append("front_style")
+    if has_doors or has_drawers:
+        fields.append("opening_intent")
+    return list(dict.fromkeys(fields))
+
+
+def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
+    """Use one client-carried trace and the existing preview/Maestro engines."""
+    required_keys = {
+        "review_kind", "utterance", "review_state", "review_updates",
+        "photo_observations",
+    }
+    if type(request) is not dict or set(request) != required_keys:
+        raise MaestroError(
+            "guided_design_v1 requiere review_kind, utterance, review_state, "
+            "review_updates y photo_observations, sin campos adicionales."
+        )
+    if request["review_kind"] != "guided_design_v1":
+        raise MaestroError("Tipo de revisión guiada desconocido.")
+    utterance = request["utterance"]
+    if type(utterance) is not str or not utterance.strip() or len(utterance) > _MAX_TEXT:
+        raise MaestroError("utterance debe tener entre 1 y 2000 caracteres.")
+    previous_state = request["review_state"]
+    if previous_state is not None and type(previous_state) is not dict:
+        raise MaestroError("review_state debe ser un objeto JSON o null.")
+    if previous_state is not None:
+        # Validate the complete client-carried chain before using any decision.
+        update_review_state(previous_state, updates=[], pending_fields=[])
+
+    natural_preview = preview_natural_request(utterance, include_concept_sketch=False)
+    updates = _guided_text_updates(utterance, natural_preview, previous_state)
+    parsed_by_field = {item["field"]: item for item in updates}
+    confirmations = _guided_confirmation_updates(
+        utterance, previous_state, set(parsed_by_field),
+    )
+    updates.extend(confirmations)
+    parsed_by_field.update({item["field"]: item for item in confirmations})
+
+    raw_updates = request["review_updates"]
+    if type(raw_updates) is not list or len(raw_updates) > _MAX_REVIEW_FIELDS:
+        raise MaestroError("review_updates debe ser una lista de hasta 40 elementos.")
+    seen_fields: set[str] = set()
+    for item in raw_updates:
+        if type(item) is not dict or set(item) != {"field", "value", "status", "source"}:
+            raise MaestroError("Cada review_update requiere field, value, status y source.")
+        field, status, source = item["field"], item["status"], item["source"]
+        if (type(field) is not str or field not in _REVIEW_ALLOWED_FIELDS
+                or field in seen_fields or type(status) is not str
+                or status not in _REVIEW_STATUSES or type(source) is not str
+                or source not in _REVIEW_SOURCES):
+            raise MaestroError("review_update contiene campo, estado o fuente inválidos.")
+        seen_fields.add(field)
+        if field == "photo_observations":
+            raise MaestroError(
+                "photo_observations debe usar su campo separado y quedar sin confirmar."
+            )
+        if source != "OWNER_TEXT" and status in ("confirmed", "rejected"):
+            raise MaestroError("Una fuente distinta de texto explícito no confirma decisiones.")
+        if field in parsed_by_field and item["value"] == parsed_by_field[field]["value"]:
+            # Natural text is the source of a confirmation; metadata cannot upgrade it.
+            continue
+        updates.append({
+            "field": field, "value": copy.deepcopy(item["value"]),
+            "status": "proposed", "source": "ENGINE_CALCULATED",
+        })
+
+    photo = request["photo_observations"]
+    if photo is not None:
+        _photo_observation(photo)
+        updates.append({
+            "field": "photo_observations", "value": photo,
+            "status": "proposed", "source": "IMAGE_OBSERVED_UNCONFIRMED",
+        })
+
+    # preview_conversation parses the same utterance and applies its explicit
+    # decisions to the one review_state; the state remains in the caller's hands.
+    preview = preview_conversation(
+        utterance, review_state=previous_state, review_updates=updates,
+        pending_fields=[], max_questions=3,
+    )
+    accumulated = preview["review_state"]
+    decisions = accumulated["decisions"]
+    missing = [field for field in _guided_question_fields(decisions)
+               if field not in decisions]
+    guided = update_review_state(
+        accumulated, pending_fields=missing, max_questions=3,
+    )
+    state = guided["review_state"]
+    decisions = state["decisions"]
+
+    is_coffee = decisions.get("use", {}).get("value") == "coffee"
+    required = ["project_type", "dimensions_mm", "material", "thickness_mm", "construction"]
+    if _fold(str(decisions.get("project_type", {}).get("value", ""))) in {
+        "gabinete", "cabinet", "cajonera",
+    }:
+        required.extend(("wall_contact", "internal_layout", "drawers", "doors", "back", "support"))
+        if is_coffee:
+            required.append("countertop")
+    readiness_blockers: list[str] = []
+    for field in required:
+        entry = decisions.get(field)
+        if (entry is None or entry["status"] != "confirmed"
+                or entry["value"] is None or entry["value"] == "pending"):
+            readiness_blockers.append(field)
+    dimensions = decisions.get("dimensions_mm", {}).get("value")
+    if (type(dimensions) is not dict
+            or set(dimensions) != {"width_mm", "height_mm", "depth_mm"}
+            or any(type(value) is not int or value <= 0 for value in dimensions.values())):
+        if "dimensions_mm" not in readiness_blockers:
+            readiness_blockers.append("dimensions_mm")
+    thickness = decisions.get("thickness_mm", {}).get("value")
+    if type(thickness) is not int or thickness <= 0:
+        if "thickness_mm" not in readiness_blockers:
+            readiness_blockers.append("thickness_mm")
+    project_type = decisions.get("project_type", {}).get("value")
+    project_kind = _fold(str(project_type))
+    if project_kind not in {"gabinete", "cabinet", "cajonera"}:
+        if "project_type" not in readiness_blockers:
+            readiness_blockers.append("project_type")
+    ready = not readiness_blockers
+
+    nominal_review = None
+    if ready:
+        nominal_review = consult_maestro({
+            "action": "project",
+            "project": {
+                "project_type": "gabinete",
+                **dimensions,
+                "panel_thickness_mm": thickness,
+                "construction": decisions["construction"]["value"],
+            },
+        })
+
+    confirmed = {
+        field: copy.deepcopy(entry["value"])
+        for field, entry in decisions.items()
+        if entry["status"] == "confirmed" and entry["value"] != "pending"
+    }
+    proposed = {
+        field: copy.deepcopy(entry["value"])
+        for field, entry in decisions.items() if entry["status"] == "proposed"
+    }
+    pending = [field for field, entry in decisions.items()
+               if entry["status"] == "pending" or entry["value"] in (None, "pending")]
+    preview_keys = (
+        "status", "proposed_request", "explicit_measurements", "ambiguous_fields",
+        "unit_requires_confirmation", "resolved_unit_confirmations", "next_step",
+    )
+    natural_summary = {key: copy.deepcopy(natural_preview[key])
+                       for key in preview_keys if key in natural_preview}
+    questions = guided["questions"]
+    warnings = [
+        "review_state es una traza declarada por el cliente; no autentica identidad ni autoriza fabricación.",
+        "No se reciben píxeles ni rutas de imagen; cualquier observación se mantiene sin confirmar.",
+        "No se selecciona SKU, patrón de perforación, compra ni exportación CAD nativa.",
+    ]
+    if is_coffee:
+        warnings.append(
+            "El apoyo vertical del mesón, amarre de carcasa y anclaje anti-vuelco "
+            "requieren revisión; la pared no se presume como soporte de carga."
+        )
+    result: dict[str, Any] = {
+        "review_kind": "guided_design_v1",
+        "status": "NEEDS_USER_CONFIRMATION" if questions else "REVIEW_ONLY",
+        "review_state": state,
+        "confirmed": confirmed,
+        "proposed": proposed,
+        "pending": pending,
+        "questions": questions,
+        "next_step": (
+            "Responder solo las preguntas abiertas; después se revisará una propuesta nominal."
+            if questions else
+            "La información disponible es de revisión; no hay autorización de fabricación."
+        ),
+        "ready_for_nominal_review": ready,
+        "readiness_blockers": readiness_blockers,
+        "warnings": warnings,
+        "nominal_review_scope": (
+            "F1 carcasa básica; puertas, cajones, divisiones, fondo, patas y uniones "
+            "no quedan representados en esta geometría."
+            if nominal_review is not None else None
+        ),
+        "nominal_review": nominal_review,
+        "natural_preview": natural_summary,
+        "photo_input": (
+            {"status": "IMAGE_OBSERVED_UNCONFIRMED", "pixels_received": False}
+            if photo is not None else None
+        ),
+        "piece_count": 0,
+        "can_generate_f7c": False,
+        **{flag: False for flag in _FLAGS},
+    }
     return result
 
 
