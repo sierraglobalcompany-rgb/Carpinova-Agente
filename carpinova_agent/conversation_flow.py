@@ -13,9 +13,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from .cad_exchange import cad_exchange
-from .drawer_modules import _apportion_nominal, propose_drawer_layout
+from .cad_exchange import cad_exchange, validate_exchange
+from .core import DesignError, design
+from .drawer_modules import OPENING_SYSTEMS, _apportion_nominal, propose_drawer_layout
 from .maestro import MaestroError, consult_maestro
+from .modular import MODULE_FIELDS, ROOT_FIELDS
 from .intake import _fold
 from .natural_intake import (
     OWNER_DIRECTIVE_SOURCE, extract_explicit_dimensions,
@@ -77,7 +79,9 @@ _REVIEW_QUESTIONS = {
     "finish": "¿Qué acabado o cantos quieres revisar?",
     "hardware_reference": "¿Tienes la referencia exacta del herraje? Sin ella no se validan holguras ni taladros.",
 }
-_REVIEW_ALLOWED_FIELDS = frozenset((*_REVIEW_QUESTION_ORDER, "photo_observations"))
+_REVIEW_ALLOWED_FIELDS = frozenset((
+    *_REVIEW_QUESTION_ORDER, "photo_observations", "nominal_detail_spec",
+))
 _GUIDED_COUNT_WORDS = {
     "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
     "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9,
@@ -523,7 +527,7 @@ def update_review_state(
 
     order = {field: i for i, field in enumerate(_REVIEW_QUESTION_ORDER)}
     candidates = [field for field, entry in decisions.items()
-                  if field != "photo_observations"
+                  if field not in {"photo_observations", "nominal_detail_spec"}
                   and entry["status"] in ("pending", "proposed")]
     candidates = sorted(set(candidates), key=lambda field: (order.get(field, len(order)), field))
     questions = [{
@@ -705,15 +709,19 @@ def _guided_dimension_value(
     previous_state: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     normalized = _fold(utterance)
-    component = re.search(r"\b(?:meson|cubierta|encimera)\b", normalized)
-    evidence = (extract_explicit_dimensions(utterance[:component.start()])
-                if component else None)
-    if evidence is not None and evidence.get("dimensions_mm"):
-        measurements = evidence["dimensions_mm"]
-        ambiguous = set(evidence.get("ambiguous_fields", []))
+    component = re.search(r"\b(?:meson|cubierta|encimera|patas?)\b", normalized)
+    evidence = extract_explicit_dimensions(utterance[:component.start()]) if component else None
+    if component:
+        measurements = (evidence.get("dimensions_mm")
+                        if evidence is not None else None)
+        ambiguous = set(evidence.get("ambiguous_fields", [])) if evidence else set()
     else:
         measurements = natural_preview.get("explicit_measurements")
         ambiguous = set(natural_preview.get("ambiguous_fields", []))
+    if component and not measurements:
+        # A countertop-only turn must not overwrite carcass dimensions with
+        # measurements scoped to that separate component.
+        return None
     if type(measurements) is not dict or not measurements:
         return None
     previous = ((previous_state or {}).get("decisions", {}).get("dimensions_mm", {}))
@@ -797,6 +805,18 @@ def _guided_countertop_value(utterance: str) -> tuple[dict[str, Any], str] | Non
         value["thickness_mm"] = int(
             Decimal(amount.replace(",", ".")) * (10 if unit.casefold() == "cm" else 1)
         )
+    countertop_material = re.search(
+        r"\b(mdf\s+rh|mdf|mdp|melamina)\b(?:\s+(?:de\s+)?"
+        r"(?P<material_mm>\d{1,4})\s*mm\b)?",
+        segment, re.IGNORECASE,
+    )
+    if countertop_material:
+        material = _fold(countertop_material.group(1)).replace(" ", "_").upper()
+        material_mm = countertop_material.group("material_mm")
+        if material_mm and "thickness_mm" not in value:
+            value["thickness_mm"] = int(material_mm)
+        if "thickness_mm" in value:
+            value["material_id"] = f"{material}_{value['thickness_mm']}"
     labelled_complete = (
         {"width_mm", "depth_mm"}.issubset(dimensions)
         and "thickness_mm" in value
@@ -829,19 +849,33 @@ def _guided_text_updates(
     previous_state: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """Extract only explicit review choices; unparsed detail stays a question."""
+    if is_drawer_correction_instruction(utterance):
+        return []
     text = _fold(utterance)
     updates: list[dict[str, Any]] = []
 
-    def add(field: str, value: Any, status: str = "confirmed") -> None:
+    def add(field: str, value: Any, status: str = "confirmed",
+            source: str = "OWNER_TEXT") -> None:
         updates.append({
             "field": field, "value": value, "status": status,
-            "source": "OWNER_TEXT",
+            "source": source,
         })
 
     project = natural_preview.get("proposed_request")
     project_data = project.get("project", {}) if type(project) is dict else {}
     project_type = project_data.get("project_type") or _explicit_project_type(utterance)
-    if project_type is None and re.search(r"\b(?:gabinete|cajonera)\b", text):
+    if re.search(r"\b(?:cl[oó]set|closet)\b", text):
+        project_type = "closet"
+    elif re.search(r"\bmueble\s+(?:de\s+)?(?:ba[nñ]o|superior|flotante)\b", text):
+        project_type = "gabinete"
+    elif project_type is None and re.search(
+        r"\b(?:gabinete|cajonera|nochero|mesa\s+de\s+noche|"
+        r"mesita\s+de\s+noche)\b", text,
+    ):
+        project_type = "gabinete"
+    elif project_type is None and re.search(r"\bmueble\b", text) and re.search(
+        r"\b(?:cocina|ba[nñ]o|superior|flotante)\b", text,
+    ):
         project_type = "gabinete"
     if project_type:
         add("project_type", project_type)
@@ -853,6 +887,10 @@ def _guided_text_updates(
         add("use", "coffee")
     elif re.search(r"\b(cocina|cocin[aá])\b", text):
         add("use", "kitchen")
+    elif re.search(r"\bba[nñ]o\b", text):
+        add("use", "bathroom")
+    elif re.search(r"\b(?:nochero|mesa\s+de\s+noche|mesita\s+de\s+noche|dormitorio)\b", text):
+        add("use", "bedroom")
 
     material_pattern = re.compile(r"\b(melamina|mdp|mdf(?:\s+rh)?)\b")
     material_matches = list(material_pattern.finditer(text))
@@ -904,7 +942,11 @@ def _guided_text_updates(
     elif top_bottom and not _guided_negated(text, top_bottom.start()):
         add("construction", "top_bottom_full")
 
-    wall_positive = re.search(r"\b(?:contra|pegad[oa] a|junto a)\s+(?:la\s+)?pared\b", text)
+    wall_positive = re.search(
+        r"\b(?:contra|pegad[oa] a|junto a|fijaci[oó]n a|fijar a|montaje a|"
+        r"fijad[oa] al|anclad[oa] al)\s+"
+        r"(?:(?:la|el)\s+)?(?:pared|muro)\b", text,
+    )
     if wall_positive and _guided_negated(text, wall_positive.start()):
         add("wall_contact", False)
     elif wall_positive:
@@ -919,7 +961,10 @@ def _guided_text_updates(
     if countertop and not (countertop_match and _guided_negated(text, countertop_match.start())):
         add("countertop", countertop[0], countertop[1])
 
-    floor_support = re.search(r"\b(?:directamente\s+al\s+piso|al\s+suelo)\b", text)
+    floor_support = re.search(
+        r"\b(?:direct(?:o|amente)?\s+al\s+piso|apoyad[oa]s?\s+en\s+(?:el\s+)?piso|"
+        r"al\s+suelo)\b", text,
+    )
     if floor_support and not _guided_negated(text, floor_support.start()):
         add("support", {"style": "floor_direct"})
     elif re.search(r"\bpatas?\b", text):
@@ -929,7 +974,8 @@ def _guided_text_updates(
             add("support", {"style": "legs_absent_support_unspecified"}, "proposed")
             legs = None
         height = (re.search(
-            r"(\d+(?:[.,]\d+)?)\s*(mm|cm)\s+(?:de\s+)?(?:alto|altura)",
+            r"^\s*(?:de\s+)?(\d+(?:[.,]\d+)?)\s*(mm|cm)"
+            r"(?:\s+(?:de\s+)?(?:alto|altura))?\b",
             legs.group(1),
         ) if legs else None)
         support: dict[str, Any] = {"style": "legs"}
@@ -941,35 +987,85 @@ def _guided_text_updates(
                 support["height_mm"] = int(mm)
                 status = "confirmed"
         if legs is not None:
-            add("support", support, status)
+            previous_support = ((previous_state or {}).get("decisions", {})
+                                .get("support", {}))
+            keep_confirmed_height = (
+                status == "proposed" and type(previous_support) is dict
+                and previous_support.get("status") == "confirmed"
+                and previous_support.get("source") == "OWNER_TEXT"
+                and type(previous_support.get("value")) is dict
+                and previous_support["value"].get("style") == "legs"
+                and type(previous_support["value"].get("height_mm")) is int
+            )
+            if not keep_confirmed_height:
+                add("support", support, status)
     elif re.search(r"\bz[oó]calo\b", text):
         add("support", {"style": "plinth"}, "proposed")
-    elif re.search(r"\b(?:suspendido|colgado|anclado\s+a\s+la\s+pared)\b", text):
+    elif re.search(r"\b(?:va\s+)?(?:fijad[oa]|anclad[oa]|colgad[oa])\s+"
+                   r"(?:al|a\s+la)\s+(?:muro|pared)\b", text):
+        add("support", {"style": "wall_mounted"})
+    elif re.search(
+        r"\b(?:suspendido|colgado|anclado\s+a\s+(?:la\s+)?pared|"
+        r"fijaci[oó]n\s+a\s+(?:la\s+)?(?:pared|muro)|fijar\s+a\s+(?:la\s+)?pared)\b",
+        text,
+    ):
         add("support", {"style": "wall_mounted"}, "proposed")
 
     layout: list[str] = []
+    module_count_match = re.search(
+        r"\b(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro)\s+"
+        r"m[oó]dulos?\b", text,
+    )
+    explicit_module_count = (
+        _guided_count(module_count_match.group("count"))
+        if module_count_match else None
+    )
+    shelf_per_module = re.search(
+        r"\b(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro)\s+"
+        r"repisas?\s+por\s+(?:cada\s+)?m[oó]dulo\b", text,
+    )
+    shelf_position = re.search(
+        r"\b(?P<mm>\d{1,5})\s*mm\s+desde\s+(?:la\s+)?base\s+interior\b",
+        text,
+    )
     horizontal = re.search(r"\b(?:repisa|divisi[oó]n|divisor)\s+horizontal\b|"
                            r"\bhorizontal\s+(?:repisa|divisi[oó]n)\b", text)
     vertical = re.search(r"\b(?:divisi[oó]n|divisor)\s+vertical\b|"
                          r"\bvertical\s+(?:divisi[oó]n|divisor)\b", text)
-    if horizontal and not _guided_negated(text, horizontal.start()):
+    if shelf_per_module and not _guided_negated(text, shelf_per_module.start()):
+        detail: dict[str, Any] = {
+            "elements": ["horizontal"],
+            "shelves_per_module": _guided_count(shelf_per_module.group("count")),
+        }
+        if explicit_module_count is not None:
+            detail["module_count"] = explicit_module_count
+        if shelf_position:
+            detail["shelf_position_from_clear_bottom_mm"] = int(shelf_position.group("mm"))
+        add("internal_layout", detail)
+    elif explicit_module_count is not None and re.search(
+        r"\b(?:modulos?\s+iguales|iguales\s+de\s+ancho)\b", text,
+    ):
+        add("internal_layout", {"elements": [], "module_count": explicit_module_count})
+    elif horizontal and not _guided_negated(text, horizontal.start()):
         layout.append("horizontal")
     if vertical and not _guided_negated(text, vertical.start()):
         layout.append("vertical")
-    if re.search(r"\binterior\s+(?:abierto|libre)\b", text):
+    if re.search(r"\binterior\s+(?:abierto|libre)\b|\babierto\b", text):
         layout.append("open")
-    if layout:
+    if layout and not (shelf_per_module or explicit_module_count is not None
+                       and re.search(r"\b(?:modulos?\s+iguales|iguales\s+de\s+ancho)\b", text)):
         add("internal_layout", layout)
 
-    if re.search(r"\b(?:sin\s+(?:ning[uú]n(?:a)?\s+)?(?:cajones?|gavetas?)|"
+    if re.search(r"\b(?:sin\s+(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
+                 r"ni\s+(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
                  r"no\s+(?:lleva|llevar[aá]|tiene|tendr[aá]|quiero)\s+"
-                 r"(?:ning[uú]n(?:a)?\s+)?(?:cajones?|gavetas?)|"
-                 r"ning[uú]n(?:a)?\s+(?:cajones?|gavetas?))\b", text):
+                 r"(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
+                 r"ning[uú]n(?:a)?\s+(?:caj[oó]n(?:es)?|gaveta(?:s)?))\b", text):
         add("drawers", "none")
     else:
-        drawer_counts = _guided_count_items(text, r"cajones?|gavetas?")
+        drawer_counts = _guided_count_items(text, r"caj[oó]n(?:es)?|gaveta(?:s)?")
         implicit = re.search(
-            r"\b(?:cajones?|gavetas?)\b[^.;\n]{0,35}\by\s+"
+            r"\b(?:caj[oó]n(?:es)?|gaveta(?:s)?)\b[^.;\n]{0,35}\by\s+"
             r"(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+"
             r"(?:pequenos?|grandes?)\b",
             text,
@@ -983,7 +1079,9 @@ def _guided_text_updates(
                 "count": sum(count for count, _ in drawer_counts),
                 "items": [{"count": count, "type": noun} for count, noun in drawer_counts],
             })
-        elif re.search(r"\b(?:cajones?|gavetas?)\b", text):
+            if "internal_layout" not in {item["field"] for item in updates}:
+                add("internal_layout", [], "proposed", "ENGINE_CALCULATED")
+        elif re.search(r"\b(?:caj[oó]n(?:es)?|gaveta(?:s)?)\b", text):
             add("drawers", {"description": utterance.strip()}, "proposed")
 
     overlay_match = re.search(r"\bsobrepuest[oa]s?\b", text)
@@ -998,7 +1096,22 @@ def _guided_text_updates(
         add("doors", "none")
     else:
         door_counts = _guided_count_items(text, r"puertas?")
-        if door_counts:
+        doors_per_module_match = re.search(
+            r"\b(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro)\s+"
+            r"puertas?\b[^.;\n]{0,40}\bpor\s+(?:cada\s+)?m[oó]dulo\b",
+            text,
+        )
+        if doors_per_module_match and explicit_module_count is not None:
+            per_module = _guided_count(doors_per_module_match.group("count"))
+            total = per_module * explicit_module_count
+            add("doors", {
+                "count": total,
+                "items": [{"count": total, "type": "puerta"}],
+                "arrangement": "side_by_side" if per_module == 2 else None,
+                "per_module_count": per_module,
+                "module_count": explicit_module_count,
+            })
+        elif door_counts:
             add("doors", {
                 "count": sum(count for count, _ in door_counts),
                 "items": [{"count": count, "type": noun} for count, noun in door_counts],
@@ -1014,19 +1127,23 @@ def _guided_text_updates(
     handle_match = re.search(r"\b(?:manijas?|tiradores?)\b", text)
     finger_match = re.search(r"\bu[nñ]eros?\b", text)
     profile_match = re.search(r"\bperfil\b", text)
-    push_match = re.search(r"\b(?:push\s*[- ]?to\s*[- ]?open|apertura\s+por\s+presi[oó]n)\b", text)
-    if handle_match and not _guided_negated(text, handle_match.start()):
+    push_match = re.search(
+        r"\b(?:push(?:\s*[- ]?to\s*[- ]?open)?|apertura\s+por\s+presi[oó]n)\b",
+        text,
+    )
+    if push_match and not _guided_negated(text, push_match.start()):
+        opening = "push_to_open"
+    elif handle_match and not _guided_negated(text, handle_match.start()):
         opening = "handle"
     elif finger_match and not _guided_negated(text, finger_match.start()):
         opening = "finger_pull"
     elif profile_match and not _guided_negated(text, profile_match.start()):
         opening = "profile"
-    elif push_match and not _guided_negated(text, push_match.start()):
-        opening = "push_to_open"
     if opening:
         add("opening_intent", opening)
 
-    if re.search(r"\b(?:sin\s+fondo|abierto\s+por\s+atr[aá]s)\b", text):
+    if re.search(r"\b(?:sin\s+fondo|ni\s+fondo(?:\s+(?:posterior|trasero))?|"
+                 r"abierto\s+por\s+atr[aá]s)\b", text):
         add("back", "none")
     else:
         back_pending = re.search(
@@ -1071,7 +1188,8 @@ def _guided_confirmation_updates(
     decisions = previous_state.get("decisions", {})
     proposed = {
         field: entry for field, entry in decisions.items()
-        if field != "photo_observations" and entry.get("status") == "proposed"
+        if field not in {"photo_observations", "nominal_detail_spec"}
+        and entry.get("status") == "proposed"
     }
     aliases = (
         (r"\b(?:medidas?|dimensiones?)\b", "dimensions_mm"),
@@ -1122,11 +1240,15 @@ def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
     project_type = decisions.get("project_type", {}).get("value")
     if not project_type:
         return ["project_type", "dimensions_mm", "use"]
-    is_cabinet = _fold(str(project_type)) in {"gabinete", "cabinet", "cajonera"}
+    is_cabinet = _fold(str(project_type)) in {
+        "gabinete", "cabinet", "cajonera", "closet", "clóset",
+    }
     if not is_cabinet:
         return ["dimensions_mm", "material", "thickness_mm", "construction"]
     coffee = decisions.get("use", {}).get("value") == "coffee"
-    fields = ["dimensions_mm", "use", "wall_contact"]
+    fields = ["dimensions_mm", "wall_contact"]
+    if _fold(str(project_type)) not in {"closet"}:
+        fields.insert(1, "use")
     if coffee:
         fields.extend(("countertop", "support"))
     fields.extend(("internal_layout", "drawers", "doors", "back", "material",
@@ -1146,17 +1268,1237 @@ def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(fields))
 
 
+def _guided_needs_modular_spec(decisions: dict[str, dict[str, Any]]) -> bool:
+    project_type = _fold(str(decisions.get("project_type", {}).get("value", "")))
+    if project_type == "closet":
+        return True
+    doors = decisions.get("doors", {}).get("value")
+    drawers = decisions.get("drawers", {}).get("value")
+    countertop = decisions.get("countertop", {}).get("value")
+    layout = decisions.get("internal_layout", {}).get("value")
+    support = decisions.get("support", {}).get("value")
+    back = decisions.get("back", {}).get("value")
+    return bool(
+        type(doors) is dict and type(doors.get("count")) is int
+        and doors["count"] > 0
+        or type(drawers) is dict and type(drawers.get("count")) is int
+        and drawers["count"] > 0
+        or type(countertop) is dict and countertop.get("present") is True
+        or type(layout) is list and any(item in ("horizontal", "vertical") for item in layout)
+        or type(support) is dict and support.get("style") in {"legs", "plinth", "wall_mounted"}
+        or back not in (None, "none", "pending")
+    )
+
+
+def _guided_compose_closet_spec(
+    decisions: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
+    """Translate the narrow confirmed two-module closet pattern into F6."""
+    assumptions: list[dict[str, Any]] = []
+    blockers: list[str] = []
+
+    def confirmed(field: str) -> Any:
+        entry = decisions.get(field)
+        if (type(entry) is not dict or entry.get("status") != "confirmed"
+                or entry.get("source") != "OWNER_TEXT"):
+            blockers.append(f"{field}:confirmed_owner_text_required")
+            return None
+        return entry.get("value")
+
+    dimensions = confirmed("dimensions_mm")
+    material = confirmed("material")
+    thickness = confirmed("thickness_mm")
+    construction = confirmed("construction")
+    support = confirmed("support")
+    wall_contact = confirmed("wall_contact")
+    layout = confirmed("internal_layout")
+    drawers = confirmed("drawers")
+    doors = confirmed("doors")
+    front_style = confirmed("front_style")
+    back = confirmed("back")
+    if blockers:
+        return None, assumptions, list(dict.fromkeys(blockers))
+
+    if (type(dimensions) is not dict
+            or set(dimensions) != {"width_mm", "height_mm", "depth_mm"}
+            or any(type(value) is not int or value <= 0 for value in dimensions.values())):
+        blockers.append("dimensions_mm:positive_exterior_integers_required")
+    if type(thickness) is not int or thickness <= 0:
+        blockers.append("thickness_mm:positive_integer_required")
+    if material not in {"melamina", "mdp", "mdf", "mdf_rh"}:
+        blockers.append("material:unsupported_catalog_value")
+    if construction not in {"sides_full", "top_bottom_full"}:
+        blockers.append("construction:unsupported")
+    if support != {"style": "floor_direct"} or wall_contact is not False:
+        blockers.append("closet:freestanding_floor_support_required")
+    if drawers != "none":
+        blockers.append("closet:drawer_layout_not_supported_by_this_composer")
+    if back != "none":
+        blockers.append("closet:explicit_absent_back_required")
+    if front_style not in {"overlay", "inset"}:
+        blockers.append("front_style:explicit_overlay_or_inset_required")
+    if type(layout) is not dict or set(layout) - {
+        "elements", "shelves_per_module", "module_count",
+        "shelf_position_from_clear_bottom_mm",
+    }:
+        blockers.append("internal_layout:two_module_shelf_description_required")
+    if type(doors) is not dict:
+        blockers.append("doors:per_module_count_required")
+    if blockers:
+        return None, assumptions, list(dict.fromkeys(blockers))
+
+    count = layout.get("module_count")
+    shelf_count = layout.get("shelves_per_module")
+    position = layout.get("shelf_position_from_clear_bottom_mm")
+    if type(count) is not int or not 1 <= count <= 12:
+        blockers.append("internal_layout:module_count_1_to_12_required")
+    if (type(shelf_count) is not int or shelf_count != 1
+            or layout.get("elements") != ["horizontal"]):
+        blockers.append("internal_layout:one_horizontal_shelf_per_module_required")
+    if type(position) is not int or position < 0:
+        blockers.append("internal_layout:explicit_shelf_position_required")
+    width = dimensions.get("width_mm") if type(dimensions) is dict else None
+    height = dimensions.get("height_mm") if type(dimensions) is dict else None
+    depth = dimensions.get("depth_mm") if type(dimensions) is dict else None
+    if type(count) is int and type(width) is int and count > 0 and width % count:
+        blockers.append("internal_layout:equal_module_width_not_integral")
+    per_module_doors = doors.get("per_module_count")
+    door_modules = doors.get("module_count")
+    if (type(per_module_doors) is not int or per_module_doors not in (1, 2)
+            or door_modules != count or doors.get("count") != per_module_doors * count):
+        blockers.append("doors:module_distribution_must_be_explicit")
+    if (type(height) is int and type(thickness) is int and type(position) is int
+            and position > height - 3 * thickness):
+        blockers.append("internal_layout:shelf_position_outside_clear_height")
+    if blockers:
+        return None, assumptions, list(dict.fromkeys(blockers))
+
+    material_names = {
+        "melamina": "MELAMINA", "mdp": "MDP", "mdf": "MDF", "mdf_rh": "MDF_RH",
+    }
+    material_id = f"{material_names[material]}_{thickness}"
+    modules = []
+    module_width = width // count
+    for index in range(count):
+        module_id = f"CLOSET_{index + 1}"
+        fronts: Any = "none"
+        if per_module_doors:
+            if front_style == "overlay":
+                fronts = {
+                    "style": "overlay", "leaf_count": per_module_doors,
+                    "material_id": material_id, "thickness_mm": thickness,
+                    "hinge_sides": (["left", "right"] if per_module_doors == 2
+                                    else ["left"]),
+                    "left_reveal_mm": 3, "right_reveal_mm": 3,
+                    "top_reveal_mm": 4, "bottom_reveal_mm": 4,
+                }
+                if per_module_doors == 2:
+                    fronts["center_gap_mm"] = 4
+            else:
+                fronts = {
+                    "style": "inset", "leaf_count": per_module_doors,
+                    "material_id": material_id, "thickness_mm": thickness,
+                    "hinge_sides": (["left", "right"] if per_module_doors == 2
+                                    else ["left"]),
+                    "left_clearance_mm": 3, "right_clearance_mm": 3,
+                    "top_clearance_mm": 4, "bottom_clearance_mm": 4,
+                }
+                if per_module_doors == 2:
+                    fronts["center_gap_mm"] = 4
+            assumptions.append({
+                "field": f"{module_id}.front_geometry",
+                "value": {
+                    "style": front_style,
+                    "thickness_mm": thickness,
+                    "hinge_sides": fronts["hinge_sides"],
+                    "perimeter_reveals_or_clearances_mm": [3, 3, 4, 4],
+                    "center_gap_mm": 4 if per_module_doors == 2 else None,
+                },
+                "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                "reason": "Parámetros ilustrativos requeridos por F6 para geometría nominal; no validan herrajes ni montaje.",
+            })
+        modules.append({
+            "module_id": module_id, "width_mm": module_width,
+            "panel_thickness_mm": thickness, "material_id": material_id,
+            "construction": construction, "support": "floor",
+            "fronts": fronts, "back": "none", "drawers": "none",
+            "horizontal_divider": {
+                "material_id": material_id, "thickness_mm": thickness,
+                "position_from_clear_bottom_mm": position,
+                "depth_mm": depth, "depth_from_front_mm": 0,
+            },
+        })
+        assumptions.append({
+            "field": f"{module_id}.shelf_depth_and_setback",
+            "value": {"depth_mm": depth, "depth_from_front_mm": 0},
+            "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+            "reason": "La solicitud da el fondo exterior pero no la profundidad ni el retiro de repisa; se representa de forma reversible a fondo completo y al ras del frente.",
+        })
+
+    return {
+        "type": "modular_run", "application": "closet",
+        "width_mm": width, "height_mm": height, "depth_mm": depth,
+        "installation": "freestanding", "modules": modules,
+    }, assumptions, []
+
+
+def _guided_compose_product_spec(
+    decisions: dict[str, dict[str, Any]], utterance: str,
+    natural_preview: dict[str, Any],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
+    """Translate one confirmed natural product into the existing F6 module."""
+    assumptions: list[dict[str, Any]] = []
+    blockers: list[str] = []
+    values: dict[str, Any] = {}
+    for field in (
+        "project_type", "dimensions_mm", "use", "material", "thickness_mm",
+        "construction", "wall_contact", "support", "internal_layout",
+        "drawers", "doors", "back", "countertop",
+    ):
+        entry = decisions.get(field)
+        if (field == "internal_layout" and type(entry) is dict
+                and entry.get("value") == [] and entry.get("status") == "proposed"
+                and entry.get("source") == "ENGINE_CALCULATED"):
+            values[field] = []
+            assumptions.append({
+                "field": "internal_layout", "value": [],
+                "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                "reason": "No se añaden divisores fijos al módulo de cajones.",
+            })
+            continue
+        if (type(entry) is not dict or entry.get("value") in (None, "pending")
+                or entry.get("source") != "OWNER_TEXT"
+                or entry.get("status") != "confirmed"):
+            blockers.append(f"{field}:confirmed_owner_text_required")
+            continue
+        values[field] = entry["value"]
+    if blockers:
+        return None, assumptions, blockers
+
+    dimensions = values["dimensions_mm"]
+    if (type(dimensions) is not dict
+            or set(dimensions) != {"width_mm", "height_mm", "depth_mm"}
+            or any(type(v) is not int or v <= 0 for v in dimensions.values())):
+        blockers.append("dimensions_mm:positive_carcass_dimensions_required")
+    width = dimensions.get("width_mm") if type(dimensions) is dict else None
+    height = dimensions.get("height_mm") if type(dimensions) is dict else None
+    depth = dimensions.get("depth_mm") if type(dimensions) is dict else None
+    thickness = values["thickness_mm"]
+    if type(thickness) is not int or thickness <= 0:
+        blockers.append("thickness_mm:positive_integer_required")
+    material_name = _fold(str(values["material"]))
+    material_prefix = {
+        "melamina": "MELAMINA", "mdp": "MDP", "mdf": "MDF",
+        "mdf_rh": "MDF_RH",
+    }.get(material_name)
+    if material_prefix is None:
+        blockers.append("material:unsupported_catalog_value")
+    if values["construction"] not in {"sides_full", "top_bottom_full"}:
+        blockers.append("construction:unsupported")
+    use = _fold(str(values["use"]))
+    application = "kitchen" if use == "kitchen" else "cabinet_run"
+    support = values["support"]
+    support_style = support.get("style") if type(support) is dict else None
+    support_height = support.get("height_mm") if type(support) is dict else None
+    if support_style not in {"floor_direct", "legs", "plinth", "wall_mounted"}:
+        blockers.append("support:explicit_supported_style_required")
+    if support_style in {"floor_direct", "wall_mounted"}:
+        support_height = 0
+    if support_style in {"legs", "plinth"} and (
+            type(support_height) is not int or support_height <= 0):
+        blockers.append("support:positive_height_required")
+    wall_contact = values["wall_contact"]
+    if type(wall_contact) is not bool:
+        blockers.append("wall_contact:boolean_required")
+    if support_style == "wall_mounted" and wall_contact is not True:
+        blockers.append("wall_mounted:owner_wall_contact_required")
+    if blockers:
+        return None, assumptions, list(dict.fromkeys(blockers))
+
+    body_material_id = f"{material_prefix}_{thickness}"
+    doors = values["doors"]
+    door_count = doors.get("count") if type(doors) is dict else 0
+    if doors != "none" and (type(door_count) is not int or door_count < 1):
+        blockers.append("doors:explicit_positive_count_or_none_required")
+    front_style = decisions.get("front_style", {}).get("value")
+    if type(door_count) is int and door_count > 0 and front_style not in {"overlay", "inset"}:
+        blockers.append("front_style:confirmed_overlay_or_inset_required")
+    back = values["back"]
+    if back != "none":
+        blockers.append("back:only_explicit_absence_supported_by_this_review")
+    layout = values["internal_layout"]
+    layout_elements = layout.get("elements", []) if type(layout) is dict else layout
+    if type(layout_elements) is not list:
+        blockers.append("internal_layout:list_or_elements_required")
+    elif "vertical" in layout_elements:
+        blockers.append("internal_layout:vertical_divider_position_required")
+
+    countertop = values["countertop"]
+    has_countertop = type(countertop) is dict and countertop.get("present") is True
+    countertop_module: dict[str, Any] = {}
+    if has_countertop:
+        top_dimensions = countertop.get("dimensions_mm")
+        if (type(top_dimensions) is not dict
+                or type(top_dimensions.get("width_mm")) is not int
+                or type(top_dimensions.get("depth_mm")) is not int
+                or type(countertop.get("thickness_mm")) is not int):
+            blockers.append("countertop:owner_dimensions_and_thickness_required")
+        else:
+            top_width = top_dimensions["width_mm"]
+            top_depth = top_dimensions["depth_mm"]
+            left_overhang = (top_width - width) // 2
+            right_overhang = top_width - width - left_overhang
+            depth_overhang = top_depth - depth
+            front_overhang = depth_overhang // 2
+            rear_overhang = top_depth - depth - front_overhang
+            if min(left_overhang, right_overhang, front_overhang, rear_overhang) < 0:
+                blockers.append("countertop:dimensions_smaller_than_carcass")
+            total = height + support_height + countertop["thickness_mm"]
+            declared_total = re.search(
+                r"\baltura\s+total\b[^.;\n]{0,70}?(\d{2,5})\s*mm\b",
+                _fold(utterance),
+            )
+            if declared_total and int(declared_total.group(1)) != total:
+                blockers.append("countertop:declared_overall_height_conflicts_with_components")
+            material_id = countertop.get("material_id") or "MATERIAL_PENDIENTE"
+            assumptions.append({
+                "field": "vertical_dimensions_review",
+                "value": {
+                    "carcass_height_mm": height,
+                    "support_height_mm": support_height,
+                    "countertop_thickness_mm": countertop["thickness_mm"],
+                    "overall_height_mm": total,
+                },
+                "source": "ENGINE_CALCULATED_FROM_OWNER_DECLARED_DIMENSIONS",
+                "reason": "Separa carcasa, apoyo y mesón; no valida la estructura ni autoriza fabricación.",
+            })
+            countertop_module = {
+                "countertop": {
+                    "material_id": material_id,
+                    "thickness_mm": countertop["thickness_mm"],
+                    "width_mm": top_width, "depth_mm": top_depth,
+                    "left_overhang_mm": left_overhang,
+                    "right_overhang_mm": right_overhang,
+                    "front_overhang_mm": front_overhang,
+                    "rear_overhang_mm": rear_overhang,
+                },
+                "support_concept": {
+                    "style": support_style,
+                    "support_height_mm": support_height,
+                    "overall_height_mm": total,
+                },
+            }
+            assumptions.extend((
+                {
+                    "field": "countertop.material_id", "value": material_id,
+                    "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                    "reason": "No se declaró material comercial para el mesón.",
+                },
+                {
+                    "field": "countertop.overhangs_mm",
+                    "value": {"left": left_overhang, "right": right_overhang,
+                              "front": front_overhang, "rear": rear_overhang},
+                    "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                    "reason": "Reparto geométrico equilibrado de las diferencias indicadas.",
+                },
+                {
+                    "field": "support_concept",
+                    "value": {"style": support_style,
+                              "support_height_mm": support_height,
+                              "overall_height_mm": total},
+                    "source": "OWNER_TEXT_PLUS_ENGINE_CALCULATION",
+                    "reason": "Patas conceptuales; no se crean piezas ni se valida carga.",
+                },
+            ))
+    elif type(countertop) is not dict or countertop.get("present") is not False:
+        blockers.append("countertop:explicit_presence_or_absence_required")
+
+    module: dict[str, Any] = {
+        "module_id": {
+            "kitchen": "KITCHEN_1", "bathroom": "BATHROOM_1",
+            "bedroom": "BEDROOM_1",
+        }.get(use, "CABINET_1"),
+        "width_mm": width, "panel_thickness_mm": thickness,
+        "material_id": body_material_id,
+        "construction": values["construction"],
+        "support": "wall" if support_style == "wall_mounted" else "floor",
+        "fronts": "none", "back": "none", "drawers": "none",
+    }
+    if countertop_module:
+        module.update(countertop_module)
+
+    if type(door_count) is int and door_count > 0:
+        hinges = ["left", "right"] if door_count == 2 else ["left"]
+        front: dict[str, Any] = {
+            "style": front_style, "leaf_count": door_count,
+            "material_id": body_material_id, "thickness_mm": thickness,
+            "hinge_sides": hinges,
+        }
+        if front_style == "overlay":
+            front.update({"left_reveal_mm": 3, "right_reveal_mm": 3,
+                          "top_reveal_mm": 4, "bottom_reveal_mm": 4})
+        else:
+            front.update({"left_clearance_mm": 3, "right_clearance_mm": 3,
+                          "top_clearance_mm": 4, "bottom_clearance_mm": 4})
+        if door_count == 2:
+            front["center_gap_mm"] = 4
+        module["fronts"] = front
+        assumptions.append({
+            "field": f"{module['module_id']}.front_geometry",
+            "value": {"style": front_style, "thickness_mm": thickness,
+                      "hinge_sides": hinges,
+                      "perimeter_reveals_or_clearances_mm": [3, 3, 4, 4],
+                      "center_gap_mm": 4 if door_count == 2 else None},
+            "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+            "reason": "La geometría nominal requiere luces y lados de bisagra; no valida un SKU.",
+        })
+
+    if "horizontal" in layout_elements:
+        geometry = design({
+            "type": "cabinet", "width_mm": width, "height_mm": height,
+            "depth_mm": depth, "panel_thickness_mm": thickness,
+            "construction": values["construction"],
+        })
+        clear_height = geometry["dimensions"]["clear_height_mm"]
+        position = clear_height // 2
+        module["horizontal_divider"] = {
+            "material_id": body_material_id, "thickness_mm": thickness,
+            "position_from_clear_bottom_mm": position,
+            "depth_mm": depth, "depth_from_front_mm": 0,
+        }
+        assumptions.append({
+            "field": f"{module['module_id']}.horizontal_divider",
+            "value": {"position_from_clear_bottom_mm": position,
+                      "depth_mm": depth, "depth_from_front_mm": 0},
+            "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+            "reason": "El texto pide una repisa horizontal, pero no fija altura ni retiro.",
+        })
+    elif layout_elements not in ([], ["open"]):
+        blockers.append("internal_layout:unsupported_for_single_module_composer")
+
+    drawers = values["drawers"]
+    if drawers != "none":
+        drawer_count = drawers.get("count") if type(drawers) is dict else None
+        if type(drawer_count) is not int or not 1 <= drawer_count <= 4:
+            blockers.append("drawers:one_to_four_explicit_count_required")
+        elif front_style != "overlay":
+            blockers.append("drawers:overlay_facades_required_for_this_review")
+        else:
+            option = natural_preview.get("illustrative_drawer_layout_option")
+            reference = (option.get("proposed_request", {}).get("module_spec")
+                         if type(option) is dict
+                         and type(option.get("proposed_request")) is dict else None)
+            if (type(reference) is not dict or reference.get("width_mm") != width
+                    or reference.get("height_mm") != height
+                    or reference.get("depth_mm") != depth
+                    or reference.get("panel_thickness_mm") != thickness
+                    or reference.get("construction") != values["construction"]
+                    or len(reference.get("drawer_weights", [])) != drawer_count):
+                blockers.append("drawers:F1_layout_proposal_missing_or_mismatched")
+            else:
+                plan = propose_drawer_layout(reference)
+                module["drawer_layout_reference"] = copy.deepcopy(reference)
+                drawer_parts = []
+                for opening in plan["opening_plan"]:
+                    opening_height = opening["opening_height_mm"]
+                    box_height = max(1, opening_height - 20)
+                    drawer_parts.append({
+                        "drawer_id": opening["drawer_id"],
+                        "opening_bottom_offset_mm": opening["opening_bottom_offset_mm"],
+                        "opening_height_mm": opening_height,
+                        "opening_depth_mm": depth,
+                        "box_height_mm": box_height,
+                        "panel_thickness_mm": thickness,
+                        "bottom_thickness_mm": thickness,
+                        "slide_clearance_left_mm": 0,
+                        "slide_clearance_right_mm": 0,
+                        "front_setback_mm": 0, "rear_setback_mm": 0,
+                        "material_id": body_material_id,
+                        "bottom_material_id": body_material_id,
+                        "facade": {
+                            "style": "overlay", "material_id": body_material_id,
+                            "thickness_mm": thickness,
+                            "left_overlap_mm": 1, "right_overlap_mm": 1,
+                            "top_overlap_mm": 1, "bottom_overlap_mm": 1,
+                            "opening_system": decisions.get("opening_intent", {}).get(
+                                "value", "pending"),
+                        },
+                        "front_construction": "separate",
+                    })
+                module["drawers"] = drawer_parts
+                assumptions.append({
+                    "field": "drawer_layout_reference",
+                    "value": copy.deepcopy(reference),
+                    "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                    "reason": "Propuesta de aperturas F1 desde el texto; pesos y franja vienen de la propuesta ilustrativa existente.",
+                })
+                assumptions.append({
+                    "field": "drawer_box_and_facade_geometry",
+                    "value": {
+                        "box_height_reduction_mm": 20,
+                        "box_depth_mm": depth,
+                        "slide_clearance_each_side_mm": 0,
+                        "front_and_rear_setback_mm": [0, 0],
+                        "bottom_thickness_mm": thickness,
+                        "facade_overlap_mm_each_edge": 1,
+                        "front_construction": "separate",
+                    },
+                    "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                    "reason": "Parámetros solo geométricos; no certifican recorrido, corredera, holgura, uniones ni fabricación.",
+                })
+
+    if blockers:
+        return None, assumptions, list(dict.fromkeys(blockers))
+
+    max_depth_match = re.search(
+        r"\b(?:fondo|profundidad)\s+(?:exterior\s+)?m[aá]xim[oa]\s+"
+        r"montad[oa][^.;\n]{0,40}?(\d{2,5})\s*mm\b|"
+        r"\b(\d{2,5})\s*mm\s+(?:de\s+)?(?:fondo|profundidad)\s+"
+        r"(?:exterior\s+)?m[aá]xim[oa]\s+montad[oa]\b",
+        _fold(utterance),
+    )
+    max_assembled_depth = int(next(
+        group for group in max_depth_match.groups() if group
+    )) if max_depth_match else None
+    spec = {
+        "type": "modular_run", "application": application,
+        "width_mm": width, "height_mm": height, "depth_mm": depth,
+        "installation": "wall_mounted" if support_style == "wall_mounted" else "freestanding",
+        "modules": [module],
+    }
+    if max_assembled_depth is not None:
+        spec["max_assembled_depth_mm"] = max_assembled_depth
+        assumptions.append({
+            "field": "max_assembled_depth_mm", "value": max_assembled_depth,
+            "source": "OWNER_TEXT", "reason": "Límite exterior máximo declarado por el usuario.",
+        })
+    return spec, assumptions, []
+
+
+def _guided_wall_mounted_concept() -> dict[str, Any]:
+    question = (
+        "¿Qué construcción, fondo e interior quieres revisar? Un instalador debe "
+        "definir y comprobar el amarre y el anclaje según el muro y la carga; "
+        "esta vista no certifica el montaje."
+    )
+    return {
+        "nominal_draft_request": None,
+        "nominal_draft_scope": "CONCEPT_ONLY",
+        "nominal_draft_blockers": [
+            "wall_mounted:construction_back_and_internal_layout_unconfirmed",
+            "wall_mounted:installer_must_assess_wall_fixing_and_load",
+        ],
+        "nominal_draft_next_question": question,
+        "nominal_draft_engine_status": "CONCEPT_ONLY",
+        "nominal_draft_geometry_sha256": None,
+        "nominal_draft_piece_count": 0,
+        "nominal_draft_provenance": "CLIENT_TEXT_REVIEW_ONLY",
+        "nominal_draft_warnings": [
+            "NOT_CERTIFIED_INSTALLATION",
+            "NO_ANCHORS_OR_LOAD_CAPACITY_ARE_PROPOSED",
+            "HARDWARE_NOT_SELECTED_OR_CERTIFIED",
+        ],
+        "nominal_draft_opening_review": {
+            "status": "PENDING", "elements": [], "hardware_selected": False,
+        },
+        "can_generate_f7c": False,
+        **{flag: False for flag in _FLAGS},
+    }
+
+
+def _guided_open_cabinet_handoff(
+    decisions: dict[str, dict[str, Any]], *, photo_attached: bool,
+) -> dict[str, Any]:
+    """Build a review-only request from explicit owner decisions and existing F6."""
+    required = (
+        "project_type", "dimensions_mm", "material", "thickness_mm",
+        "construction", "wall_contact", "support", "internal_layout",
+        "drawers", "doors", "back", "countertop",
+    )
+    blockers: list[str] = []
+    warnings = [
+        "MATERIAL_ID_IS_GENERIC_NOT_SKU_OR_FINISH.",
+        "NOMINAL_PANELS_DO_NOT_INCLUDE_EDGEBAND_OR_CUT_COMPENSATION.",
+        "JOINTS_LOAD_STABILITY_AND_ANCHORAGE_REMAIN_UNVERIFIED.",
+    ]
+    values: dict[str, Any] = {}
+    for field in required:
+        entry = decisions.get(field)
+        if (field == "internal_layout" and type(entry) is dict
+                and entry.get("value") == [] and entry.get("status") == "proposed"
+                and entry.get("source") == "ENGINE_CALCULATED"):
+            values[field] = []
+            warnings.append("NO_ADDITIONAL_DIVIDERS_ENGINE_PROPOSED_NOT_OWNER_APPROVED.")
+        elif type(entry) is not dict or entry.get("value") in (None, "pending"):
+            blockers.append(f"{field}:explicit_confirmation_required")
+        elif entry.get("source") != "OWNER_TEXT":
+            blockers.append(f"{field}:OWNER_TEXT_required")
+        elif entry.get("status") != "confirmed":
+            blockers.append(f"{field}:confirmed_value_required")
+        else:
+            values[field] = entry["value"]
+
+    project_type = _fold(str(values.get("project_type", "")))
+    if "project_type" in values and project_type not in {
+        "gabinete", "cabinet", "cajonera", "closet",
+    }:
+        blockers.append("project_type:unsupported")
+
+    dimensions = values.get("dimensions_mm")
+    if ("dimensions_mm" in values and (
+            type(dimensions) is not dict
+            or set(dimensions) != {"width_mm", "height_mm", "depth_mm"}
+            or any(type(n) is not int or n <= 0 for n in dimensions.values()))):
+        blockers.append("dimensions_mm:positive_exterior_integers_required")
+
+    thickness = values.get("thickness_mm")
+    if "thickness_mm" in values and (type(thickness) is not int or thickness <= 0):
+        blockers.append("thickness_mm:positive_integer_required")
+    materials = {"melamina": "MELAMINA", "mdp": "MDP", "mdf": "MDF", "mdf_rh": "MDF_RH"}
+    material = values.get("material")
+    if "material" in values and _fold(str(material)) not in materials:
+        blockers.append("material:unsupported_catalog_value")
+    if "construction" in values and values["construction"] not in {
+            "sides_full", "top_bottom_full"}:
+        blockers.append("construction:unsupported")
+
+    exact_choices = (
+        ("wall_contact", False, "wall_contact:must_be_separate"),
+        ("support", {"style": "floor_direct"}, "support:floor_direct_required"),
+        ("internal_layout", ["open"], "internal_layout:must_be_open"),
+        ("drawers", "none", "drawers:unsupported_for_open_cabinet"),
+        ("doors", "none", "doors:unsupported_for_open_cabinet"),
+        ("back", "none", "back:must_be_explicitly_absent"),
+        ("countertop", {"present": False}, "countertop:must_be_explicitly_absent"),
+    )
+    for field, expected, reason in exact_choices:
+        internal_layout = decisions.get("internal_layout")
+        if (field == "internal_layout" and type(internal_layout) is dict
+                and internal_layout.get("value") == []
+                and internal_layout.get("status") == "proposed"
+                and internal_layout.get("source") == "ENGINE_CALCULATED"):
+            continue
+        if (field in values and (type(values[field]) is not type(expected)
+                                 or values[field] != expected)):
+            blockers.append(reason)
+
+    for field in ("front_style", "opening_intent"):
+        entry = decisions.get(field)
+        if (type(entry) is dict and entry.get("value") not in (None, "pending", "none", "")
+                and entry.get("status") in ("confirmed", "proposed")):
+            blockers.append(f"{field}:requires_explicit_fronts")
+
+    for field in ("countertop_support", "cabinet_bracing", "anti_tip_anchor"):
+        entry = decisions.get(field)
+        if (type(entry) is dict and entry.get("value") not in (None, "pending", "none", "")
+                and entry.get("status") in ("confirmed", "proposed")):
+            blockers.append(f"{field}:not_represented_in_open_cabinet_request")
+
+    finish_entry = decisions.get("finish")
+    if (type(finish_entry) is dict
+            and finish_entry.get("value") not in (None, "pending", "none", "")
+            and finish_entry.get("status") in ("confirmed", "proposed")):
+        warnings.append("FINISH_NOT_REPRESENTED_IN_GEOMETRY.")
+    if photo_attached:
+        warnings.extend((
+            "PHOTO_NOT_USED_FOR_GEOMETRY",
+            "The nominal draft does not reproduce or validate the photo.",
+        ))
+
+    result: dict[str, Any] = {
+        "nominal_draft_request": None,
+        "nominal_draft_scope": "BLOCKED_UNSUPPORTED_OR_INCOMPLETE",
+        "nominal_draft_blockers": list(dict.fromkeys(blockers))[:16],
+        "nominal_draft_geometry_sha256": None,
+        "nominal_draft_piece_count": 0,
+        "nominal_draft_provenance": None,
+        "nominal_draft_warnings": warnings,
+    }
+    if blockers:
+        return result
+
+    width = dimensions["width_mm"]
+    height = dimensions["height_mm"]
+    depth = dimensions["depth_mm"]
+    material_id = f"{materials[_fold(str(material))]}_{thickness}"
+    module_spec = {
+        "type": "modular_run",
+        "application": "cabinet_run",
+        "width_mm": width,
+        "height_mm": height,
+        "depth_mm": depth,
+        "installation": "freestanding",
+        "modules": [{
+            "module_id": "GABINETE_1",
+            "width_mm": width,
+            "panel_thickness_mm": thickness,
+            "material_id": material_id,
+            "construction": values["construction"],
+            "fronts": "none",
+            "back": "none",
+            "support": "floor",
+            "drawers": "none",
+        }],
+    }
+    request = {"action": "modular", "module_spec": module_spec}
+    try:
+        maestro = consult_maestro(request)
+        modular = maestro.get("modular")
+        if type(modular) is not dict:
+            blockers.append("maestro:modular_result_missing")
+        else:
+            parts = modular.get("parts")
+            roles = {part.get("role") for part in parts if type(part) is dict} \
+                if type(parts) is list else set()
+            piece_ids = [part.get("piece_id") for part in parts if type(part) is dict] \
+                if type(parts) is list else []
+            if (modular.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                    or modular.get("piece_count") != 4 or len(piece_ids) != 4
+                    or len(set(piece_ids)) != 4
+                    or roles != {"left_side", "right_side", "top", "bottom"}
+                    or any(modular.get(flag) is not False for flag in _FLAGS)
+                    or any(maestro.get(flag) is not False for flag in _FLAGS)):
+                blockers.append("maestro:four_panel_review_contract_mismatch")
+            cad = cad_exchange(modular)
+            boxes = cad.get("boxes")
+            cad_ids = [box.get("piece_id") for box in boxes if type(box) is dict] \
+                if type(boxes) is list else []
+            cad_roles = {box.get("role") for box in boxes if type(box) is dict} \
+                if type(boxes) is list else set()
+            if (cad.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                    or cad.get("bounds_xyz_mm") != [width, height, depth]
+                    or len(cad_ids) != 4 or len(set(cad_ids)) != 4
+                    or set(cad_ids) != set(piece_ids)
+                    or cad_roles != {"left_side", "right_side", "top", "bottom"}
+                    or type(cad.get("geometry_sha256")) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", cad["geometry_sha256"])
+                    or any(cad.get(flag) is not False for flag in (
+                        "fabrication_ready", "cutting_ready", "drilling_ready",
+                    ))):
+                blockers.append("cad_exchange:geometry_or_safety_contract_mismatch")
+    except MaestroError as exc:
+        blockers.append(f"maestro:{exc}")
+    except DesignError as exc:
+        blockers.append(f"cad_or_geometry:{exc}")
+
+    if blockers:
+        result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:16]
+        return result
+    result.update({
+        "nominal_draft_request": request,
+        "nominal_draft_scope": "OPEN_CABINET_REVIEW_ONLY",
+        "nominal_draft_blockers": [],
+        "nominal_draft_geometry_sha256": cad["geometry_sha256"],
+        "nominal_draft_piece_count": 4,
+        "nominal_draft_provenance": "CLIENT_DECLARED_OWNER_TEXT_NOT_AUTHENTICATED",
+    })
+    return result
+
+
+def _guided_multicomponent_handoff(
+    decisions: dict[str, dict[str, Any]], detail_spec: dict[str, Any] | None, *,
+    photo_attached: bool, utterance: str = '', revision: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a proposed F6 composition against owner declarations and reuse Maestro."""
+    warnings = [
+        "CLIENT_PROPOSED_GEOMETRY_NOT_OWNER_APPROVED.",
+        "HARDWARE_NOT_SELECTED_OR_CERTIFIED.",
+        "FINISH_NOT_REPRESENTED_IN_GEOMETRY.",
+        "NOMINAL_PANELS_DO_NOT_INCLUDE_EDGEBAND_OR_CUT_COMPENSATION.",
+        "LOADS_JOINTS_STABILITY_AND_ANCHORAGE_REMAIN_UNVERIFIED.",
+    ]
+    if photo_attached:
+        warnings.extend((
+            "PHOTO_NOT_USED_FOR_GEOMETRY",
+            "The nominal draft does not reproduce or validate the photo.",
+        ))
+    result: dict[str, Any] = {
+        "nominal_draft_request": None,
+        "nominal_draft_scope": "BLOCKED_UNSUPPORTED_OR_INCOMPLETE",
+        "nominal_draft_blockers": [],
+        "nominal_draft_engine_status": None,
+        "nominal_draft_geometry_sha256": None,
+        "nominal_draft_piece_count": 0,
+        "nominal_draft_provenance": None,
+        "nominal_draft_warnings": warnings,
+        "nominal_draft_opening_review": {
+            "status": "PENDING", "elements": [],
+            "hardware_selected": False,
+        },
+        "can_generate_f7c": False,
+    }
+    blockers: list[str] = []
+    required = (
+        "project_type", "dimensions_mm", "material", "thickness_mm",
+        "construction", "wall_contact", "support", "internal_layout",
+        "drawers", "doors", "back",
+    )
+    declared_project_type = _fold(str(
+        decisions.get("project_type", {}).get("value", "")
+    ))
+    if declared_project_type != "closet":
+        required = (*required, "countertop")
+    values: dict[str, Any] = {}
+    for field in required:
+        entry = decisions.get(field)
+        if (field == "internal_layout" and type(entry) is dict
+                and entry.get("value") == [] and entry.get("status") == "proposed"
+                and entry.get("source") == "ENGINE_CALCULATED"):
+            values[field] = []
+            warnings.append("NO_ADDITIONAL_DIVIDERS_ENGINE_PROPOSED_NOT_OWNER_APPROVED.")
+        elif type(entry) is not dict or entry.get("value") in (None, "pending"):
+            blockers.append(f"{field}:explicit_confirmation_required")
+        elif entry.get("source") != "OWNER_TEXT":
+            blockers.append(f"{field}:OWNER_TEXT_required")
+        elif entry.get("status") != "confirmed":
+            blockers.append(f"{field}:confirmed_value_required")
+        else:
+            values[field] = entry["value"]
+
+    project_type = _fold(str(values.get("project_type", "")))
+    allowed_types = {"gabinete", "cabinet", "cajonera", "closet"}
+    if "project_type" in values and project_type not in allowed_types:
+        blockers.append("project_type:unsupported")
+    dimensions = values.get("dimensions_mm")
+    valid_dimensions = (
+        type(dimensions) is dict
+        and set(dimensions) == {"width_mm", "height_mm", "depth_mm"}
+        and all(type(value) is int and value > 0 for value in dimensions.values())
+    )
+    if "dimensions_mm" in values and not valid_dimensions:
+        blockers.append("dimensions_mm:positive_exterior_integers_required")
+
+    material_names = {
+        "melamina": "MELAMINA", "mdp": "MDP", "mdf": "MDF",
+        "mdf_rh": "MDF_RH",
+    }
+    material = _fold(str(values.get("material", "")))
+    thickness = values.get("thickness_mm")
+    if "material" in values and material not in material_names:
+        blockers.append("material:unsupported_catalog_value")
+    if "thickness_mm" in values and (type(thickness) is not int or thickness <= 0):
+        blockers.append("thickness_mm:positive_integer_required")
+    body_material_id = (
+        f"{material_names[material]}_{thickness}"
+        if material in material_names and type(thickness) is int and thickness > 0
+        else None
+    )
+    construction = values.get("construction")
+    if "construction" in values and construction not in {"sides_full", "top_bottom_full"}:
+        blockers.append("construction:unsupported")
+    wall_contact = values.get("wall_contact")
+    if "wall_contact" in values and type(wall_contact) is not bool:
+        blockers.append("wall_contact:boolean_required")
+
+    support = values.get("support")
+    support_style = support.get("style") if type(support) is dict else None
+    support_height = support.get("height_mm") if type(support) is dict else None
+    if "support" in values and support_style not in {
+        "floor_direct", "legs", "plinth", "wall_mounted",
+    }:
+        blockers.append("support:explicit_supported_style_required")
+    if support_style in {"legs", "plinth"} and (
+        type(support_height) is not int or support_height <= 0
+    ):
+        blockers.append("support:positive_height_required")
+
+    if detail_spec is None:
+        blockers.append("nominal_detail_spec:explicit_modular_run_required")
+        result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:32]
+        return result
+    if type(detail_spec) is not dict:
+        blockers.append("nominal_detail_spec:object_required")
+        modules: list[dict[str, Any]] = []
+    else:
+        if set(detail_spec) - ROOT_FIELDS:
+            blockers.append("module_spec:unknown_root_fields")
+        if detail_spec.get("type") != "modular_run":
+            blockers.append("module_spec:type_must_be_modular_run")
+        expected_application = (
+            "closet" if project_type == "closet" else
+            "kitchen" if _fold(str(decisions.get("use", {}).get("value", ""))) == "kitchen"
+            else "cabinet_run"
+        )
+        if detail_spec.get("application") != expected_application:
+            blockers.append("module_spec:application_mismatch_owner")
+        installation = detail_spec.get("installation")
+        if installation not in {"built_in", "freestanding", "wall_mounted"}:
+            blockers.append("module_spec:installation_invalid")
+        if valid_dimensions and any(
+            detail_spec.get(field) != dimensions[owner_field]
+            for field, owner_field in (
+                ("width_mm", "width_mm"), ("height_mm", "height_mm"),
+                ("depth_mm", "depth_mm"),
+            )
+        ):
+            blockers.append("module_spec:root_dimensions_mismatch_owner")
+        if installation == "built_in" and wall_contact is False:
+            blockers.append("module_spec:built_in_conflicts_with_wall_contact")
+        if installation in {"built_in", "wall_mounted"} and wall_contact is False:
+            blockers.append("module_spec:installation_conflicts_with_owner_wall_decision")
+
+        raw_modules = detail_spec.get("modules")
+        if type(raw_modules) is not list or not 1 <= len(raw_modules) <= 12:
+            blockers.append("module_spec:one_to_twelve_modules_required")
+            modules = []
+        else:
+            modules = [item for item in raw_modules if type(item) is dict]
+            if len(modules) != len(raw_modules):
+                blockers.append("module_spec:module_object_required")
+            if any(set(module) - MODULE_FIELDS for module in modules):
+                blockers.append("module_spec:unknown_module_fields")
+            if all(type(module.get("width_mm")) is int and module["width_mm"] > 0
+                   for module in modules):
+                total_width = sum(module["width_mm"] for module in modules)
+                if detail_spec.get("width_mm") != total_width:
+                    blockers.append("module_spec:module_width_sum_mismatch")
+            if any(type(module.get("drawers")) is list for module in modules):
+                warnings.append(
+                    "DRAWER_CLEARANCES_ENGINE_PROPOSED_NOT_USER_SUPPLIED; "
+                    "ZERO_PLACEHOLDER_DOES_NOT_DEFINE_A_FUNCTIONAL_SLIDE_FIT."
+                )
+        expected_support = "wall" if support_style == "wall_mounted" else "floor"
+        if support_style == "wall_mounted" and (
+            installation != "wall_mounted" or wall_contact is not True
+        ):
+            blockers.append("module_spec:wall_mounted_requires_wall_installation")
+        for module in modules:
+            if body_material_id is not None and module.get("material_id") != body_material_id:
+                blockers.append(f"module_spec:{module.get('module_id', '?')}:body_material_mismatch_owner")
+            if type(thickness) is int and module.get("panel_thickness_mm") != thickness:
+                blockers.append(f"module_spec:{module.get('module_id', '?')}:body_thickness_mismatch_owner")
+            if construction is not None and module.get("construction") != construction:
+                blockers.append(f"module_spec:{module.get('module_id', '?')}:construction_mismatch_owner")
+            if module.get("support") != expected_support:
+                blockers.append(f"module_spec:{module.get('module_id', '?')}:support_mismatch_owner")
+
+    doors = values.get("doors")
+    if doors == "none":
+        expected_doors = 0
+    elif type(doors) is dict and type(doors.get("count")) is int and doors["count"] > 0:
+        expected_doors = doors["count"]
+    else:
+        expected_doors = None
+        if "doors" in values:
+            blockers.append("doors:explicit_positive_count_or_none_required")
+    actual_doors = 0
+    for module in modules:
+        fronts = module.get("fronts")
+        if type(fronts) is dict and type(fronts.get("leaf_count")) is int:
+            actual_doors += fronts["leaf_count"]
+        elif fronts not in ("none", "pending"):
+            blockers.append(f"module_spec:{module.get('module_id', '?')}:fronts_invalid")
+        elif fronts == "pending":
+            blockers.append(f"module_spec:{module.get('module_id', '?')}:fronts_pending")
+    if expected_doors is not None and actual_doors != expected_doors:
+        blockers.append("module_spec:door_count_mismatch_owner")
+    front_style = decisions.get("front_style")
+    if type(front_style) is dict and front_style.get("status") == "confirmed":
+        if any(type(module.get("fronts")) is dict
+               and module["fronts"].get("style") != front_style.get("value")
+               for module in modules):
+            blockers.append("module_spec:front_style_mismatch_owner")
+
+    drawer_entry = values.get("drawers")
+    if drawer_entry == "none":
+        expected_drawers = 0
+    elif type(drawer_entry) is dict and type(drawer_entry.get("count")) is int:
+        expected_drawers = drawer_entry["count"]
+    else:
+        expected_drawers = None
+        if "drawers" in values:
+            blockers.append("drawers:explicit_count_or_none_required")
+    actual_drawers = 0
+    for module in modules:
+        drawer_spec = module.get("drawers", "none")
+        if type(drawer_spec) is list:
+            actual_drawers += len(drawer_spec)
+        elif drawer_spec == "pending":
+            blockers.append(f"module_spec:{module.get('module_id', '?')}:drawers_pending")
+    if expected_drawers is not None and actual_drawers != expected_drawers:
+        blockers.append("module_spec:drawer_count_mismatch_owner")
+
+    layout = values.get("internal_layout")
+    layout_elements = (
+        layout.get("elements") if type(layout) is dict else layout
+    )
+    if type(layout_elements) is list:
+        if "horizontal" in layout_elements and not all(
+            module.get("horizontal_divider") for module in modules
+        ):
+            blockers.append("module_spec:horizontal_divider_missing")
+        if "vertical" in layout_elements and not all(
+            module.get("vertical_divider") for module in modules
+        ):
+            blockers.append("module_spec:vertical_divider_missing")
+
+    back = values.get("back")
+    if back == "none" and any(module.get("back") != "none" for module in modules):
+        blockers.append("module_spec:back_mismatch_owner")
+    if back != "none" and "back" in values and not any(
+        type(module.get("back")) is dict for module in modules
+    ):
+        blockers.append("module_spec:back_panel_missing")
+
+    countertop = values.get("countertop")
+    countertop_modules = [
+        module for module in modules if type(module.get("countertop")) is dict
+    ]
+    if type(countertop) is dict and countertop.get("present") is False:
+        if countertop_modules:
+            blockers.append("module_spec:unexpected_countertop")
+    elif type(countertop) is dict and countertop.get("present") is True:
+        owner_dims = countertop.get("dimensions_mm")
+        if (type(owner_dims) is not dict
+                or not {"width_mm", "depth_mm"}.issubset(owner_dims)
+                or type(countertop.get("thickness_mm")) is not int
+                or countertop["thickness_mm"] <= 0):
+            blockers.append("countertop:owner_dimensions_and_thickness_required")
+        if len(countertop_modules) != 1:
+            blockers.append("module_spec:one_explicit_countertop_required")
+        elif type(owner_dims) is dict:
+            proposed = countertop_modules[0]["countertop"]
+            if any(proposed.get(field) != owner_dims.get(field) for field in (
+                "width_mm", "depth_mm",
+            )) or proposed.get("thickness_mm") != countertop.get("thickness_mm"):
+                blockers.append("module_spec:countertop_dimensions_or_thickness_mismatch_owner")
+            owner_material = countertop.get("material_id")
+            if owner_material is not None and proposed.get("material_id") != owner_material:
+                blockers.append("module_spec:countertop_material_mismatch_owner")
+            if owner_material is None:
+                warnings.append("COUNTERTOP_MATERIAL_NOT_OWNER_APPROVED")
+            warnings.extend((
+                "COUNTERTOP_OVERHANG_SPLIT_IS_PROPOSED_NOT_OWNER_APPROVED",
+                "COUNTERTOP_SUPPORT_NOT_STRUCTURALLY_VERIFIED",
+            ))
+            if support_style in {"legs", "plinth"}:
+                support_concept = countertop_modules[0].get("support_concept")
+                overall = (dimensions["height_mm"] + support_height
+                           + countertop["thickness_mm"]
+                           if valid_dimensions and type(support_height) is int else None)
+                if (type(support_concept) is not dict
+                        or support_concept.get("style") != support_style
+                        or support_concept.get("support_height_mm") != support_height
+                        or support_concept.get("overall_height_mm") != overall):
+                    blockers.append("module_spec:support_or_derived_overall_height_mismatch")
+                warnings.extend((
+                    "OVERALL_HEIGHT_DERIVED_NOT_OWNER_DECLARED",
+                    "LEGS_ARE_CONCEPT_ONLY_NOT_PHYSICAL_PIECES",
+                ))
+
+    if re.search(
+        r"\b(?:hazlo|dejalo|deja|pon|vuelve|genera|entrega|quiero)\b"
+        r"[^.]{0,48}\b(?:cortable|fabricable|listo para cortar|listo para fabricar)\b",
+        _fold(utterance),
+    ):
+        blockers.append("authorization:fabrication_cutting_or_drilling_not_permitted")
+
+    result["nominal_draft_warnings"] = list(dict.fromkeys(warnings))
+    if blockers:
+        result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:32]
+        return result
+
+    intent_entry = decisions.get("opening_intent")
+    opening_intent = None
+    opening_source = "PENDING"
+    if type(intent_entry) is dict:
+        candidate_intent = intent_entry.get("value")
+        if candidate_intent in OPENING_SYSTEMS:
+            opening_intent = candidate_intent
+            opening_source = (
+                "OWNER_TEXT_CONFIRMED" if intent_entry.get("status") == "confirmed"
+                and intent_entry.get("source") == "OWNER_TEXT"
+                else "CLIENT_PROPOSED_NOT_OWNER_APPROVED"
+            )
+    if opening_intent:
+        for module in modules:
+            drawers = module.get("drawers")
+            if type(drawers) is list:
+                for drawer in drawers:
+                    facade = drawer.get("facade") if type(drawer) is dict else None
+                    if type(facade) is dict:
+                        facade["opening_system"] = opening_intent
+
+    request = {"action": "modular", "module_spec": copy.deepcopy(detail_spec)}
+    try:
+        maestro = consult_maestro(request)
+        modular = maestro.get("modular")
+        if type(modular) is not dict:
+            blockers.append("maestro:modular_result_missing")
+        else:
+            if installation == "built_in" and (
+                type(modular.get("site")) is not dict
+                or modular["site"].get("complete") is not True
+            ):
+                result["nominal_draft_engine_status"] = modular.get("status")
+                result["nominal_draft_blockers"] = ["modular:NEEDS_SITE_MEASUREMENTS"]
+                return result
+            result["nominal_draft_engine_status"] = modular.get("status")
+            if modular.get("status") != "DRAFT_NOT_FOR_CUTTING":
+                result["nominal_draft_blockers"] = list(dict.fromkeys(
+                    str(item) for item in modular.get("blockers", [])[:16]
+                )) or ["maestro:modular_status_" + str(modular.get("status"))]
+                questions = maestro.get("questions")
+                if type(questions) is list and questions:
+                    result["nominal_draft_next_question"] = questions[0].get("question")
+                return result
+            parts = modular.get("parts")
+            parts = parts if type(parts) is list else []
+            piece_ids = [part.get("piece_id") for part in parts if type(part) is dict]
+            roles = [part.get("role") for part in parts if type(part) is dict]
+            if (maestro.get("action") != "modular"
+                    or maestro.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                    or modular.get("piece_count") != len(parts)
+                    or not parts or len(piece_ids) != len(parts)
+                    or len(set(piece_ids)) != len(piece_ids)
+                    or any(type(role) is not str or not role for role in roles)
+                    or any(modular.get(flag) is not False for flag in _FLAGS)
+                    or any(maestro.get(flag) is not False for flag in _FLAGS)):
+                blockers.append("maestro:modular_review_or_safety_contract_mismatch")
+            cad = validate_exchange(cad_exchange(modular))
+            cad_boxes = cad.get("boxes")
+            cad_boxes = cad_boxes if type(cad_boxes) is list else []
+            cad_ids = [box.get("piece_id") for box in cad_boxes if type(box) is dict]
+            cad_roles = [box.get("role") for box in cad_boxes if type(box) is dict]
+            if (cad.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                    or len(cad_ids) != len(parts) or len(set(cad_ids)) != len(cad_ids)
+                    or set(cad_ids) != set(piece_ids)
+                    or sorted(cad_roles) != sorted(roles)
+                    or type(cad.get("geometry_sha256")) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", cad["geometry_sha256"])
+                    or cad.get("manufacturing_holes") != []
+                    or any(cad.get(flag) is not False for flag in (
+                        "fabrication_ready", "cutting_ready", "drilling_ready",
+                    ))):
+                blockers.append("cad_exchange:geometry_or_safety_contract_mismatch")
+            warnings.extend(str(item) for item in modular.get("blockers", []))
+    except MaestroError as exc:
+        blockers.append(f"maestro:{exc}")
+    except DesignError as exc:
+        blockers.append(f"cad_or_geometry:{exc}")
+
+    result["nominal_draft_warnings"] = list(dict.fromkeys(warnings))
+    if blockers:
+        result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:32]
+        return result
+
+    opening_elements = []
+    for part in parts:
+        role = part.get("role")
+        if not (type(role) is str and (role.startswith("front_") or role == "drawer_facade")):
+            continue
+        part_intent = opening_intent or part.get("opening_system") or "pending"
+        opening_elements.append({
+            "module_id": part.get("module_id"),
+            "piece_id": part.get("piece_id"),
+            "element_type": "drawer" if role == "drawer_facade" else "door",
+            "opening_system": part_intent,
+            "source_status": opening_source if opening_intent else "CLIENT_PROPOSED_OR_PENDING",
+            "hardware_selected": False,
+        })
+    result.update({
+        "nominal_draft_request": request,
+        "nominal_draft_scope": "CLIENT_PROPOSED_MULTICOMPONENT_REVIEW_ONLY",
+        "nominal_draft_blockers": [],
+        "nominal_draft_engine_status": modular["status"],
+        "nominal_draft_geometry_sha256": cad["geometry_sha256"],
+        "nominal_draft_piece_count": len(parts),
+        "nominal_draft_provenance": "CLIENT_PROPOSED_NOT_OWNER_APPROVED",
+        "nominal_draft_warnings": list(dict.fromkeys(warnings)),
+        "nominal_draft_opening_review": {
+            "status": "REVIEW_ONLY" if opening_elements else "NO_OPENING_COMPONENTS",
+            "elements": opening_elements,
+            "hardware_selected": False,
+        },
+    })
+    if revision is not None:
+        result["nominal_draft_revision"] = copy.deepcopy(revision)
+    return result
+
+
+def _apply_modular_drawer_revisions(
+    base_spec: dict[str, Any], original_utterance: str,
+    corrections: list[str],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Replay the existing F1 correction flow into one explicit F6 drawer module."""
+    if not corrections:
+        return copy.deepcopy(base_spec), None
+    preview = preview_natural_request(original_utterance, include_concept_sketch=False)
+    base_option = preview.get("illustrative_drawer_layout_option")
+    if type(base_option) is not dict or type(base_option.get("proposed_request")) is not dict:
+        raise MaestroError("drawer_revision:original_request_has_no_f1_layout")
+    base_reference = base_option["proposed_request"].get("module_spec")
+    spec = copy.deepcopy(base_spec)
+    modules = spec.get("modules")
+    if (type(modules) is not list or len(modules) != 1
+            or type(modules[0]) is not dict
+            or modules[0].get("drawer_layout_reference") != base_reference):
+        raise MaestroError("drawer_revision:one_module_must_match_original_f1_reference")
+    revised = preview_conversation(
+        original_utterance, corrections=corrections, max_questions=3,
+    )
+    option = revised.get("illustrative_drawer_layout_option")
+    request = option.get("proposed_request") if type(option) is dict else None
+    reference = request.get("module_spec") if type(request) is dict else None
+    if type(reference) is not dict:
+        raise MaestroError("drawer_revision:revised_f1_reference_missing")
+    original_plan = propose_drawer_layout(base_reference)
+    revised_plan = propose_drawer_layout(reference)
+    if (original_plan.get("external_dimensions_mm")
+            != revised_plan.get("external_dimensions_mm")
+            or original_plan.get("piece_count") != 0
+            or revised_plan.get("piece_count") != 0):
+        raise MaestroError("drawer_revision:outer_envelope_or_review_only_contract_changed")
+    drawers = modules[0].get("drawers")
+    plan = revised_plan.get("opening_plan")
+    if (type(drawers) is not list or type(plan) is not list
+            or len(drawers) != len(plan)):
+        raise MaestroError("drawer_revision:drawer_count_changed")
+    by_id = {item.get("drawer_id"): item for item in plan if type(item) is dict}
+    if len(by_id) != len(plan) or {item.get("drawer_id") for item in drawers
+                                  if type(item) is dict} != set(by_id):
+        raise MaestroError("drawer_revision:drawer_ids_changed")
+    for drawer in drawers:
+        opening = by_id[drawer["drawer_id"]]
+        drawer["opening_bottom_offset_mm"] = opening["opening_bottom_offset_mm"]
+        drawer["opening_height_mm"] = opening["opening_height_mm"]
+        proposed_box_height = opening["opening_height_mm"] - 20
+        if proposed_box_height <= 0:
+            raise MaestroError(
+                "drawer_revision:opening_too_short_for_proposed_box_clearance"
+            )
+        drawer["box_height_mm"] = min(
+            drawer["box_height_mm"], proposed_box_height,
+        )
+    modules[0]["drawer_layout_reference"] = reference
+    last_revision = revised.get("last_revision")
+    if (type(last_revision) is not dict
+            or last_revision.get("envelope_unchanged") is not True):
+        raise MaestroError("drawer_revision:correction_not_confirmed_by_existing_f1")
+    return spec, {
+        "history": copy.deepcopy(revised.get("drawer_revisions_history", [])),
+        "last_revision": copy.deepcopy(last_revision),
+        "reference_ids_preserved": True,
+        "exterior_dimensions_preserved": True,
+    }
+
+
 def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     """Use one client-carried trace and the existing preview/Maestro engines."""
     required_keys = {
         "review_kind", "utterance", "review_state", "review_updates",
         "photo_observations",
     }
-    if type(request) is not dict or set(request) != required_keys:
+    allowed_keys = required_keys | {"nominal_detail_spec"}
+    if (type(request) is not dict or not required_keys.issubset(request)
+            or set(request) - allowed_keys):
         raise MaestroError(
             "guided_design_v1 requiere review_kind, utterance, review_state, "
             "review_updates y photo_observations, sin campos adicionales."
         )
+    nominal_detail_spec = request.get("nominal_detail_spec")
+    if nominal_detail_spec is not None and type(nominal_detail_spec) is not dict:
+        raise MaestroError("nominal_detail_spec debe ser objeto JSON o null.")
     if request["review_kind"] != "guided_design_v1":
         raise MaestroError("Tipo de revisión guiada desconocido.")
     utterance = request["utterance"]
@@ -1191,6 +2533,8 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
                 or status not in _REVIEW_STATUSES or type(source) is not str
                 or source not in _REVIEW_SOURCES):
             raise MaestroError("review_update contiene campo, estado o fuente inválidos.")
+        if field == "nominal_detail_spec":
+            raise MaestroError("nominal_detail_spec es un estado interno de revision, no un review_update.")
         seen_fields.add(field)
         if field == "photo_observations":
             raise MaestroError(
@@ -1230,10 +2574,81 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     state = guided["review_state"]
     decisions = state["decisions"]
 
+    prior_nominal = (
+        previous_state.get("decisions", {}).get("nominal_detail_spec", {}).get("value")
+        if type(previous_state) is dict else None
+    )
+    stored_spec: dict[str, Any] | None = None
+    source_utterance = utterance
+    correction_history: list[str] = []
+    if (type(prior_nominal) is dict
+            and set(prior_nominal) == {"base_spec", "source_utterance", "corrections"}
+            and type(prior_nominal.get("base_spec")) is dict
+            and type(prior_nominal.get("source_utterance")) is str
+            and type(prior_nominal.get("corrections")) is list
+            and len(prior_nominal["corrections"]) <= 12
+            and all(type(item) is str for item in prior_nominal["corrections"])):
+        stored_spec = copy.deepcopy(prior_nominal["base_spec"])
+        source_utterance = prior_nominal["source_utterance"]
+        correction_history = list(prior_nominal["corrections"])
+
+    drawer_correction = is_drawer_correction_instruction(utterance)
+    effective_detail_spec: dict[str, Any] | None = nominal_detail_spec
+    revision: dict[str, Any] | None = None
+    revision_blocker: str | None = None
+    candidate_base: dict[str, Any] | None = None
+    if drawer_correction:
+        if stored_spec is None:
+            revision_blocker = "drawer_revision:prior_nominal_design_required"
+            effective_detail_spec = {}
+        else:
+            candidate_base = stored_spec
+            candidate_history = [*correction_history, utterance]
+            try:
+                effective_detail_spec, revision = _apply_modular_drawer_revisions(
+                    candidate_base, source_utterance, candidate_history,
+                )
+                correction_history = candidate_history
+            except MaestroError as exc:
+                revision_blocker = str(exc)
+                # Keep the last valid F1 replay available for review. The
+                # rejected instruction is never persisted in correction_history.
+                try:
+                    effective_detail_spec, revision = _apply_modular_drawer_revisions(
+                        candidate_base, source_utterance, correction_history,
+                    )
+                except MaestroError:
+                    effective_detail_spec = copy.deepcopy(stored_spec)
+                    revision = None
+    elif nominal_detail_spec is not None:
+        candidate_base = copy.deepcopy(nominal_detail_spec)
+        if stored_spec is not None and nominal_detail_spec == stored_spec:
+            candidate_base = stored_spec
+            if correction_history:
+                try:
+                    effective_detail_spec, revision = _apply_modular_drawer_revisions(
+                        candidate_base, source_utterance, correction_history,
+                    )
+                except MaestroError as exc:
+                    revision_blocker = str(exc)
+                    effective_detail_spec = {}
+        else:
+            source_utterance = utterance
+            correction_history = []
+    elif stored_spec is not None:
+        candidate_base = stored_spec
+        try:
+            effective_detail_spec, revision = _apply_modular_drawer_revisions(
+                candidate_base, source_utterance, correction_history,
+            )
+        except MaestroError as exc:
+            revision_blocker = str(exc)
+            effective_detail_spec = {}
+
     is_coffee = decisions.get("use", {}).get("value") == "coffee"
     required = ["project_type", "dimensions_mm", "material", "thickness_mm", "construction"]
     if _fold(str(decisions.get("project_type", {}).get("value", ""))) in {
-        "gabinete", "cabinet", "cajonera",
+        "gabinete", "cabinet", "cajonera", "closet", "clóset",
     }:
         required.extend(("wall_contact", "internal_layout", "drawers", "doors", "back", "support"))
         if is_coffee:
@@ -1256,7 +2671,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             readiness_blockers.append("thickness_mm")
     project_type = decisions.get("project_type", {}).get("value")
     project_kind = _fold(str(project_type))
-    if project_kind not in {"gabinete", "cabinet", "cajonera"}:
+    if project_kind not in {"gabinete", "cabinet", "cajonera", "closet", "clóset"}:
         if "project_type" not in readiness_blockers:
             readiness_blockers.append("project_type")
     ready = not readiness_blockers
@@ -1276,14 +2691,17 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     confirmed = {
         field: copy.deepcopy(entry["value"])
         for field, entry in decisions.items()
-        if entry["status"] == "confirmed" and entry["value"] != "pending"
+        if field != "nominal_detail_spec"
+        and entry["status"] == "confirmed" and entry["value"] != "pending"
     }
     proposed = {
         field: copy.deepcopy(entry["value"])
-        for field, entry in decisions.items() if entry["status"] == "proposed"
+        for field, entry in decisions.items()
+        if field != "nominal_detail_spec" and entry["status"] == "proposed"
     }
     pending = [field for field, entry in decisions.items()
-               if entry["status"] == "pending" or entry["value"] in (None, "pending")]
+               if field != "nominal_detail_spec"
+               and (entry["status"] == "pending" or entry["value"] in (None, "pending"))]
     preview_keys = (
         "status", "proposed_request", "explicit_measurements", "ambiguous_fields",
         "unit_requires_confirmation", "resolved_unit_confirmations", "next_step",
@@ -1301,6 +2719,155 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             "El apoyo vertical del mesón, amarre de carcasa y anclaje anti-vuelco "
             "requieren revisión; la pared no se presume como soporte de carga."
         )
+    historical_photo = decisions.get("photo_observations")
+    photo_attached = (
+        photo is not None or type(historical_photo) is dict
+        and historical_photo.get("source") == "IMAGE_OBSERVED_UNCONFIRMED"
+    )
+    if effective_detail_spec is not None:
+        nominal_handoff = _guided_multicomponent_handoff(
+            decisions, effective_detail_spec, photo_attached=photo_attached,
+            utterance=utterance, revision=revision,
+        )
+        if revision_blocker:
+            nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys(
+                [*nominal_handoff.get("nominal_draft_blockers", []), revision_blocker]
+            ))[:32]
+            nominal_handoff["nominal_draft_revision_rejected"] = True
+            if "No quedan cajones libres" in revision_blocker:
+                nominal_handoff["nominal_draft_next_question"] = (
+                    "Las alturas de A y B ya usan toda la altura disponible. "
+                    "Para bajar C 20 mm habría que redistribuir una altura previa; "
+                    "¿prefieres cambiar A o B para liberar ese espacio?"
+                )
+        if revision is not None and type(effective_detail_spec) is dict:
+            drawer_module = effective_detail_spec["modules"][0]
+            nominal_handoff["nominal_draft_assumptions"] = [{
+                "field": "drawer_box_and_facade_geometry",
+                "value": [{
+                    "drawer_id": drawer["drawer_id"],
+                    "opening_height_mm": drawer["opening_height_mm"],
+                    "box_height_mm": drawer["box_height_mm"],
+                    "box_clearance_mm": (
+                        drawer["opening_height_mm"] - drawer["box_height_mm"]
+                    ),
+                    "slide_clearance_left_mm": drawer["slide_clearance_left_mm"],
+                    "slide_clearance_right_mm": drawer["slide_clearance_right_mm"],
+                } for drawer in drawer_module["drawers"]],
+                "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                "reason": "F1 revisa aperturas; la caja sigue siendo geometría nominal sin corredera validada.",
+            }]
+    elif drawer_correction:
+        nominal_handoff = _guided_multicomponent_handoff(
+            decisions, {}, photo_attached=photo_attached, utterance=utterance,
+        )
+        nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys(
+            [*nominal_handoff.get("nominal_draft_blockers", []),
+             revision_blocker or "drawer_revision:prior_nominal_design_required"]
+        ))[:32]
+    else:
+        if _guided_needs_modular_spec(decisions):
+            current_support = decisions.get("support", {}).get("value")
+            current_support_entry = decisions.get("support", {})
+            unresolved_wall_structure = any(
+                decisions.get(field, {}).get("status") != "confirmed"
+                for field in ("construction", "internal_layout", "back")
+            )
+            wall_back_pending = (
+                type(decisions.get("back")) is dict
+                and decisions["back"].get("value") == "pending"
+            )
+            if (nominal_detail_spec is None and stored_spec is None
+                    and type(current_support) is dict
+                    and current_support.get("style") == "wall_mounted"
+                    and current_support_entry.get("source") == "OWNER_TEXT"
+                    and (unresolved_wall_structure or wall_back_pending)):
+                nominal_handoff = _guided_wall_mounted_concept()
+                if wall_back_pending:
+                    nominal_handoff["nominal_draft_blockers"] = [
+                        "back:owner_decision_pending",
+                        "wall_mounted:installer_must_assess_wall_fixing_and_load",
+                    ]
+                    nominal_handoff["nominal_draft_next_question"] = (
+                        "¿Lo dejamos sin fondo posterior para este boceto o quieres especificarlo?"
+                    )
+            elif _fold(str(decisions.get("project_type", {}).get("value", ""))) == "closet":
+                composed_spec, assumptions, compose_blockers = (
+                    _guided_compose_closet_spec(decisions)
+                )
+                if composed_spec is not None:
+                    nominal_handoff = _guided_multicomponent_handoff(
+                        decisions, composed_spec, photo_attached=photo_attached,
+                        utterance=utterance,
+                    )
+                    nominal_handoff["nominal_draft_assumptions"] = assumptions
+                else:
+                    nominal_handoff = _guided_multicomponent_handoff(
+                        decisions, None, photo_attached=photo_attached,
+                        utterance=utterance,
+                    )
+                    nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys(
+                        [*nominal_handoff.get("nominal_draft_blockers", []),
+                         *compose_blockers]
+                    ))[:32]
+            elif _fold(str(decisions.get("use", {}).get("value", ""))) in {
+                "kitchen", "bathroom", "bedroom",
+            }:
+                composed_spec, assumptions, compose_blockers = (
+                    _guided_compose_product_spec(decisions, utterance, natural_preview)
+                )
+                if composed_spec is not None:
+                    nominal_handoff = _guided_multicomponent_handoff(
+                        decisions, composed_spec, photo_attached=photo_attached,
+                        utterance=utterance,
+                    )
+                    nominal_handoff["nominal_draft_assumptions"] = assumptions
+                    if composed_spec["installation"] == "wall_mounted":
+                        nominal_handoff["nominal_draft_warnings"] = list(dict.fromkeys([
+                            *nominal_handoff.get("nominal_draft_warnings", []),
+                            "NOT_CERTIFIED_INSTALLATION",
+                            "NO_ANCHORS_OR_LOAD_CAPACITY_ARE_PROPOSED",
+                        ]))
+                    module = composed_spec["modules"][0]
+                    if type(module.get("drawers")) is list:
+                        candidate_base = copy.deepcopy(composed_spec)
+                        source_utterance = utterance
+                        correction_history = []
+                else:
+                    nominal_handoff = _guided_multicomponent_handoff(
+                        decisions, None, photo_attached=photo_attached,
+                        utterance=utterance,
+                    )
+                    nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys(
+                        [*nominal_handoff.get("nominal_draft_blockers", []),
+                         *compose_blockers]
+                    ))[:32]
+            else:
+                nominal_handoff = _guided_open_cabinet_handoff(
+                    decisions, photo_attached=photo_attached,
+                )
+        else:
+            nominal_handoff = _guided_open_cabinet_handoff(
+                decisions, photo_attached=photo_attached,
+            )
+    if (candidate_base is not None and revision_blocker is None
+            and len(candidate_base.get("modules", [])) == 1
+            and type(candidate_base.get("modules", [{}])[0]) is dict
+            and "drawer_layout_reference" in candidate_base["modules"][0]
+            and type(candidate_base["modules"][0].get("drawers")) is list):
+        metadata = {
+            "base_spec": candidate_base,
+            "source_utterance": source_utterance,
+            "corrections": correction_history,
+        }
+        old_metadata = state["decisions"].get("nominal_detail_spec", {}).get("value")
+        if metadata != old_metadata:
+            state = update_review_state(
+                state, updates=[{
+                    "field": "nominal_detail_spec", "value": metadata,
+                    "status": "proposed", "source": "ENGINE_CALCULATED",
+                }], pending_fields=[],
+            )["review_state"]
     result: dict[str, Any] = {
         "review_kind": "guided_design_v1",
         "status": "NEEDS_USER_CONFIRMATION" if questions else "REVIEW_ONLY",
@@ -1331,6 +2898,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         "piece_count": 0,
         "can_generate_f7c": False,
         **{flag: False for flag in _FLAGS},
+        **nominal_handoff,
     }
     return result
 

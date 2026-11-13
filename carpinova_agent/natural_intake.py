@@ -343,10 +343,9 @@ _DRAWER_LAYOUT_EXCLUSIONS = (
     "grande", "grandes", "pequeño", "pequenos", "pequena",
     "pequeñas", "arriba", "abajo", "superior", "inferior",
     "distintos", "diferentes", "desiguales", "alto diferente",
-    "puertas", "puerta", "patas", "zocalo", "banqueo",
+    "patas", "zocalo", "banqueo",
     "suspendido", "empotrado", "mural", "riel", "rieles",
-    "corredera", "bisagra", "tablero", "espesor", "mdf", "mdp",
-    "melamina", "entrepaño", "repisa", "estante", "modulos",
+    "corredera", "bisagra", "entrepaño", "repisa", "estante", "modulos",
     "módulos", "izquierda", "derecha", "dividido", "dividida",
 )
 
@@ -370,7 +369,10 @@ def _illustrative_drawer_layout_option(
     if set(project) - {*keys, "project_type"}:
         return None
     normalized = _fold(utterance)
-    if not re.search(r"(?<!\w)(?:cajonera|mueble|gabinete)(?!\w)", normalized):
+    if not re.search(
+        r"(?<!\w)(?:cajonera|mueble|gabinete|nochero|mesa\s+de\s+noche|"
+        r"mesita\s+de\s+noche)(?!\w)", normalized,
+    ):
         return None
     matches = list(_DRAWER_COUNT.finditer(normalized))
     if len(matches) != 1:
@@ -625,7 +627,8 @@ def _parse_drawer_correction(instruction: str, count: int) -> tuple[str, int]:
     if (type(instruction) is not str or not instruction.strip()
             or len(instruction) > 120):
         raise MaestroError("Corrección: texto breve y explícito requerido.")
-    match = _CORRECTION.fullmatch(_fold(instruction).strip())
+    normalized = _fold(instruction).strip().rstrip(".!?¡¿ ")
+    match = _CORRECTION.fullmatch(normalized)
     if not match:
         raise MaestroError(
             "Corrección ambigua: usar «haz el cajón A 10 cm más alto» "
