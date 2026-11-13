@@ -348,6 +348,45 @@ _DRAWER_LAYOUT_EXCLUSIONS = (
     "corredera", "bisagra", "entrepaño", "repisa", "estante", "modulos",
     "módulos", "izquierda", "derecha", "dividido", "dividida",
 )
+_ILLUSTRATIVE_PANEL_MM = 18
+_DOOR_MENTION = re.compile(r"(?<!\w)puertas?(?!\w)")
+_DOOR_NEGATION = re.compile(
+    r"(?<!\w)(?:sin\s+(?:(?:ningun[oa]?|un[oa]?|las?|los?|"
+    r"unos?|unas?|dos|tres|cuatro|[1-9])\s+)?puertas?"
+    r"|no\s+(?:lleva|llevan|tiene|tienen|incluye|incluyen|hay)\s+"
+    r"(?:(?:ningun[oa]?|un[oa]?|las?|los?|unos?|unas?|dos|tres|"
+    r"cuatro|[1-9])\s+)?puertas?)(?!\w)"
+)
+_PANEL_THICKNESS = re.compile(
+    r"(?<!\w)(?:"
+    r"(?:tablero|panel)(?:\s+de\s+(?:melamina|mdp|mdf(?:\s+rh)?))?"
+    r"|mdf(?:\s+rh)?|mdp|melamina"
+    r")\s+(?:de\s+)?(?P<thickness>\d{1,3})\s*mm(?!\w)"
+)
+_COUNTERTOP_CONTEXT = re.compile(r"(?<!\w)(?:meson|cubierta|encimera)(?!\w)")
+_PANEL_CONTEXT = re.compile(
+    r"(?<!\w)(?:carcasa|cuerpo|estructura|tablero|panel|mueble)(?!\w)"
+)
+
+
+def _has_unnegated_door_mention(normalized: str) -> bool:
+    negated = [match.span() for match in _DOOR_NEGATION.finditer(normalized)]
+    return any(not any(start <= mention.start() and mention.end() <= end
+                       for start, end in negated)
+               for mention in _DOOR_MENTION.finditer(normalized))
+
+
+def _explicit_panel_thicknesses(normalized: str) -> list[int]:
+    thicknesses = []
+    for match in _PANEL_THICKNESS.finditer(normalized):
+        prefix = normalized[max(0, match.start() - 100):match.start()]
+        clause = re.split(r"[.;,\n]", prefix)[-1]
+        countertop = list(_COUNTERTOP_CONTEXT.finditer(clause))
+        panel = list(_PANEL_CONTEXT.finditer(clause))
+        if countertop and (not panel or panel[-1].start() < countertop[-1].start()):
+            continue
+        thicknesses.append(int(match.group("thickness")))
+    return thicknesses
 
 
 def _illustrative_drawer_layout_option(
@@ -369,6 +408,8 @@ def _illustrative_drawer_layout_option(
     if set(project) - {*keys, "project_type"}:
         return None
     normalized = _fold(utterance)
+    if _has_unnegated_door_mention(normalized):
+        return None
     if not re.search(
         r"(?<!\w)(?:cajonera|mueble|gabinete|nochero|mesa\s+de\s+noche|"
         r"mesita\s+de\s+noche)(?!\w)", normalized,
@@ -387,6 +428,11 @@ def _illustrative_drawer_layout_option(
     if any(re.search(r"(?<!\w)" + re.escape(_fold(word)) + r"(?!\w)", normalized)
            for word in _DRAWER_LAYOUT_EXCLUSIONS):
         return None
+    thicknesses = _explicit_panel_thicknesses(normalized)
+    if len(set(thicknesses)) > 1 or any(
+        thickness != _ILLUSTRATIVE_PANEL_MM for thickness in thicknesses
+    ):
+        return None
     amount = matches[0].group("count")
     count = int(amount) if amount.isdecimal() else _DRAWER_NUMBER_WORDS[amount]
     if any(type(project[k]) is not int for k in keys):
@@ -398,7 +444,7 @@ def _illustrative_drawer_layout_option(
     module_spec = {
         "type": "drawer_layout_proposal",
         **{k: project[k] for k in keys},
-        "panel_thickness_mm": 18,
+        "panel_thickness_mm": _ILLUSTRATIVE_PANEL_MM,
         "construction": "top_bottom_full",
         "vertical_gap_mm": 28 if count > 1 else 0,
         "drawer_weights": [1] * count,
@@ -414,7 +460,7 @@ def _illustrative_drawer_layout_option(
         "explicit_user_values_to_confirm": {**{k: project[k] for k in keys},
                                   "drawer_count": count},
         "suggested_fields": {
-            "panel_thickness_mm": 18,
+            "panel_thickness_mm": _ILLUSTRATIVE_PANEL_MM,
             "construction": "top_bottom_full",
             "vertical_gap_mm": module_spec["vertical_gap_mm"],
             "drawer_weights": list(module_spec["drawer_weights"]),

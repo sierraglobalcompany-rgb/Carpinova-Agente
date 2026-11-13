@@ -2266,6 +2266,18 @@ def _guided_multicomponent_handoff(
             if owner_material is not None and proposed.get("material_id") != owner_material:
                 blockers.append("module_spec:countertop_material_mismatch_owner")
             if owner_material is None:
+                proposed_material = proposed.get("material_id")
+                legacy_placeholder = re.fullmatch(
+                    r"MESON_(\d+)", proposed_material
+                ) if type(proposed_material) is str else None
+                if not (
+                    proposed_material == "MATERIAL_PENDIENTE"
+                    or legacy_placeholder is not None
+                    and legacy_placeholder.group(1) == str(countertop.get("thickness_mm"))
+                ):
+                    blockers.append(
+                        "module_spec:countertop_material_specific_unconfirmed"
+                    )
                 warnings.append("COUNTERTOP_MATERIAL_NOT_OWNER_APPROVED")
             warnings.extend((
                 "COUNTERTOP_OVERHANG_SPLIT_IS_PROPOSED_NOT_OWNER_APPROVED",

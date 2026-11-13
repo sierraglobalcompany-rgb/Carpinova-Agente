@@ -342,6 +342,18 @@ class GuidedDesignMcpTests(unittest.TestCase):
                          825)
         self.assertNotIn("top", {part["role"] for part in bundle["model"]["parts"]})
 
+        mismatched = bathroom_25mm_countertop_spec()
+        mismatched["modules"][0]["countertop"]["material_id"] = "MATERIAL_PENDIENTE"
+        rejected = gn3_query(
+            "R3_MATERIAL_MISMATCH", "Revisa esta propuesta nominal.",
+            review_state=first["review_state"], nominal_detail_spec=mismatched,
+        )
+        self.assertIsNone(rejected["nominal_draft_request"])
+        self.assertIn("module_spec:countertop_material_mismatch_owner",
+                      rejected["nominal_draft_blockers"])
+        self.assertEqual(rejected["nominal_draft_piece_count"], 0)
+        self.assertTrue(all(rejected[flag] is False for flag in FLAGS))
+
     def test_gn3_r1_two_module_closet_runs_through_maestro_and_cadexchange(self):
         owner_text = (
             "Clóset independiente, dimensiones exteriores de carcasa: ancho "
@@ -1087,6 +1099,17 @@ class GuidedDesignMcpTests(unittest.TestCase):
             review_state=b_first["review_state"],
         )
         b_state = b_second["review_state"]
+        placeholder = query(
+            "Revisemos el placeholder histórico GN2 B.", review_state=b_state,
+            nominal_detail_spec=bathroom_countertop_legs_spec(),
+        )
+        self.assertIsNotNone(placeholder["nominal_draft_request"])
+        self.assertEqual(
+            placeholder["nominal_draft_request"]["module_spec"]["modules"][0]
+            ["countertop"]["material_id"], "MESON_30",
+        )
+        self.assertIn("COUNTERTOP_MATERIAL_NOT_OWNER_APPROVED",
+                      placeholder["nominal_draft_warnings"])
         b_mutations = (
             ("root width", lambda s: s.update(width_mm=799)),
             ("root height", lambda s: s.update(height_mm=701)),
@@ -1101,6 +1124,7 @@ class GuidedDesignMcpTests(unittest.TestCase):
             ("countertop depth", lambda s: s["modules"][0]["countertop"].update(depth_mm=441)),
             ("countertop thickness", lambda s: s["modules"][0]["countertop"].update(thickness_mm=29)),
             ("countertop material", lambda s: s["modules"][0]["countertop"].update(material_id="MDF_RH_30")),
+            ("countertop placeholder thickness", lambda s: s["modules"][0]["countertop"].update(material_id="MESON_25")),
             ("overhang closure", lambda s: s["modules"][0]["countertop"].update(left_overhang_mm=11)),
             ("support height", lambda s: s["modules"][0]["support_concept"].update(support_height_mm=90)),
             ("overall height", lambda s: s["modules"][0]["support_concept"].update(overall_height_mm=829)),
@@ -1124,6 +1148,11 @@ class GuidedDesignMcpTests(unittest.TestCase):
                 self.assertEqual(result["nominal_draft_piece_count"], 0)
                 self.assertEqual(result["nominal_draft_scope"],
                                  "BLOCKED_UNSUPPORTED_OR_INCOMPLETE")
+                if label in {"countertop material", "countertop placeholder thickness"}:
+                    self.assertIn(
+                        "module_spec:countertop_material_specific_unconfirmed",
+                        result["nominal_draft_blockers"],
+                    )
                 self.assertTrue(all(result[flag] is False for flag in FLAGS))
 
     def test_detail_spec_null_preserves_legacy_handoff_and_historical_photo_warning(self):
@@ -1783,6 +1812,42 @@ class GuidedDesignMcpTests(unittest.TestCase):
                 self.assertEqual(decision["value"], expected)
 
 
+class GN8CauseRegressionTests(unittest.TestCase):
+    def test_gn8_f7d_preserves_negated_doors_and_rejects_conflicts(self):
+        positive = (
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con tres cajones",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con cuatro cajones, "
+            "sin puertas, melamina de 18 mm",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con cuatro cajones, "
+            "no lleva puertas",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con tres cajones; "
+            "mesón MDF RH de 30 mm",
+        )
+        for utterance in positive:
+            with self.subTest(utterance=utterance):
+                result = preview_natural_request(utterance)
+                option = result["illustrative_drawer_layout_option"]
+                self.assertEqual(option["proposed_request"]["module_spec"]
+                                 ["panel_thickness_mm"], 18)
+                self.assertEqual(result["executed_tools"], [])
+                self.assertEqual(option["piece_count"], 0)
+                self.assertEqual(option["parts"], [])
+                self.assertTrue(all(option[flag] is False for flag in FLAGS))
+
+        negative = (
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con cuatro cajones, "
+            "sin puertas pero tiene dos puertas",
+            "Cajonera ancho 50 cm, alto 80 cm, fondo 50 cm con cuatro cajones, "
+            "melamina de 18 mm y MDP de 15 mm",
+        )
+        for utterance in negative:
+            with self.subTest(utterance=utterance):
+                result = preview_natural_request(utterance)
+                self.assertNotIn("illustrative_drawer_layout_option", result)
+                self.assertEqual(result["executed_tools"], [])
+                self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+
 class GN5NaturalF6AcceptanceTests(unittest.TestCase):
     def ask(self, case_id: str, utterance: str, review_state=None) -> dict:
         payload = {
@@ -1811,9 +1876,6 @@ class GN5NaturalF6AcceptanceTests(unittest.TestCase):
         self.assertNotIn("nominal_detail_spec", request)
 
         evidence_root = os.environ.get("CARPINOVA_GN5_ARTIFACT_ROOT")
-        transcript_root = os.environ.get("CARPINOVA_GN3_EVIDENCE_ROOT")
-        self.assertTrue(evidence_root)
-        self.assertTrue(transcript_root)
         with tempfile.TemporaryDirectory(prefix=f"carpinova-gn5-{case_id}-") as root:
             output_root = Path(root)
             previous = os.environ.get("CARPINOVA_OUTPUT_ROOT")
@@ -1872,12 +1934,66 @@ class GN5NaturalF6AcceptanceTests(unittest.TestCase):
             self.assertEqual(saved_cad["manufacturing_holes"], [])
             self.assertEqual(len(parts), review["nominal_draft_piece_count"])
 
-            destination_evidence = Path(evidence_root) / case_id
-            destination_evidence.mkdir(parents=True, exist_ok=False)
-            for name in names:
-                shutil.copyfile(destination / name, destination_evidence / name)
+            artifact_sha256 = {
+                name: hashlib.sha256((destination / name).read_bytes()).hexdigest()
+                for name in names
+            }
+            if evidence_root:
+                destination_evidence = Path(evidence_root) / case_id
+                destination_evidence.mkdir(parents=True, exist_ok=False)
+                for name in names:
+                    shutil.copyfile(destination / name, destination_evidence / name)
             return {"model": model, "cad": saved_cad, "manifest": manifest,
-                    "rows": rows, "answer": answer, "generated": generated}
+                    "rows": rows, "answer": answer, "generated": generated,
+                    "artifact_sha256": artifact_sha256}
+
+    def test_gn5_c1_optional_artifact_capture_is_hash_verified(self):
+        with tempfile.TemporaryDirectory(prefix="carpinova-gn8-capture-") as root:
+            root_path = Path(root).resolve()
+            self.assertFalse(root_path.is_relative_to(Path.cwd().resolve()))
+            gn5_root, gn3_root = root_path / "GN5", root_path / "GN3"
+            gn3_root.mkdir()
+            names = (
+                "maestro-review.json", "cad-exchange.json",
+                "parts-review.csv", "front-review.svg", "manifest.json",
+            )
+            variables = (
+                "CARPINOVA_GN5_ARTIFACT_ROOT", "CARPINOVA_GN3_EVIDENCE_ROOT",
+            )
+            previous = {name: os.environ.get(name) for name in variables}
+            os.environ[variables[0]] = str(gn5_root)
+            os.environ[variables[1]] = str(gn3_root)
+            try:
+                review = self.ask(
+                    "C1_CAPTURE",
+                    "Quiero un gabinete de cocina independiente. La carcasa mide "
+                    "800 mm de ancho, 700 mm de alto y 400 mm de fondo. Melamina "
+                    "de 15 mm, laterales continuos, dos puertas sobrepuestas con "
+                    "manijas, una repisa horizontal, sin cajones, sin fondo trasero, "
+                    "sin mesón, directo al piso y separado de la pared.",
+                )
+                bundle = self.assert_bundle("C1_CAPTURE", review, {
+                    "left_side", "right_side", "top", "bottom", "front_left",
+                    "front_right", "shelf_horizontal",
+                })
+            finally:
+                for name, value in previous.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+
+            captured = gn5_root / "C1_CAPTURE"
+            self.assertEqual({path.name for path in captured.iterdir()}, set(names))
+            for name in names:
+                self.assertEqual(
+                    hashlib.sha256((captured / name).read_bytes()).hexdigest(),
+                    bundle["artifact_sha256"][name],
+                )
+            transcript = json.loads(
+                (gn3_root / "real_tool_transcripts.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(transcript["calls"]), 2)
 
     def test_gn5_c1_kitchen_doors_shelf_overlay_and_depth_gate(self):
         utterance = (
