@@ -348,7 +348,7 @@ _DRAWER_LAYOUT_EXCLUSIONS = (
     "corredera", "bisagra", "entrepaño", "repisa", "estante", "modulos",
     "módulos", "izquierda", "derecha", "dividido", "dividida",
 )
-_ILLUSTRATIVE_PANEL_MM = 18
+_ILLUSTRATIVE_DRAWER_PANEL_MM = 18
 _DOOR_MENTION = re.compile(r"(?<!\w)puertas?(?!\w)")
 _DOOR_NEGATION = re.compile(
     r"(?<!\w)(?:sin\s+(?:(?:ningun[oa]?|un[oa]?|las?|los?|"
@@ -430,7 +430,7 @@ def _illustrative_drawer_layout_option(
         return None
     thicknesses = _explicit_panel_thicknesses(normalized)
     if len(set(thicknesses)) > 1 or any(
-        thickness != _ILLUSTRATIVE_PANEL_MM for thickness in thicknesses
+        thickness != _ILLUSTRATIVE_DRAWER_PANEL_MM for thickness in thicknesses
     ):
         return None
     amount = matches[0].group("count")
@@ -444,7 +444,7 @@ def _illustrative_drawer_layout_option(
     module_spec = {
         "type": "drawer_layout_proposal",
         **{k: project[k] for k in keys},
-        "panel_thickness_mm": _ILLUSTRATIVE_PANEL_MM,
+        "panel_thickness_mm": _ILLUSTRATIVE_DRAWER_PANEL_MM,
         "construction": "top_bottom_full",
         "vertical_gap_mm": 28 if count > 1 else 0,
         "drawer_weights": [1] * count,
@@ -460,7 +460,7 @@ def _illustrative_drawer_layout_option(
         "explicit_user_values_to_confirm": {**{k: project[k] for k in keys},
                                   "drawer_count": count},
         "suggested_fields": {
-            "panel_thickness_mm": _ILLUSTRATIVE_PANEL_MM,
+            "panel_thickness_mm": _ILLUSTRATIVE_DRAWER_PANEL_MM,
             "construction": "top_bottom_full",
             "vertical_gap_mm": module_spec["vertical_gap_mm"],
             "drawer_weights": list(module_spec["drawer_weights"]),
