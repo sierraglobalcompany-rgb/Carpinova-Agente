@@ -1,4 +1,4 @@
-"""Nominal orthographic 3-view rendering; one verified CADExchange only."""
+"""Nominal orthographic review views; one verified CADExchange only."""
 from __future__ import annotations
 
 import json
@@ -31,13 +31,13 @@ class SheetTests(unittest.TestCase):
         self.assertIn(cad["geometry_sha256"], sheet)
         for text in ("800 mm", "720 mm", "550 mm", "4 piezas", "BORRADOR"):
             self.assertIn(text, sheet)
-        self.assertEqual(sheet.count('class="part"'), 12)  # 4 original boxes x 3 views
+        self.assertEqual(sheet.count('class="part"'), 16)  # four boxes × four selected projections
 
     def test_three_views_are_not_fabrication_authority(self):
         cad = cad_exchange(consult_maestro(REQUEST)["modular"])
         sheet = three_views_svg(cad)
         self.assertIn("NO CORTAR, PERFORAR NI FABRICAR", sheet)
-        self.assertIn("no resuelve líneas ocultas", sheet)
+        self.assertIn("no resuelven líneas ocultas ni ensamblajes", sheet)
         self.assertNotIn("finished_cut_dimensions", sheet)
 
     def test_tampered_sha_or_geometry_fails_closed(self):
@@ -47,6 +47,7 @@ class SheetTests(unittest.TestCase):
             three_views_svg(cad)
 
     def test_create_png_and_pdf_after_existing_pilot(self):
+        from hashlib import sha256
         try:
             import resvg_py
             from PIL import Image
@@ -57,6 +58,12 @@ class SheetTests(unittest.TestCase):
             original = write_pilot_bundle(REQUEST, destination)
             sheet = create_render_bundle(destination)
             self.assertEqual(sheet["geometry_sha256"], original["geometry_sha256"])
+            svg = (destination / "lamina" / "three-views.svg").read_bytes()
+            pdf = (destination / "lamina" / "three-views.pdf").read_bytes()
+            self.assertEqual(sha256(svg).hexdigest(), sheet["svg_sha256"])
+            self.assertEqual(sha256(pdf).hexdigest(), sheet["pdf_sha256"])
+            self.assertNotEqual(sha256(pdf + b"\\n% tamper check").hexdigest(),
+                                sheet["pdf_sha256"])
             self.assertEqual(len(sheet["files"]), 5)
             self.assertEqual(sheet["booklet_pages"], 3)
             self.assertTrue((destination / "lamina" /
@@ -105,7 +112,7 @@ class SheetTests(unittest.TestCase):
             output = Path(td) / "barra"
             source = write_pilot_bundle(request, output)
             manifest = create_render_bundle(output)
-            self.assertEqual(manifest["piece_count"], 21)
+            self.assertEqual(manifest["piece_count"], 28)
             self.assertEqual(manifest["geometry_sha256"], source["geometry_sha256"])
             self.assertEqual(manifest["booklet_pages"], 7)
             self.assertEqual(len(manifest["files"]), 5)

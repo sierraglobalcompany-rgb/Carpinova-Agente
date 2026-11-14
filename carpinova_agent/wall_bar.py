@@ -1,7 +1,10 @@
-"""Wall-to-cabinet auxiliary bar: place validated F1/F7C parts only.
+"""Wall-to-cabinet auxiliary bar from validated F1/F7C geometry.
 
-The left wall is NOT a wooden panel. Feet and anchors are concepts, not CAD parts.
-All output is nominal review geometry, never a cut/drill/fabrication release.
+Four small CAD markers make the requested 40 mm leg height visible below the
+floor pedestal. Their 15 mm square footprint is an illustration derived from
+the cabinet panel thickness, not a selected leg size, material, or SKU. The
+left wall is NOT a wooden panel. All output is nominal review geometry, never
+a cut/drill/fabrication release.
 """
 from __future__ import annotations
 
@@ -79,11 +82,14 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         raise DesignError("Se requieren tres cajones.")
     for drawer in drawers:
         if (type(drawer) is not dict
-                or drawer.get("front_construction") != "integrated_overlay"
+                or drawer.get("front_construction") != "separate"
                 or not isinstance(drawer.get("facade"), dict)
                 or drawer["facade"].get("style") != "overlay"
                 or drawer.get("front_setback_mm") != 0):
-            raise DesignError("Frente exterior único requerido para cada cajón.")
+            raise DesignError(
+                "Cada cajón requiere caja completa y fachada overlay separada, "
+                "con retranqueo nominal cero."
+            )
         facade = drawer["facade"]
         if (facade.get("edgeband_thickness_mm") != 2
                 or set(facade.get("edgebanding_edges", []))
@@ -106,15 +112,58 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     source_ids = [p["piece_id"] for p in source["parts"]]
     if len(source_ids) != len(set(source_ids)):
         raise DesignError("IDs duplicados.")
-    if (sum(p["role"] == "drawer_facade" for p in source["parts"]) != 3
-            or any(p["role"] == "drawer_front_wall" for p in source["parts"])):
-        raise DesignError("Cajones no representan el frente externo único.")
+    expected_drawer_roles = {
+        "drawer_side_left", "drawer_side_right", "drawer_front_wall",
+        "drawer_rear_wall", "drawer_bottom", "drawer_facade",
+    }
+    by_drawer: dict[str, set[str]] = {"D1": set(), "D2": set(), "D3": set()}
+    for part in source["parts"]:
+        if part["role"].startswith("drawer_"):
+            did = part.get("drawer_id")
+            if did not in by_drawer:
+                raise DesignError("Pieza de cajón sin identidad D1/D2/D3.")
+            by_drawer[did].add(part["role"])
+    if (source["piece_count"] != 23
+            or any(roles != expected_drawer_roles for roles in by_drawer.values())):
+        raise DesignError("Se requieren seis piezas nominales por cada caja y fachada.")
     result = deepcopy(source)
     # Translate F1/F7C panels into one common coordinate system, no redraw.
     # Original overlay z=-top; after shifting it occupies z=0..top.
     for part in result["parts"]:
         x, y, z = part["nominal_origin_xyz_mm"]
         part["nominal_origin_xyz_mm"] = [x + free, y + feet, z + top]
+    cid = module["module_id"]
+    support_thickness = module["panel_thickness_mm"]
+    support_z = (top, top + cabinet_d - support_thickness)
+    support_x = (free, free + cabinet_w - support_thickness)
+    support_parts = []
+    for label, x, z in (
+        ("FRONT_LEFT", support_x[0], support_z[0]),
+        ("FRONT_RIGHT", support_x[1], support_z[0]),
+        ("REAR_LEFT", support_x[0], support_z[1]),
+        ("REAR_RIGHT", support_x[1], support_z[1]),
+    ):
+        support_parts.append({
+            "piece_id": f"{cid}-SUPPORT-LEG-{label}",
+            "module_id": cid, "role": "support_leg_concept",
+            "material_id": "SUPPORT_MATERIAL_PENDING",
+            "nominal_face_x_mm": support_thickness,
+            "nominal_face_y_mm": feet,
+            "thickness_mm": support_thickness,
+            "grain_axis": "UNCONFIRMED", "face_plane": "XY",
+            "nominal_origin_xyz_mm": [x, 0, z],
+            "edgebanding_edges": "UNCONFIRMED",
+            "edgebanding_thickness_mm": None,
+            "edgebanding_nominal_total_mm": None,
+            "finished_cut_dimensions_mm": None,
+            "source_engine": "WALL_BAR_CONCEPT_ONLY",
+            "source_formula": (
+                "four illustrative support markers under the floor pedestal; "
+                "height=feet_height_mm; square footprint derives from "
+                "cabinet panel_thickness_mm and is not a selected leg size"
+            ),
+        })
+    result["parts"].extend(support_parts)
     # A: facades lie along the 900 mm long edge (XY plane at Z=0),
     # and drawers open outwards towards negative Z, never from the short tip.
     faces = [p for p in result["parts"] if p["role"] == "drawer_facade"]
@@ -154,6 +203,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "cabinet_x_range_mm": [free, w],
         "cabinet_y_range_mm": [feet, h-top],
         "feet_height_mm": feet, "physical_feet_parts": None,
+        "conceptual_support_piece_ids": [p["piece_id"] for p in support_parts],
+        "conceptual_support_footprint_mm": [support_thickness, support_thickness],
+        "conceptual_support_footprint_basis": "cabinet_panel_thickness_mm",
+        "conceptual_support_geometry_is_illustrative_only": True,
         "top_y_range_mm": [h-top, h],
         "design_choices": {
             "wall_support_presentation": wall_presentation,
@@ -162,7 +215,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
             "aesthetic_is_illustrative_only": True,
             "wall_attachment_by_installer": True,
             "site_wall_material_required_for_design": False,
-            "support_parts_modeled": False,
+            "support_parts_modeled": True,
+            "support_parts_are_physical_or_selected": False,
             "false_thickness_parts_modeled": False,
             "selected_elements_require_dimensions_and_owner_approval": (
                 wall_presentation != "installer_defined"
@@ -174,7 +228,6 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     # Physical interfaces read from F1/F7C part coordinates; NO new geometry.
     # Record gaps and planar contacts, never infer a working mechanical joint.
     p_by_id = {p["piece_id"]: p for p in result["parts"]}
-    cid = module["module_id"]
     bottom = p_by_id[f"{cid}-BOTTOM"]
     back = p_by_id[f"{cid}-BACK_FULL"]
     bottom_top_y = bottom["nominal_origin_xyz_mm"][1] + bottom["thickness_mm"]
@@ -186,6 +239,7 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
     for did in ("D1", "D2", "D3"):
         base = p_by_id[f"{cid}-{did}-DRAWER_BOTTOM"]
         facade = p_by_id[f"{cid}-{did}-DRAWER_FACADE"]
+        front_wall = p_by_id[f"{cid}-{did}-DRAWER_FRONT_WALL"]
         left = p_by_id[f"{cid}-{did}-DRAWER_SIDE_LEFT"]
         right = p_by_id[f"{cid}-{did}-DRAWER_SIDE_RIGHT"]
         gap = base["nominal_origin_xyz_mm"][1] - bottom_top_y
@@ -196,9 +250,11 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{did}: solape con base de carcasa o respaldo.")
         fx, fy, fz = facade["nominal_origin_xyz_mm"]
         contact_z = fz + facade["thickness_mm"]
+        if front_wall["nominal_origin_xyz_mm"][2] != contact_z:
+            raise DesignError(f"{did}: la fachada separada no toca la pared frontal interior.")
         surfaces = {}
-        for label, part in (("left_side", left), ("right_side", right),
-                            ("bottom", base)):
+        for label, part in (("front_wall", front_wall), ("left_side", left),
+                            ("right_side", right), ("bottom", base)):
             px, py, pz = part["nominal_origin_xyz_mm"]
             if pz != contact_z:
                 raise DesignError(f"{did}: {label} no toca plano posterior del frente.")
@@ -223,7 +279,10 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         planar_front_contacts[did] = True
         front_joint_interfaces[did] = {
             "front_piece_id": facade["piece_id"],
-            "single_external_front": True,
+            "box_front_wall_piece_id": front_wall["piece_id"],
+            "front_construction": "separate",
+            "front_style": "overlay",
+            "decorative_front_is_structural": False,
             "contact_is_not_a_mechanical_joint": True,
             "surfaces": surfaces,
             "fixing_holes_specified": False,
@@ -233,8 +292,8 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         rear_gaps[did] = rear_gap
     result["wall_bar_review"]["drawer_base_clearance_mm"] = gaps
     result["wall_bar_review"]["drawer_rear_clearance_mm"] = rear_gaps
-    result["wall_bar_review"]["drawer_front_side_contact"] = {
-        k: "GEOMETRIC_PLANE_ONLY_NOT_FASTENED" for k in planar_front_contacts
+    result["wall_bar_review"]["drawer_front_contact"] = {
+        k: "GEOMETRIC_PLANES_ONLY_NOT_FASTENED" for k in planar_front_contacts
     }
     result["wall_bar_review"]["front_joint_interfaces"] = front_joint_interfaces
     # The CAD has NOMINAL external faces only. Panel-cut sizing must not
@@ -250,14 +309,16 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         did = front_part["drawer_id"]
         fw = front_part["nominal_face_x_mm"]
         fh = front_part["nominal_face_y_mm"]
+        edge_growth = 2 * front_edge
         edge_review[did] = {
             "nominal_face_width_mm": fw,
             "nominal_face_height_mm": fh,
             "rigid_edge_mm_each_side": front_edge,
+            "proposed_finished_outer_target_size_mm": [fw, fh],
             "if_nominal_is_finished_theoretical_raw_width_mm": fw - 2 * front_edge,
             "if_nominal_is_finished_theoretical_raw_height_mm": fh - 2 * front_edge,
-            "if_nominal_is_raw_resulting_width_mm": fw + 2 * front_edge,
-            "if_nominal_is_raw_resulting_height_mm": fh + 2 * front_edge,
+            "if_nominal_is_raw_resulting_width_mm": fw + edge_growth,
+            "if_nominal_is_raw_resulting_height_mm": fh + edge_growth,
             "theoretical_only_not_cut_dimensions": True,
         }
     nominal_reveals = {}
@@ -271,8 +332,26 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         nominal_reveals[f"{lower_id}_{upper_id}"] = nominal_gap
         uncompensated_reveals[f"{lower_id}_{upper_id}"] = compensated
     cabinet_front_reveal = (cabinet_w - finished_fronts[0]["nominal_face_x_mm"]) / 2
+    cabinet_x0, cabinet_x1 = result["wall_bar_review"]["cabinet_x_range_mm"]
+    cabinet_y0, cabinet_y1 = result["wall_bar_review"]["cabinet_y_range_mm"]
+    face_x0 = min(p["nominal_origin_xyz_mm"][0] for p in finished_fronts)
+    face_x1 = max(p["nominal_origin_xyz_mm"][0] + p["nominal_face_x_mm"]
+                  for p in finished_fronts)
+    front_y0 = min(p["nominal_origin_xyz_mm"][1] for p in finished_fronts)
+    front_y1 = max(p["nominal_origin_xyz_mm"][1] + p["nominal_face_y_mm"]
+                   for p in finished_fronts)
+    raw_interpretation_gaps = {
+        pair: gap - 2 * front_edge for pair, gap in nominal_reveals.items()
+    }
+    raw_interpretation_invalid = any(gap <= 0
+                                     for gap in raw_interpretation_gaps.values())
     result["wall_bar_review"]["front_edgebanding_review"] = {
-        "status": "PENDING_FINISHED_VS_RAW_INTERPRETATION",
+        "status": "FINISHED_TARGET_PROPOSED_CLEARANCE_UNVERIFIED",
+        "finished_outer_target": "PROPOSED",
+        "physical_edge_model": "NOT_MODELED",
+        "cut_dimensions": "NOT_VERIFIED",
+        "actual_gap": "NOT_VERIFIED",
+        "finished_panel_edges_included": False,
         "nominal_panel_dimensions_are_not_cut_dimensions": True,
         "fronts": edge_review,
         "nominal_gaps_between_fronts_mm": nominal_reveals,
@@ -280,13 +359,34 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "nominal_cabinet_side_reveal_each_mm": cabinet_front_reveal,
         "side_reveal_if_nominal_is_raw_and_2mm_band_each_side_mm":
             cabinet_front_reveal - front_edge,
+        "front_perimeter_reveals_mm": {
+            "left": face_x0 - cabinet_x0,
+            "right": cabinet_x1 - face_x1,
+            "bottom": front_y0 - cabinet_y0,
+            "top": cabinet_y1 - front_y1,
+        },
+        "raw_interpretation_scenario": {
+            "status": ("INVALID_RAW_VS_FINISHED" if raw_interpretation_invalid
+                       else "NOT_REJECTED_BY_GEOMETRIC_REVIEW"),
+            "resulting_front_sizes_mm": {
+                did: [values["if_nominal_is_raw_resulting_width_mm"],
+                      values["if_nominal_is_raw_resulting_height_mm"]]
+                for did, values in edge_review.items()
+            },
+            "theoretical_interfront_gaps_mm": raw_interpretation_gaps,
+            "zero_gap_is_accepted": False,
+            "actual_clearance_verified": False,
+            "cut_dimensions_authorized": False,
+        },
         "cutting_dimensions_authorized": False,
     }
     result["blockers"].append(
-        "CANTO FRONTAL: hay holguras nominales de 2 mm entre frentes; "
-        "si se cortan a la medida nominal y se agrega PVC 2 mm por borde, "
-        "cada frente crece 4 mm por eje y las separaciones pasan a -2 mm. "
-        "Definir dimensiones terminadas, sustrato, merma y procesos antes de corte."
+        "FACHADAS A/B/C: separación geométrica nominal de "
+        f"{', '.join(str(v) for v in nominal_reveals.values())} mm; no es holgura "
+        "física verificada. Si el objetivo exterior terminado se interpreta por error "
+        "como sustrato y se añade PVC 2 mm en cuatro bordes, el escenario se rechaza "
+        "como INVALID_RAW_VS_FINISHED; su cálculo teórico no valida una luz real. "
+        "Proceso, adhesivo y tolerancias siguen pendientes."
     )
     result["blockers"].extend([
         f"D3: holgura vertical inferior nominal de {gaps['D3']} mm sin "
@@ -299,9 +399,13 @@ def design_wall_bar(spec: Mapping[str, Any]) -> dict[str, Any]:
         "NO es requisito para continuar el diseño de la barra.",
         "Resistencia de la cubierta bajo uso real NO verificada: "
         "nota técnica, sin impedir la revisión del CAD.",
-        "Patas: SKU, cantidad, capacidad, distribución y fijaciones SIN VALIDAR.",
-        "Frente exterior único: fijación estructural a costados/base SIN VALIDAR.",
-        "Tapacanto rígido en frentes y flexible en restantes: dimensiones de corte pendientes.",
+        f"Patas: cuatro bloques CAD conceptuales de {feet} mm bajo la cajonera; "
+        f"huella {support_thickness} × {support_thickness} mm ilustrativa derivada "
+        "del espesor del tablero. "
+        "Material, tamaño físico, SKU, capacidad y fijaciones SIN VALIDAR.",
+        "Fachadas decorativas separadas: unión a pared frontal interior y ajuste SIN VALIDAR.",
+        "Los solapes overlay proceden del fixture de revisión; no son dimensiones aprobadas.",
+        "Clasificación de cantos por borde: candidatos y exposiciones pendientes; no hay selección física.",
         "Prohibido inventar lateral izquierdo, faldón, escuadra o soporte físico.",
         "A confirmada: tres cajones abren hacia costado largo (Z negativo)."
     ])

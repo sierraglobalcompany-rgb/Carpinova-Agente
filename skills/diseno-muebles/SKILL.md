@@ -13,7 +13,7 @@ Usar cuando alguien quiera aprender, diseñar, construir, modificar o presupuest
 2. **Medir**: ancho, alto, profundidad, luz disponible, piso/nivel, interferencias, tolerancias y obstáculos. Preguntar datos críticos que falten en un solo bloque conciso.
 3. **Diseñar**: espesor real y composición de materiales, zócalo/patas, tipo de ensamblaje, fondos, distribución interior, puertas y cajones; especificar qué tapa es exterior o interior y qué frente es aplicado/embutido.
 4. **Vetas**: definir orientación visual por pieza y coherencia entre frentes consecutivos; marcar sentido en plano/corte y considerar disponibilidad de tablero y giro permitido.
-5. **Cajones**: definir luz, sistema de corredera, referencia/modelo, carga, holguras verificadas y longitud; determinar caja, fondo y frente por ecuaciones, no por números universales.
+5. **Cajones**: para un diseño nuevo, proponer una caja completa independiente (cuatro paredes y fondo) con fachada decorativa sobrepuesta separada; `inset` es una alternativa explícita. No usar la fachada como pared estructural salvo modo LEGACY expresamente solicitado. Definir luces, solapes, material, espesor y corredera con datos explícitos; nunca inventar sus medidas ni compatibilidades.
 6. **Herrajes**: ofrecer tipo, cantidad y características; antes de recomendar broca, cazoleta, distancia al borde, paso y patrón de tornillos exigir ficha exacta y espesor.
 7. **Despiece**: código único por pieza, ancho x largo x espesor (mm), cantidad, veta, cantos por lado, cortes/rebajes/ranuras y cara visible; comprobar sumatorias geométricas.
 8. **Boceto y montaje**: vistas frontal/lateral/superior y explosiva si existe render verificable; secuencia accesible a principiantes.

@@ -104,9 +104,11 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
     """Create a *nominal* inset or overlay decorative drawer face.
 
     Both styles use the same F1 opening; unlike an inset front, an overlay
-    face extends onto the surrounding carcass and sits at negative Z.
-    All four overlaps must be given explicitly and cannot exceed the
-    local frame thickness. They are NOT assumed hardware defaults.
+    face extends onto the surrounding carcass and sits at negative Z. A
+    separate overlay ends at Z=0 and can meet a drawer box starting at Z=0;
+    it does not occupy the same volume. All four overlaps must be given
+    explicitly and cannot exceed the local frame thickness. They are NOT
+    assumed hardware defaults.
     """
     if data == "pending":
         return [], [f"{module_id}/{drawer_id}: falta frente decorativo de cajón."]
@@ -157,7 +159,7 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
     if structural_front:
         if style != "overlay" or front_setback != 0:
             raise DesignError(f"{drawer_id}: frente único exige overlay y retranqueo cero.")
-    elif front_setback <= thick:
+    elif style == "inset" and front_setback <= thick:
         raise DesignError(
             f"{drawer_id}: retranqueo de caja debe superar espesor del frente "
             "para que no ocupen el mismo volumen."
@@ -171,12 +173,20 @@ def _facade(data: Any, *, module_id: str, drawer_id: str,
     )
     # Opening mechanism is an *intent*, not a drilled or modeled mechanism.
     face["opening_system"] = opening_system
+    face["front_construction"] = (
+        "integrated_overlay" if structural_front else "separate"
+    )
     blockers = ([f"{module_id}/{drawer_id}: frente exterior estructural, "
-                 "unión a laterales y base PENDIENTE DE VALIDAR."] if structural_front
+                 "modo LEGACY explícito; unión a laterales y base PENDIENTE DE VALIDAR."] if structural_front
                 else [
         f"{module_id}/{drawer_id}: frente decorativo sin uniones, tiradores, "
         "cantos finales ni validación de montaje."
     ])
+    if not structural_front and style == "overlay" and front_setback > 0:
+        blockers.append(
+            f"{module_id}/{drawer_id}: el retranqueo deja una separación nominal "
+            "entre fachada aplicada y caja; montaje sin especificar."
+        )
     if opening_system == "pending":
         blockers.append(f"{module_id}/{drawer_id}: decidir tirador, push-to-open, uñero o perfil.")
     elif opening_system == "profile":
