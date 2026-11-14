@@ -1032,6 +1032,19 @@ def _guided_text_updates(
                            r"\bhorizontal\s+(?:repisa|divisi[oó]n)\b", text)
     vertical = re.search(r"\b(?:divisi[oó]n|divisor)\s+vertical\b|"
                          r"\bvertical\s+(?:divisi[oó]n|divisor)\b", text)
+    equal_width_modules = (
+        explicit_module_count is not None
+        and bool(re.search(r"\b(?:modulos?\s+iguales|iguales\s+de\s+ancho)\b", text))
+    )
+    scoped_shelf = None
+    if (re.search(r"\bcocinas?\b", text) and explicit_module_count == 2
+            and equal_width_modules):
+        scoped_shelf = re.search(
+            r"\b(?:solo|solamente|unicamente)\s+(?:el\s+)?m[oó]dulo\s+"
+            r"(?P<side>izquierdo|derecho)\s+(?P<absence>no\s+)?"
+            r"(?:lleva|tiene)\s+(?:una\s+)?repisa\s+horizontal\b",
+            text,
+        )
     if shelf_per_module and not _guided_negated(text, shelf_per_module.start()):
         detail: dict[str, Any] = {
             "elements": ["horizontal"],
@@ -1042,9 +1055,17 @@ def _guided_text_updates(
         if shelf_position:
             detail["shelf_position_from_clear_bottom_mm"] = int(shelf_position.group("mm"))
         add("internal_layout", detail)
-    elif explicit_module_count is not None and re.search(
-        r"\b(?:modulos?\s+iguales|iguales\s+de\s+ancho)\b", text,
-    ):
+    elif scoped_shelf:
+        detail = {
+            "elements": [] if scoped_shelf.group("absence") else ["horizontal"],
+            "module_count": 2,
+            "shelf_module_index": 0 if scoped_shelf.group("side") == "izquierdo" else 1,
+        }
+        if (not scoped_shelf.group("absence") and shelf_position
+                and shelf_position.start() > scoped_shelf.end()):
+            detail["shelf_position_from_clear_bottom_mm"] = int(shelf_position.group("mm"))
+        add("internal_layout", detail)
+    elif equal_width_modules:
         add("internal_layout", {"elements": [], "module_count": explicit_module_count})
     elif horizontal and not _guided_negated(text, horizontal.start()):
         layout.append("horizontal")
@@ -1052,8 +1073,7 @@ def _guided_text_updates(
         layout.append("vertical")
     if re.search(r"\binterior\s+(?:abierto|libre)\b|\babierto\b", text):
         layout.append("open")
-    if layout and not (shelf_per_module or explicit_module_count is not None
-                       and re.search(r"\b(?:modulos?\s+iguales|iguales\s+de\s+ancho)\b", text)):
+    if layout and not (shelf_per_module or scoped_shelf or equal_width_modules):
         add("internal_layout", layout)
 
     if re.search(r"\b(?:sin\s+(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
@@ -1995,6 +2015,142 @@ def _guided_open_cabinet_handoff(
     return result
 
 
+def _guided_hardware_review(
+    opening_elements: list[dict[str, Any]], parts: list[dict[str, Any]],
+    modules: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Attach consultative F4 references to existing nominal opening pieces."""
+    module_by_id = {module.get("module_id"): module for module in modules}
+    part_by_id = {part.get("piece_id"): part for part in parts}
+    drawers_by_piece: dict[str, dict[str, Any]] = {}
+    for module in modules:
+        drawer_list = module.get("drawers")
+        if type(drawer_list) is not list:
+            continue
+        for drawer in drawer_list:
+            if type(drawer) is dict and type(drawer.get("drawer_id")) is str:
+                facade_id = (
+                    f"{module.get('module_id')}-{drawer['drawer_id']}-DRAWER_FACADE"
+                )
+                drawers_by_piece[facade_id] = drawer
+
+    entries: list[dict[str, Any]] = []
+    slide_inputs = [
+        "exact_slide_sku", "current_official_manufacturer_datasheet",
+        "rated_load", "slide_length_and_travel", "drawer_and_carcass_material",
+        "verified_left_and_right_clearances", "mounting_method_and_fixings",
+        "interference_and_retraction_review",
+    ]
+    for opening in opening_elements:
+        piece_id = opening.get("piece_id")
+        module_id = opening.get("module_id")
+        part = part_by_id.get(piece_id)
+        module = module_by_id.get(module_id)
+        entry: dict[str, Any] = {
+            "piece_id": piece_id,
+            "module_id": module_id,
+            "element_type": opening.get("element_type"),
+            "opening_system": opening.get("opening_system", "pending"),
+            "hardware_selected": False,
+            "required_inputs": [],
+            "blockers": [],
+        }
+        if type(part) is not dict or type(module) is not dict:
+            entry["blockers"].append("OPENING_COMPONENT_SOURCE_NOT_FOUND")
+            entries.append(entry)
+            continue
+
+        if opening.get("element_type") == "door":
+            fronts = module.get("fronts")
+            style = fronts.get("style") if type(fronts) is dict else None
+            thickness = part.get("thickness_mm")
+            entry.update({
+                "required_inputs": [
+                    "exact_hinge_and_plate_pair", "current_official_SKU_datasheet",
+                    "door_height_weight_and_material", "cup_geometry_and_position",
+                    "screw_and_pilot_specification", "hinge_count_spacing_and_load",
+                    "physical_fit_and_interference_check",
+                ],
+                "candidate_hinge_sku": None,
+                "candidate_plate_sku": None,
+                "sources": [],
+                "f4_status": "NOT_QUERIED_UNSUPPORTED_FRONT_STYLE",
+            })
+            if style in {"overlay", "inset"}:
+                hardware_request = {"front_style": style}
+                if type(thickness) is int and thickness > 0:
+                    hardware_request["door_thickness_mm"] = thickness
+                try:
+                    f4_result = consult_maestro({
+                        "action": "hardware", "hardware": hardware_request,
+                    })
+                    f4 = f4_result.get("hardware")
+                except MaestroError as exc:
+                    f4 = None
+                    entry["f4_status"] = "F4_REFERENCE_LOOKUP_FAILED"
+                    entry["blockers"].append(f"F4_REFERENCE_LOOKUP_FAILED:{exc}")
+                if type(f4) is dict:
+                    entry["f4_status"] = f4.get("status", "BLOCKED_HARDWARE_SPEC")
+                    entry["candidate_hinge_sku"] = f4.get("candidate_hinge_sku")
+                    # A hinge candidate never implies or selects a mounting plate.
+                    entry["candidate_plate_sku"] = None
+                    entry["sources"] = [
+                        {
+                            **source,
+                            "evidence": "HISTORICAL_MANUFACTURER_REFERENCE_NOT_COMPATIBILITY",
+                        }
+                        for source in f4.get("sources", [])
+                        if type(source) is dict
+                    ]
+                    entry["blockers"].extend(
+                        str(item) for item in f4.get("blockers", [])
+                    )
+                    entry["required_inputs"].extend(
+                        str(item) for item in f4.get("missing_inputs", [])
+                    )
+                else:
+                    entry["f4_status"] = "F4_HARDWARE_RESULT_MISSING"
+                    entry["blockers"].append("F4_HARDWARE_RESULT_MISSING")
+            else:
+                entry["blockers"].append("FRONT_STYLE_UNSUPPORTED_OR_UNCONFIRMED")
+            entry["blockers"].append("HARDWARE_COMPATIBILITY_NOT_VERIFIED")
+        elif opening.get("element_type") == "drawer":
+            drawer = drawers_by_piece.get(piece_id)
+            entry.update({
+                "required_inputs": list(slide_inputs),
+                "slide_sku": None,
+                "slide_compatibility": "NOT_VERIFIED",
+                "slide_sources": [],
+                "blockers": ["SLIDE_COMPATIBILITY_NOT_VERIFIED"],
+            })
+            if type(drawer) is not dict:
+                entry["blockers"].append("DRAWER_SOURCE_NOT_FOUND")
+            else:
+                left_clearance = drawer.get("slide_clearance_left_mm")
+                right_clearance = drawer.get("slide_clearance_right_mm")
+                if (type(left_clearance) is int and left_clearance == 0
+                        and type(right_clearance) is int and right_clearance == 0):
+                    entry["blockers"].append(
+                        "ZERO_MM_CLEARANCES_ARE_PLACEHOLDERS_NOT_INSTALLABLE"
+                    )
+                elif type(left_clearance) is not int or type(right_clearance) is not int:
+                    entry["blockers"].append("SLIDE_CLEARANCES_NOT_VERIFIED")
+        else:
+            entry["blockers"].append("OPENING_ELEMENT_TYPE_UNSUPPORTED")
+        entry["required_inputs"] = list(dict.fromkeys(entry["required_inputs"]))
+        entry["blockers"] = list(dict.fromkeys(entry["blockers"]))
+        entries.append(entry)
+
+    return {
+        "status": "REFERENCE_ONLY_NOT_SELECTED",
+        "hardware_selected": False,
+        "drilling_ready": False,
+        "purchase_ready": False,
+        "drilling_coordinates": [],
+        "elements": entries,
+    }
+
+
 def _guided_multicomponent_handoff(
     decisions: dict[str, dict[str, Any]], detail_spec: dict[str, Any] | None, *,
     photo_attached: bool, utterance: str = '', revision: dict[str, Any] | None = None,
@@ -2026,6 +2182,7 @@ def _guided_multicomponent_handoff(
             "hardware_selected": False,
         },
         "can_generate_f7c": False,
+        **{flag: False for flag in _FLAGS},
     }
     blockers: list[str] = []
     required = (
@@ -2222,7 +2379,34 @@ def _guided_multicomponent_handoff(
     layout_elements = (
         layout.get("elements") if type(layout) is dict else layout
     )
-    if type(layout_elements) is list:
+    if type(layout) is dict and "shelf_module_index" in layout:
+        shelf_index = layout.get("shelf_module_index")
+        if len(modules) != 2 or layout.get("module_count") != 2:
+            blockers.append("internal_layout:scoped_shelf_requires_two_modules")
+        valid_shelf_index = type(shelf_index) is int and shelf_index in (0, 1)
+        if not valid_shelf_index:
+            blockers.append("internal_layout:scoped_shelf_module_index_invalid")
+        if layout_elements != ["horizontal"]:
+            blockers.append("internal_layout:scoped_horizontal_shelf_required")
+        shelf_position = layout.get("shelf_position_from_clear_bottom_mm")
+        if type(shelf_position) is not int or shelf_position <= 0:
+            blockers.append("internal_layout:shelf_position_required")
+        if len(modules) == 2 and valid_shelf_index:
+            selected_module = modules[shelf_index]
+            other_module = modules[1 - shelf_index]
+            divider = selected_module.get("horizontal_divider")
+            if type(divider) is not dict:
+                blockers.append("module_spec:scoped_horizontal_divider_missing")
+            elif (type(divider.get("position_from_clear_bottom_mm")) is not int
+                  or type(shelf_position) is not int or shelf_position <= 0
+                  or divider.get("position_from_clear_bottom_mm") != shelf_position):
+                blockers.append("module_spec:shelf_position_mismatch_owner")
+            if other_module.get("horizontal_divider") is not None:
+                blockers.append("module_spec:horizontal_divider_outside_declared_scope")
+            drawer_spec = selected_module.get("drawers")
+            if type(drawer_spec) is list and drawer_spec:
+                blockers.append("internal_layout:divider_drawer_collision_unverified")
+    elif type(layout_elements) is list:
         if "horizontal" in layout_elements and not all(
             module.get("horizontal_divider") for module in modules
         ):
@@ -2231,7 +2415,6 @@ def _guided_multicomponent_handoff(
             module.get("vertical_divider") for module in modules
         ):
             blockers.append("module_spec:vertical_divider_missing")
-
     back = values.get("back")
     if back == "none" and any(module.get("back") != "none" for module in modules):
         blockers.append("module_spec:back_mismatch_owner")
@@ -2423,6 +2606,9 @@ def _guided_multicomponent_handoff(
             "hardware_selected": False,
         },
     })
+    result["hardware_review"] = _guided_hardware_review(
+        opening_elements, parts, modules,
+    )
     if revision is not None:
         result["nominal_draft_revision"] = copy.deepcopy(revision)
     return result

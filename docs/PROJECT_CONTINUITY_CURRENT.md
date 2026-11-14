@@ -1,6 +1,19 @@
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## ACTIVO — PR #23 P7: evidencia runtime libro→Maestro→borrador (04-nov-2026)
+## VIGENTE — CARPN-B1-V2 (14-nov-2026)
+
+- Repositorio: [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente). PR [#23](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/23) sigue OPEN/DRAFT; apilado sobre PR #21 en `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. `main` no se modifica.
+- Base GN9/PR23 antes de B1: `73a9574074ceabe1859e82243c0a401866d3efc2`. PR21 conserva HEAD `e2f20c5231bff3d384430b3a07146ecac93a0eeb`.
+- Fuente M2+M3: `CARPN_M3_V2_RETORNO_UNICO.zip`, SHA-256 `39e3b7f4e6d5002424f86f067de87fae21518564cfaea443733ca58c787374d1`.
+- SHA inicial del parche recuperado: `conversation_flow.py` `5d90e4c3a90118d649acd1844f800dde28d737807f1c64978d05128b7b9a5276`; `test_m2_mixed_kitchen.py` `52d71e2503bf0e47a9ccf413cd8f35b20faa0490893cdd69a27907edecee08f0`; `test_m3_hardware_review.py` `53706c8bdd7591dc18e70e5c439d96ceaf802e58d67312fcbb3159533dc14311`.
+- Validación local Python 3.12.10: M2+M3 `15/15 PASS`, vecino GN3 `1/1 PASS`, `py_compile` PASS; cero skips.
+- `M3_STRICT=PARTIAL`: la guarda de colisión devuelve cero piezas y bloquea `modular`/CAD, pero ocurre una consulta previa `Maestro(action=project)`; no se afirma bloqueo anterior a toda llamada Maestro.
+- Nivel previsto en este commit: `M2+M3 INTEGRADO EN PR23`; visible en GitHub solo tras aceptación del push normal B1 V2. PR23 sigue Draft y no está en `main`.
+- `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; `PRODUCT_COMPLETE=false`.
+- Pendiente B2: Codex Desktop real, Knowledge persistente y foto con píxeles; B3: familias de muebles; B4: mecanismos y fichas SKU; B5: puertas/camas; B6: taller y CAD nativo; B7: UAT, integración final, merge e instalación.
+- `CI_NEW_SHA=NOT_RUN` hasta verificar el SHA nuevo. `NEXT=CHATGPT_VERIFY_NEW_SHA_CI`.
+
+## HISTÓRICO — PR #23 P7: evidencia runtime libro→Maestro→borrador (04-nov-2026)
 
 P7 continúa únicamente en `feat/carpn-ab-v1`, PR #23 OPEN/DRAFT, desde el HEAD publicado `54685615bd70b3e147f400fbad278a0d1085db77` y base protegida PR #21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. No reabre P5/P6 ni modifica `main`, PR #21, geometría CAD, fixture P5, Knowledge, el trabajo G39 ni los jobs nativos.
 
