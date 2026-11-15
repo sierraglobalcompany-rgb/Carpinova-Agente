@@ -48,14 +48,137 @@ def _mcp_structured(response, context: str) -> dict:
     return value
 
 
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str):
+    raise ValueError("non-standard JSON constant")
+
+
+def _read_json_object(text: str, context: str) -> dict:
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError):
+        raise AssertionError(f"Invalid JSON text in MCP read ({context})") from None
+    if type(value) is not dict:
+        raise AssertionError(f"MCP read JSON must be an object ({context})")
+    return value
+
+
+def _reader_protocol_shape(response, context: str) -> AssertionError:
+    content = getattr(response, "content", None)
+    blocks = content if type(content) is list else []
+    block_types = []
+    text_length = 0
+    for block in blocks:
+        block_type = getattr(block, "type", None)
+        block_types.append(
+            block_type if type(block_type) is str else type(block).__name__
+        )
+        text = getattr(block, "text", None)
+        if type(text) is str:
+            text_length += len(text)
+    metadata = {
+        "type": type(response).__name__,
+        "structured_present": any(
+            getattr(response, name, None) is not None
+            for name in ("structuredContent", "structured_content")
+        ),
+        "content_count": len(content) if type(content) is list else None,
+        "block_types": block_types,
+        "text_length": text_length,
+    }
+    return AssertionError(
+        f"BLOCKED_PROTOCOL_SHAPE ({context}): {json.dumps(metadata, sort_keys=True)}"
+    )
+
+
 async def _read_payload_via_mcp(session, project: str, filename: str) -> dict:
     response = await session.call_tool(
         "carpinova_leer_entregable", {"proyecto": project, "archivo": filename},
     )
-    payload = _mcp_structured(response, f"read {project}/{filename}")
-    assert type(payload.get("contenido")) is str, (
-        f"Missing artifact text in MCP response ({project}/{filename})"
-    )
+    context = f"read {project}/{filename}"
+    if (getattr(response, "isError", False) is True
+            or getattr(response, "is_error", False) is True):
+        raise AssertionError(f"MCP tool error ({context})")
+
+    structured = []
+    for name in ("structuredContent", "structured_content"):
+        value = getattr(response, name, None)
+        if value is None:
+            continue
+        if type(value) is not dict:
+            raise _reader_protocol_shape(response, context)
+        structured.append((name, value))
+    if len(structured) > 1 and any(
+        value != structured[0][1] for _, value in structured[1:]
+    ):
+        raise AssertionError(f"Contradictory structured MCP aliases ({context})")
+
+    if structured:
+        payload = structured[0][1]
+        content = getattr(response, "content", None)
+        if type(content) is list:
+            for block in content:
+                if getattr(block, "type", None) != "text":
+                    continue
+                text = getattr(block, "text", None)
+                if type(text) is not str:
+                    continue
+                try:
+                    comparable = json.loads(
+                        text,
+                        object_pairs_hook=_reject_duplicate_json_keys,
+                        parse_constant=_reject_json_constant,
+                    )
+                except json.JSONDecodeError:
+                    continue
+                except ValueError:
+                    raise AssertionError(
+                        f"Invalid comparable MCP JSON text ({context})"
+                    ) from None
+                if type(comparable) is not dict or comparable != payload:
+                    raise AssertionError(
+                        f"Contradictory structured and text MCP responses ({context})"
+                    )
+    else:
+        content = getattr(response, "content", None)
+        if (type(content) is not list or len(content) != 1
+                or getattr(content[0], "type", None) != "text"
+                or type(getattr(content[0], "text", None)) is not str):
+            raise _reader_protocol_shape(response, context)
+        payload = _read_json_object(content[0].text, context)
+
+    required = {
+        "proyecto", "archivo", "encoding", "status", "contenido", *FLAGS,
+    }
+    if not required.issubset(payload) or set(payload) - required - {"book_evidence_status"}:
+        raise AssertionError(f"Invalid MCP artifact response fields ({context})")
+    if (type(payload["proyecto"]) is not str or payload["proyecto"] != project
+            or type(payload["archivo"]) is not str or payload["archivo"] != filename):
+        raise AssertionError(f"MCP artifact identity mismatch ({context})")
+    if (type(payload["encoding"]) is not str or payload["encoding"] != "utf-8"
+            or type(payload["status"]) is not str
+            or payload["status"] != "DRAFT_NOT_FOR_CUTTING"):
+        raise AssertionError(f"MCP artifact state mismatch ({context})")
+    if type(payload["contenido"]) is not str:
+        raise AssertionError(f"MCP artifact content must be text ({context})")
+    if any(type(payload[flag]) is not bool or payload[flag] is not False
+           for flag in FLAGS):
+        raise AssertionError(f"MCP artifact fabrication flags must be false ({context})")
+    if ("book_evidence_status" in payload
+            and type(payload["book_evidence_status"]) is not str):
+        raise AssertionError(f"Invalid MCP book evidence status ({context})")
     return payload
 
 

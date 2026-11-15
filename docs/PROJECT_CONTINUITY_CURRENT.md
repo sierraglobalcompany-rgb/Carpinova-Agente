@@ -1,8 +1,21 @@
-## VIGENTE — CARPN-B4P1 (15-nov-2026; candidato autorizado a PR23 Draft, CI por verificar)
+## VIGENTE — CARPN-B4P2-V2 (15-nov-2026; corrección del lector MCP, publicación condicionada)
+
+- OWNER_AUTH=YES_CONDITIONAL_2026-11-15: un commit normal y un push sin fuerza a PR23 Draft solo si pasan G0–G3; sin segundo commit, merge, deploy, cambios Desktop ni fabricación.
+- BASE_B4P1=4a815bf64e506158cbe1f286ea46b3a572592ee1; PR23=`feat/carpn-ab-v1`, base=`feature/wall-bar-freecad-v10`. G0 local limpio y remoto/PR23 OPEN-DRAFT coincidentes antes del cambio; se reconfirmarán solo en la guardia previa al push.
+- B4P1_CI=FAIL_CI_SHA, run `43755427238`: jobs `mcp-protocol` y Windows fallaron en `scripts/verify_local_mcp.py:143→63→55→47`, `AssertionError: Missing structured MCP response (read cocina_dos_modulos/cad-exchange.json)`. Cuatro workflows hermanos PASS; sidecar no alcanzado, cajones STDIO NOT_RUN.
+- CAUSA_DEL_ASSERTION=el runner enruta la lectura por `_mcp_structured`, que exige un `dict` en `structuredContent`/`structured_content`; `carpinova_leer_entregable` retorna `Any` para texto o imagen. El log anterior no conservó el bloque MCP real: su forma exacta sigue sin probarse; no atribuir este error del lector al producto B4.
+- B4P2_SCOPE=solo `scripts/verify_local_mcp.py`, nuevo `tests/test_mcp_reader_contract.py` y este documento. El lector aceptará dict estructurado validado o exactamente un bloque TextContent con JSON objeto estricto; rechazará errores, aliases/representaciones contradictorias, claves duplicadas, constantes no estándar, identidad/estado/flags inválidos y formas no contempladas. `_mcp_structured` de generación y el servidor no cambian.
+- B4P2_LOCAL=8/8 pruebas focales nuevas PASS; `py_compile` PASS. `STDIO_LOCAL=NOT_RUN_NO_SDK`; no se instaló SDK ni se modificó Desktop.
+- CI=consultar checks vivos asociados al HEAD remoto actual después de publicar; no declarar resultado anticipado ni fijar aquí un SHA de commit aún inexistente. PR23 debe seguir OPEN/DRAFT tras el push.
+- Recuperación: si falla una guarda local/remota, no publicar; conservar el parche íntegro y el ZIP diagnóstico. Sin rebase/cherry-pick automático, force, reintentos de push ni modificación de CI.
+- fabrication_ready=false; cutting_ready=false; drilling_ready=false; purchase_ready=false; `RELEASE=NO_GO`; `DESKTOP_B4=NOT_INSTALLED`; `OWNER_UAT=NOT_RUN`.
+- NEXT=CHATGPT_DIRECTOR_VERIFY_B4P2_V2
+
+## HISTÓRICO — CARPN-B4P1-V1 (15-nov-2026; publicado en PR23 Draft; CI MCP FAIL)
 
 - OWNER_AUTH=YES_CONDITIONAL_2026-11-15: un commit normal y un push normal a PR23 Draft solo si coinciden SHA y seis rutas; sin merge, deploy, instalación ni fabricación.
 - SOURCE_BASE=33ca5ca02c7479f87056262e010af89f2ba0a91d; PR23=`feat/carpn-ab-v1`; PR21 base=`e2f20c5231bff3d384430b3a07146ecac93a0eeb`. PR23 se verificó OPEN/DRAFT antes de publicar; reconfirmar después. El SHA de este documento se obtiene del remoto, sin autorreferencia.
-- B4R1_PRODUCT=PASS_SCOPED_LOCAL según evidencia previa de 36/36 pruebas y canario B3 real. MCP_B4_LOCAL=NOT_RUN_NO_SDK; B4_CI_NEW_SHA=PENDING_VERIFICATION; B4_STDIO=NOT_RUN; B4_STDIO_DRAWERS=NOT_RUN; DESKTOP_B4=NOT_INSTALLED; OWNER_UAT=NOT_RUN; RELEASE=NO_GO.
+- B4R1_PRODUCT=PASS_SCOPED_LOCAL según evidencia previa de 36/36 pruebas y canario B3 real. MCP_B4_LOCAL=NOT_RUN_NO_SDK; B4_CI_NEW_SHA=FAIL_CI_SHA (run=43755427238); B4_STDIO=FAIL_CI_SHA al leer cad-exchange.json; B4_STDIO_DRAWERS=NOT_RUN; DESKTOP_B4=NOT_INSTALLED; OWNER_UAT=NOT_RUN; RELEASE=NO_GO.
 - B4 añade revisión consultiva de referencias por `piece_id` para puertas y cajones. B4R1 mantiene compatibilidad con paquetes B3 históricos y la fuente declarada de holguras: cero es placeholder NO instalable; dato ausente es UNKNOWN. No demuestra SKU, ficha vigente del fabricante, taladro, compra ni fabricación.
 - Knowledge 1.2.0 conserva las referencias y límites previos; B4R1 no hizo replay real del libro. Alcance: `carpinova_agent/conversation_flow.py`, `carpinova_agent/mcp_bridge.py`, `carpinova_agent/pilot_cli.py`, `scripts/verify_local_mcp.py`, `tests/test_b4_hardware_reference.py` y este documento.
 - Evidencia de origen B4R1: `CARPN_B4R1_V2_RETORNO_UNICO.zip`, SHA-256 `fc5df2436ae5fde2d8b8139d950ee414d4510e22259c9ddf66018ff0e956a176`. CI nuevo y alcance STDIO deben verificarse por SHA; el runner contempla `cocina_dos_modulos` con puertas, no holguras de cajones por STDIO.
