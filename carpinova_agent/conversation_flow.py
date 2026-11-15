@@ -2094,7 +2094,7 @@ def _guided_hardware_review(
         "exact_slide_sku", "current_official_manufacturer_datasheet",
         "rated_load", "slide_length_and_travel", "drawer_and_carcass_material",
         "verified_left_and_right_clearances", "mounting_method_and_fixings",
-        "interference_and_retraction_review",
+        "interference_and_retraction_review", "drawer_front_style_and_position",
     ]
     for opening in opening_elements:
         piece_id = opening.get("piece_id")
@@ -2179,7 +2179,9 @@ def _guided_hardware_review(
                 "blockers": ["SLIDE_COMPATIBILITY_NOT_VERIFIED"],
             })
             if type(drawer) is not dict:
-                entry["blockers"].append("DRAWER_SOURCE_NOT_FOUND")
+                entry["blockers"].extend((
+                    "DRAWER_SOURCE_NOT_FOUND", "SLIDE_CLEARANCES_NOT_VERIFIED",
+                ))
             else:
                 left_clearance = drawer.get("slide_clearance_left_mm")
                 right_clearance = drawer.get("slide_clearance_right_mm")

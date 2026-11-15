@@ -6,6 +6,7 @@ service. No LLM, CAD application, network or third-party executable is run.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -16,7 +17,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from .cad_exchange import cad_exchange, validate_exchange
-from .conversation_flow import validate_flow_review
+from .conversation_flow import _guided_hardware_review, validate_flow_review
 from .core import DesignError
 from .wall_bar_delivery import review_files
 from .maestro import MaestroError, consult_maestro
@@ -32,6 +33,10 @@ _MAX_MANIFEST_BYTES = 65536
 _MAX_BOOK_REQUEST_BYTES = 32768
 _OPENING_REVIEW_FILE = "opening-intents-review.json"
 _MAX_OPENING_REVIEW_BYTES = 16384
+_HARDWARE_REFERENCE_FILE = "hardware-reference-review.json"
+_MAX_HARDWARE_REFERENCE_BYTES = 262144
+_HARDWARE_REFERENCE_CONTRACT = "B4_DECLARED_SOURCE_V1"
+_HARDWARE_SOURCE_REQUEST_FIELD = "hardware_reference_source_request"
 _OPENING_FIELDS = frozenset((
     "piece_id", "module_id", "element_type", "opening_system",
 ))
@@ -139,6 +144,321 @@ def _opening_review_for_cad(
     }
 
 
+def _validate_hardware_source_request(
+    request: dict[str, Any], *, with_book_query: bool,
+) -> dict[str, Any]:
+    """Keep the persisted replay source small, structured and free of paths or grants."""
+    try:
+        raw = json.dumps(
+            request, ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+        )
+        normalized = json.loads(
+            raw, object_pairs_hook=_opening_pairs, parse_constant=_opening_constant,
+        )
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise PilotError("HARDWARE_SOURCE_REQUEST_INVALID: JSON no reproducible.") from exc
+    if type(normalized) is not dict or normalized != request:
+        raise PilotError("HARDWARE_SOURCE_REQUEST_INVALID: la solicitud no se normaliza.")
+    if len(raw.encode("utf-8")) > _MAX_BOOK_REQUEST_BYTES:
+        raise PilotError("HARDWARE_SOURCE_REQUEST_TOO_LARGE: máximo 32 KiB.")
+    allowed = ({"action", "module_spec", "query", "evidence_topic"}
+               if with_book_query else {"action", "module_spec"})
+    required = {"action", "module_spec", "query"} if with_book_query else {
+        "action", "module_spec",
+    }
+    if (set(normalized) - allowed or required - set(normalized)
+            or normalized.get("action") != "modular"
+            or type(normalized.get("module_spec")) is not dict
+            or (("query" in normalized) != with_book_query)):
+        raise PilotError(
+            "HARDWARE_SOURCE_REQUEST_INVALID: se requiere action=modular/module_spec "
+            "y, solo en el contrato Knowledge, query."
+        )
+
+    forbidden_key_parts = (
+        "path", "url", "uri", "approval", "approved", "authorization",
+        "authorized", "ticket", "token", "credential",
+    )
+    blocked_grant_values = set(_BLOCKED_FLAGS) | {
+        "approved", "authorized", "owner_approved", "authorization_granted",
+    }
+
+    def inspect(value: Any) -> None:
+        if type(value) is dict:
+            for key, child in value.items():
+                if type(key) is not str:
+                    raise PilotError("HARDWARE_SOURCE_REQUEST_INVALID: clave no textual.")
+                folded = key.casefold()
+                key_parts = set(re.split(r"[^a-z0-9]+", folded))
+                if (key_parts.intersection(forbidden_key_parts)
+                        or folded in _BLOCKED_FLAGS):
+                    raise PilotError(
+                        "HARDWARE_SOURCE_REQUEST_INVALID: ruta, URL o marcador de "
+                        "autorización no admitido."
+                    )
+                inspect(child)
+        elif type(value) is list:
+            for child in value:
+                inspect(child)
+        elif type(value) is str:
+            if (re.search(r"(?i)(?:https?|ftp|file)://", value)
+                    or re.match(r"^(?:[A-Za-z]:[\\/]|\\\\|/|\.\.?[\\/])", value)
+                    or re.search(r"(?:^|[\\/])\.\.(?:[\\/]|$)", value)):
+                raise PilotError(
+                    "HARDWARE_SOURCE_REQUEST_INVALID: la fuente no puede contener rutas o URL."
+                )
+            normalized_value = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+            if normalized_value in blocked_grant_values:
+                raise PilotError(
+                    "HARDWARE_SOURCE_REQUEST_INVALID: marcador de autorización no admitido."
+                )
+        elif value is not None and type(value) not in (bool, int, float):
+            raise PilotError("HARDWARE_SOURCE_REQUEST_INVALID: valor no JSON.")
+
+    inspect(normalized)
+    return normalized
+
+
+def _hardware_context_modules(
+    source_request: dict[str, Any], model: dict[str, Any],
+    exchange: dict[str, Any], opening_review: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Match declared drawer records to Maestro and CAD before temporary enrichment."""
+    spec = source_request["module_spec"]
+    if spec.get("type") == "wall_bar":
+        source_modules = [spec.get("cabinet_module")]
+    else:
+        source_modules = spec.get("modules")
+    model_modules = model.get("modules")
+    if (type(source_modules) is not list or not source_modules
+            or any(type(item) is not dict for item in source_modules)
+            or type(model_modules) is not list):
+        raise PilotError("HARDWARE_SOURCE_MODULES_MISMATCH: módulos ausentes o inválidos.")
+
+    source_by_id: dict[str, dict[str, Any]] = {}
+    for source in source_modules:
+        module_id = source.get("module_id")
+        if type(module_id) is not str or not module_id or module_id in source_by_id:
+            raise PilotError("HARDWARE_SOURCE_MODULES_MISMATCH: module_id duplicado o inválido.")
+        source_by_id[module_id] = source
+    model_by_id: dict[str, dict[str, Any]] = {}
+    for module in model_modules:
+        if type(module) is not dict:
+            raise PilotError("HARDWARE_MAESTRO_MODULES_MISMATCH.")
+        module_id = module.get("module_id")
+        if type(module_id) is not str or not module_id or module_id in model_by_id:
+            raise PilotError("HARDWARE_MAESTRO_MODULES_MISMATCH: module_id duplicado.")
+        model_by_id[module_id] = module
+    if set(source_by_id) != set(model_by_id):
+        raise PilotError("HARDWARE_SOURCE_MODULES_MISMATCH: IDs difieren de Maestro.")
+
+    part_by_id: dict[str, dict[str, Any]] = {}
+    for part in model.get("parts", []):
+        if type(part) is not dict or type(part.get("piece_id")) is not str:
+            raise PilotError("HARDWARE_MAESTRO_PARTS_INVALID.")
+        if part["piece_id"] in part_by_id:
+            raise PilotError("HARDWARE_MAESTRO_PARTS_INVALID: piece_id duplicado.")
+        part_by_id[part["piece_id"]] = part
+    cad_by_id: dict[str, dict[str, Any]] = {}
+    for box in exchange.get("boxes", []):
+        if type(box) is not dict or type(box.get("piece_id")) is not str:
+            raise PilotError("HARDWARE_CAD_PARTS_INVALID.")
+        if box["piece_id"] in cad_by_id:
+            raise PilotError("HARDWARE_CAD_PARTS_INVALID: piece_id duplicado.")
+        cad_by_id[box["piece_id"]] = box
+
+    for element in opening_review.get("elements", []):
+        piece_id = element.get("piece_id")
+        module_id = element.get("module_id")
+        element_type = element.get("element_type")
+        part = part_by_id.get(piece_id)
+        box = cad_by_id.get(piece_id)
+        expected_roles = (
+            {"drawer_facade"} if element_type == "drawer" else _FRONT_ROLES
+        )
+        if (module_id not in source_by_id
+                or part is None or part.get("module_id") != module_id
+                or part.get("role") not in expected_roles
+                or box is None or box.get("module_id") != module_id
+                or box.get("role") != part.get("role")):
+            raise PilotError(
+                "HARDWARE_SOURCE_FACADE_MISMATCH: module_id/piece_id/tipo "
+                "no coincide con la solicitud, Maestro y CAD."
+            )
+
+    drawer_by_piece: dict[str, dict[str, Any]] = {}
+    drawer_module_by_piece: dict[str, str] = {}
+    drawer_ids_by_module: dict[str, list[str]] = {}
+    for module_id, source in source_by_id.items():
+        raw_drawers = source.get("drawers", "none")
+        if type(raw_drawers) is list:
+            drawer_ids: list[str] = []
+            for drawer in raw_drawers:
+                if type(drawer) is not dict:
+                    raise PilotError("HARDWARE_SOURCE_DRAWERS_INVALID.")
+                drawer_id = drawer.get("drawer_id")
+                if (type(drawer_id) is not str or not drawer_id
+                        or drawer_id in drawer_ids):
+                    raise PilotError(
+                        "HARDWARE_SOURCE_DRAWERS_INVALID: drawer_id duplicado o inválido."
+                    )
+                drawer_ids.append(drawer_id)
+                piece_id = f"{module_id}-{drawer_id}-DRAWER_FACADE"
+                if piece_id in drawer_by_piece:
+                    raise PilotError("HARDWARE_SOURCE_DRAWERS_INVALID: fachada duplicada.")
+                drawer_by_piece[piece_id] = drawer
+                drawer_module_by_piece[piece_id] = module_id
+            drawer_ids_by_module[module_id] = drawer_ids
+        elif raw_drawers in ("none", "pending", None):
+            drawer_ids_by_module[module_id] = []
+        else:
+            raise PilotError("HARDWARE_SOURCE_DRAWERS_INVALID.")
+
+        observed_ids = model_by_id[module_id].get("drawer_ids")
+        if (type(observed_ids) is not list
+                or any(type(item) is not str for item in observed_ids)
+                or len(observed_ids) != len(set(observed_ids))
+                or set(observed_ids) != set(drawer_ids_by_module[module_id])):
+            raise PilotError(
+                "HARDWARE_SOURCE_DRAWERS_MISMATCH: drawer_id difiere de Maestro."
+            )
+
+    opening_drawers = {
+        item["piece_id"]: item
+        for item in opening_review.get("elements", [])
+        if item.get("element_type") == "drawer"
+    }
+    if set(opening_drawers) != set(drawer_by_piece):
+        raise PilotError(
+            "HARDWARE_SOURCE_DRAWERS_MISMATCH: fachadas no coinciden con el sidecar."
+        )
+    for piece_id, drawer in drawer_by_piece.items():
+        module_id = drawer_module_by_piece[piece_id]
+        source_element = opening_drawers[piece_id]
+        part = part_by_id.get(piece_id)
+        box = cad_by_id.get(piece_id)
+        if (source_element.get("module_id") != module_id
+                or part is None or part.get("module_id") != module_id
+                or part.get("role") != "drawer_facade"
+                or box is None or box.get("module_id") != module_id
+                or box.get("role") != "drawer_facade"):
+            raise PilotError(
+                "HARDWARE_SOURCE_DRAWERS_MISMATCH: identidad no coincide con Maestro/CAD."
+            )
+
+    enriched = deepcopy(model_modules)
+    for module in enriched:
+        source = source_by_id[module["module_id"]]
+        raw_drawers = source.get("drawers", "none")
+        if type(raw_drawers) is list:
+            module["drawers"] = deepcopy(raw_drawers)
+        else:
+            module.pop("drawers", None)
+    return enriched, drawer_by_piece
+
+
+def _hardware_reference_review(
+    opening_review: dict[str, Any], model: dict[str, Any],
+    exchange: dict[str, Any], source_request: dict[str, Any],
+) -> dict[str, Any]:
+    """Reuse the conversation flow's F4 references for validated CAD facades."""
+    if opening_review.get("geometry_sha256") != exchange.get("geometry_sha256"):
+        raise PilotError("La revisión de herrajes pertenece a otra geometría.")
+    source_elements = opening_review.get("elements")
+    if type(source_elements) is not list:
+        raise PilotError("El sidecar validado no contiene elementos de apertura.")
+    source_by_id = {item["piece_id"]: item for item in source_elements}
+    if len(source_by_id) != len(source_elements):
+        raise PilotError("El sidecar validado contiene IDs de fachada duplicados.")
+
+    enriched_modules, drawer_sources = _hardware_context_modules(
+        source_request, model, exchange, opening_review,
+    )
+    review = _guided_hardware_review(
+        source_elements, model["parts"], enriched_modules,
+    )
+    if (type(review) is not dict
+            or review.get("status") != "REFERENCE_ONLY_NOT_SELECTED"
+            or review.get("hardware_selected") is not False
+            or review.get("drilling_ready") is not False
+            or review.get("purchase_ready") is not False
+            or review.get("drilling_coordinates") != []):
+        raise PilotError("El helper F4 no conservó el estado consultivo requerido.")
+    entries = review.get("elements")
+    if type(entries) is not list or len(entries) != len(source_elements):
+        raise PilotError("La revisión F4 no devolvió una fila por fachada.")
+    rows_by_id: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if type(entry) is not dict:
+            raise PilotError("El helper F4 devolvió una fila inválida.")
+        piece_id = entry.get("piece_id")
+        source = source_by_id.get(piece_id)
+        if (type(piece_id) is not str or source is None or piece_id in rows_by_id
+                or any(entry.get(key) != source.get(key) for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                ))
+                or entry.get("hardware_selected") is not False):
+            raise PilotError("La revisión F4 no coincide exactamente con el sidecar.")
+        normalized_entry = {
+            **entry,
+            "status": "REFERENCE_ONLY_NOT_SELECTED",
+            "approval_status": "NOT_APPROVED_NOT_FOR_FABRICATION",
+            "fabrication_ready": False,
+            "cutting_ready": False,
+            "drilling_ready": False,
+            "purchase_ready": False,
+        }
+        if source.get("element_type") == "drawer":
+            drawer = drawer_sources[piece_id]
+            left = drawer.get("slide_clearance_left_mm")
+            right = drawer.get("slide_clearance_right_mm")
+            normalized_entry["drawer_id"] = drawer["drawer_id"]
+            if (type(left) is int and left >= 0
+                    and type(right) is int and right >= 0):
+                normalized_entry["slide_clearance_reading"] = {
+                    "status": "DECLARED_REVIEW_ONLY",
+                    "left_mm": left,
+                    "right_mm": right,
+                    "installation_status":
+                        "PENDING_EXACT_SKU_DATASHEET_AND_MOUNTING",
+                }
+                if left == 0 or right == 0:
+                    normalized_entry["blockers"] = list(dict.fromkeys(
+                        normalized_entry["blockers"] + [
+                            "ZERO_MM_CLEARANCES_ARE_PLACEHOLDERS_NOT_INSTALLABLE",
+                        ]
+                    ))
+            else:
+                normalized_entry["slide_clearance_reading"] = {
+                    "status": "UNKNOWN",
+                    "left_mm": "UNKNOWN",
+                    "right_mm": "UNKNOWN",
+                    "installation_status":
+                        "PENDING_EXACT_SKU_DATASHEET_AND_MOUNTING",
+                }
+                normalized_entry["blockers"] = list(dict.fromkeys(
+                    normalized_entry["blockers"] + [
+                        "SLIDE_CLEARANCES_NOT_VERIFIED",
+                    ]
+                ))
+        rows_by_id[piece_id] = normalized_entry
+    if set(rows_by_id) != set(source_by_id):
+        raise PilotError("La revisión F4 omitió o agregó fachadas.")
+    return {
+        "schema_version": "1.0",
+        "source": "MAESTRO_GUIDED_HARDWARE_REFERENCE",
+        "geometry_sha256": exchange["geometry_sha256"],
+        "status": "REFERENCE_ONLY_NOT_SELECTED",
+        "approval_status": "NOT_APPROVED_NOT_FOR_FABRICATION",
+        "hardware_selected": False,
+        "fabrication_ready": False,
+        "cutting_ready": False,
+        "drilling_ready": False,
+        "purchase_ready": False,
+        "elements": [rows_by_id[piece_id] for piece_id in sorted(rows_by_id)],
+    }
+
+
 def _book_bundle(bundle_dir: Path | str | None) -> dict[str, Any]:
     if bundle_dir is None:
         raise BookEvidenceError(
@@ -238,6 +558,12 @@ def pilot_review(
             "BOOK_FLOW_COMBINATION_UNSUPPORTED: separar consulta del libro y flow-review."
         )
     source_request = _book_source_request(request) if has_query else None
+    hardware_source_request = None
+    if opening_review_json != "":
+        hardware_source_request = _validate_hardware_source_request(
+            source_request if has_query else request,
+            with_book_query=has_query,
+        )
     book = _book_bundle(bundle_dir) if has_query else None
     answer = consult_maestro(request, bundle_dir=bundle_dir)
     book_status = _book_source_status(answer) if has_query else None
@@ -264,9 +590,13 @@ def pilot_review(
     if expected != observed or len(expected) != len(model["parts"]):
         raise PilotError("CAD/BOM no coincide con piezas de geometría Maestro.")
     opening_review = None
+    hardware_review = None
     if opening_review_json != "":
         opening_review = _opening_review_for_cad(
             _opening_review_payload(opening_review_json), exchange,
+        )
+        hardware_review = _hardware_reference_review(
+            opening_review, model, exchange, hardware_source_request,
         )
     if flow_review is not None:
         if type(flow_review) is not dict:
@@ -281,13 +611,15 @@ def pilot_review(
     extras = review_files(model) if model.get("wall_bar_review") else {}
     trace_files = ["flow-review.json"] if flow_review is not None else []
     opening_files = [_OPENING_REVIEW_FILE] if opening_review is not None else []
+    hardware_files = [_HARDWARE_REFERENCE_FILE] if hardware_review is not None else []
     manifest = {
         "schema_version": "1.0",
         "status": "DRAFT_NOT_FOR_CUTTING",
         "source": "MAESTRO_MODULAR_F1_F7C",
         "piece_count": len(model["parts"]),
         "geometry_sha256": exchange["geometry_sha256"],
-        "files": list(_FILES) + trace_files + list(extras) + opening_files,
+        "files": (list(_FILES) + trace_files + list(extras)
+                  + opening_files + hardware_files),
         "fabrication_ready": False,
         "cutting_ready": False,
         "drilling_ready": False,
@@ -319,10 +651,26 @@ def pilot_review(
         manifest["opening_intents_review_sha256"] = hashlib.sha256(
             opening_text.encode("utf-8")
         ).hexdigest()
+    hardware_text = None
+    if hardware_review is not None:
+        hardware_text = json.dumps(hardware_review, indent=2, ensure_ascii=False) + "\n"
+        if len(hardware_text.encode("utf-8")) > _MAX_HARDWARE_REFERENCE_BYTES:
+            raise PilotError("La revisión de referencias de herrajes excede 256 KiB.")
+        manifest["hardware_reference_review_sha256"] = hashlib.sha256(
+            hardware_text.encode("utf-8")
+        ).hexdigest()
+        manifest["hardware_reference_contract"] = _HARDWARE_REFERENCE_CONTRACT
+        if not has_query:
+            manifest[_HARDWARE_SOURCE_REQUEST_FIELD] = hardware_source_request
     manifest_text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
-    if has_query and len(manifest_text.encode("utf-8")) > _MAX_MANIFEST_BYTES:
-        raise BookEvidenceError(
-            "BOOK_SOURCE_REQUEST_TOO_LARGE: vínculo excede el límite de 65.536 bytes."
+    if ((has_query or hardware_review is not None)
+            and len(manifest_text.encode("utf-8")) > _MAX_MANIFEST_BYTES):
+        if has_query:
+            raise BookEvidenceError(
+                "BOOK_SOURCE_REQUEST_TOO_LARGE: vínculo excede el límite de 65.536 bytes."
+            )
+        raise PilotError(
+            "HARDWARE_SOURCE_MANIFEST_TOO_LARGE: vínculo excede 65.536 bytes."
         )
     flow_text = (json.dumps(flow_review, indent=2, ensure_ascii=False) + "\n"
                  if flow_review is not None else None)
@@ -337,6 +685,8 @@ def pilot_review(
         **extras,
         **({"flow-review.json": flow_text} if flow_text is not None else {}),
         **({_OPENING_REVIEW_FILE: opening_text} if opening_text is not None else {}),
+        **({_HARDWARE_REFERENCE_FILE: hardware_text}
+           if hardware_text is not None else {}),
     }
 
 
@@ -374,7 +724,7 @@ def write_pilot_bundle(
 def verify_pilot_bundle(
     project_folder: Path, *, bundle_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Verify all five immutable review artifacts against ONE Maestro model.
+    """Verify the base bundle and declared optional reviews against ONE Maestro model.
 
     The CAD digest alone is NOT provenance: it is an unkeyed checksum that
     could be recomputed after editing a box. Re-derive the original CAD, CSV
@@ -390,6 +740,7 @@ def verify_pilot_bundle(
         "manifest.json": _MAX_MANIFEST_BYTES,
         "flow-review.json": 262144,
         _OPENING_REVIEW_FILE: _MAX_OPENING_REVIEW_BYTES,
+        _HARDWARE_REFERENCE_FILE: _MAX_HARDWARE_REFERENCE_BYTES,
     }
     if not folder.is_dir() or folder.is_symlink():
         raise PilotError("El directorio del proyecto original no es confiable.")
@@ -404,9 +755,18 @@ def verify_pilot_bundle(
         except UnicodeError as exc:
             raise PilotError("Archivo de revisión no es UTF-8 válido: " + filename) from exc
     try:
-        answer = json.loads(contents["maestro-review.json"])
-        manifest = json.loads(contents["manifest.json"])
-        saved_cad = json.loads(contents["cad-exchange.json"])
+        answer = json.loads(
+            contents["maestro-review.json"], object_pairs_hook=_opening_pairs,
+            parse_constant=_opening_constant,
+        )
+        manifest = json.loads(
+            contents["manifest.json"], object_pairs_hook=_opening_pairs,
+            parse_constant=_opening_constant,
+        )
+        saved_cad = json.loads(
+            contents["cad-exchange.json"], object_pairs_hook=_opening_pairs,
+            parse_constant=_opening_constant,
+        )
     except (ValueError, TypeError) as exc:
         raise PilotError("Archivos JSON de revisión inválidos.") from exc
     if not isinstance(answer, dict) or not isinstance(manifest, dict):
@@ -419,6 +779,7 @@ def verify_pilot_bundle(
         "book_source_request", "book_source_metadata", "book_source_status",
     }
     has_manifest_book_data = any(key in manifest for key in book_markers)
+    book_source_request_for_hardware = None
     if has_answer_book_data or has_manifest_book_data:
         if not all(key in manifest for key in book_markers) or not has_answer_book_data:
             raise BookEvidenceError(
@@ -434,6 +795,7 @@ def verify_pilot_bundle(
                 "BOOK_FLOW_COMBINATION_UNSUPPORTED: paquete con libro y flow-review."
             )
         source_request = _book_source_request(source_request)
+        book_source_request_for_hardware = source_request
         bundle = _book_bundle(bundle_dir)
         expected_metadata = _book_source_metadata(bundle)
         if manifest.get("book_source_metadata") != expected_metadata:
@@ -445,7 +807,10 @@ def verify_pilot_bundle(
             raise BookEvidenceError("BOOK_SOURCE_STATUS_MISMATCH.")
         try:
             replayed_answer = consult_maestro(source_request, bundle_dir=bundle_dir)
-        except (MaestroError, BundleError, OSError, ValueError) as exc:
+        except (
+            MaestroError, BundleError, OSError, ValueError, TypeError,
+            KeyError, RecursionError,
+        ) as exc:
             raise BookEvidenceError(
                 "BOOK_REPLAY_FAILED: no se pudo recalcular Maestro con el bundle."
             ) from exc
@@ -465,12 +830,55 @@ def verify_pilot_bundle(
         raise PilotError("Manifiesto sin lista segura de archivos.")
     has_flow_review = "flow-review.json" in manifest_files
     has_opening_review = _OPENING_REVIEW_FILE in manifest_files
+    has_hardware_reference = _HARDWARE_REFERENCE_FILE in manifest_files
+    has_hardware_contract = "hardware_reference_contract" in manifest
+    has_hardware_hash = "hardware_reference_review_sha256" in manifest
+    has_hardware_source = _HARDWARE_SOURCE_REQUEST_FIELD in manifest
+    if has_hardware_reference:
+        if (not has_opening_review
+                or manifest.get("hardware_reference_contract")
+                != _HARDWARE_REFERENCE_CONTRACT
+                or not has_hardware_hash):
+            raise PilotError(
+                "B4_HARDWARE_CONTRACT_INVALID: faltan sidecar, contrato o hash."
+            )
+        if has_hardware_source:
+            if has_answer_book_data or has_manifest_book_data:
+                raise PilotError(
+                    "B4_HARDWARE_SOURCE_AMBIGUOUS: no duplicar fuente Knowledge."
+                )
+            hardware_source_request = _validate_hardware_source_request(
+                manifest[_HARDWARE_SOURCE_REQUEST_FIELD], with_book_query=False,
+            )
+        else:
+            if not (has_answer_book_data and has_manifest_book_data
+                    and book_source_request_for_hardware is not None):
+                raise PilotError(
+                    "B4_HARDWARE_SOURCE_MISSING: falta solicitud modular reproducible."
+                )
+            hardware_source_request = _validate_hardware_source_request(
+                book_source_request_for_hardware, with_book_query=True,
+            )
+    elif has_hardware_contract or has_hardware_hash or has_hardware_source:
+        raise PilotError(
+            "B4_HARDWARE_DECLARATION_WITHOUT_ARTIFACT: contrato o fuente huérfanos."
+        )
     expected_files = (
         list(_FILES)
         + (["flow-review.json"] if has_flow_review else [])
         + list(expected_extras)
         + ([_OPENING_REVIEW_FILE] if has_opening_review else [])
+        + ([_HARDWARE_REFERENCE_FILE] if has_hardware_reference else [])
     )
+    physical_files = []
+    for entry in folder.iterdir():
+        if entry.is_file():
+            if entry.is_symlink():
+                raise PilotError("Archivo físico enlazado no permitido en el paquete.")
+            physical_files.append(entry.name)
+    if (len(physical_files) != len(set(physical_files))
+            or set(physical_files) != set(expected_files)):
+        raise PilotError("Archivos físicos no coinciden exactamente con el manifiesto.")
     if (manifest.get("schema_version") != "1.0"
             or manifest.get("source") != "MAESTRO_MODULAR_F1_F7C"
             or manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
@@ -534,6 +942,52 @@ def verify_pilot_bundle(
             raise PilotError("Sidecar de intenciones no coincide con el CAD revisado.")
     elif opening_path.exists() or opening_path.is_symlink() or opening_hash is not None:
         raise PilotError("Sidecar de intenciones no declarado en el manifiesto.")
+
+    hardware_path = folder / _HARDWARE_REFERENCE_FILE
+    hardware_hash = manifest.get("hardware_reference_review_sha256")
+    if has_hardware_reference:
+        if (hardware_path.is_symlink() or not hardware_path.is_file()
+                or hardware_path.stat().st_size > limits[_HARDWARE_REFERENCE_FILE]):
+            raise PilotError("Revisión de herrajes ausente, enlazada o excesiva.")
+        hardware_bytes = hardware_path.read_bytes()
+        if (type(hardware_hash) is not str
+                or hashlib.sha256(hardware_bytes).hexdigest() != hardware_hash):
+            raise PilotError("Hash de revisión de herrajes no coincide con el manifiesto.")
+        try:
+            if not has_answer_book_data:
+                try:
+                    replayed_answer = consult_maestro(hardware_source_request)
+                except (
+                    MaestroError, DesignError, ValueError, TypeError, KeyError,
+                    RecursionError,
+                ) as exc:
+                    raise PilotError(
+                        "HARDWARE_SOURCE_REPLAY_FAILED: solicitud modular inválida."
+                    ) from exc
+                if replayed_answer != answer:
+                    raise PilotError(
+                        "HARDWARE_SOURCE_REPLAY_MISMATCH: Maestro no reproduce "
+                        "íntegramente la respuesta guardada."
+                    )
+            saved_hardware = json.loads(
+                hardware_bytes.decode("utf-8"), object_pairs_hook=_opening_pairs,
+                parse_constant=_opening_constant,
+            )
+            expected_hardware = _hardware_reference_review(
+                expected_opening, model, actual_cad, hardware_source_request,
+            )
+            expected_hardware_bytes = (
+                json.dumps(expected_hardware, indent=2, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+        except PilotError:
+            raise
+        except (UnicodeError, ValueError, TypeError, KeyError, RecursionError) as exc:
+            raise PilotError("Revisión de herrajes JSON inválida.") from exc
+        if type(saved_hardware) is not dict or hardware_bytes != expected_hardware_bytes:
+            raise PilotError("Revisión de herrajes no reproduce íntegramente Maestro/F4.")
+    elif (hardware_path.exists() or hardware_path.is_symlink()
+          or "hardware_reference_review_sha256" in manifest):
+        raise PilotError("Revisión de herrajes no declarada en el manifiesto.")
 
     flow_path = folder / "flow-review.json"
     if has_flow_review:

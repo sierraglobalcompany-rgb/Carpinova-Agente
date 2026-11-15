@@ -35,7 +35,7 @@ _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
 _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
     "cad-exchange.json", "manifest.json", "flow-review.json",
-    "opening-intents-review.json",
+    "opening-intents-review.json", "hardware-reference-review.json",
     "lamina/three-views.svg", "lamina/render-manifest.json",
     "CN-BAR-001-referencias.csv", "CN-BAR-001-cajon-A.svg",
     "CN-BAR-001-cajon-B.svg", "CN-BAR-001-cajon-C.svg",
@@ -349,8 +349,9 @@ def carpinova_leer_entregable(proyecto: str, archivo: str) -> Any:
         or answer.get("knowledge") is not None
         or bool(answer.get("source_provenance"))
     )
-    if (archivo == "flow-review.json" or archivo.endswith("P6-criterios.md")
-            or has_book_evidence):
+    if (archivo in {"flow-review.json", "opening-intents-review.json",
+                    "hardware-reference-review.json"}
+            or archivo.endswith("P6-criterios.md") or has_book_evidence):
         verify_pilot_bundle(folder, bundle_dir=bundle_dir)
     if archivo.endswith("P6-criterios.md"):
         # P6's explanatory citations are not derived from this request's
