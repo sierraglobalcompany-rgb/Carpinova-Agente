@@ -35,6 +35,7 @@ _PROJECT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$")
 _ALLOWED_FILES = frozenset((
     "maestro-review.json", "front-review.svg", "parts-review.csv",
     "cad-exchange.json", "manifest.json", "flow-review.json",
+    "opening-intents-review.json",
     "lamina/three-views.svg", "lamina/render-manifest.json",
     "CN-BAR-001-referencias.csv", "CN-BAR-001-cajon-A.svg",
     "CN-BAR-001-cajon-B.svg", "CN-BAR-001-cajon-C.svg",
@@ -146,6 +147,7 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
 def carpinova_generar_borrador(
     solicitud_json: str, proyecto: str, incluir_planos: bool = False,
     flow_review_json: str = "",
+    opening_review_json: str = "",
 ) -> dict[str, Any]:
     """One-call optional nominal review + PDF; existing two-step flow unchanged.
 
@@ -181,6 +183,7 @@ def carpinova_generar_borrador(
         flow_review = build_flow_review_from_envelope(flow_envelope, request)
     manifest = write_pilot_bundle(
         request, destination, flow_review=flow_review, bundle_dir=bundle_dir,
+        opening_review_json=opening_review_json,
     )
     result = {
         "status": "DRAFT_NOT_FOR_CUTTING",

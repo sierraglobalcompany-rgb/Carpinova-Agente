@@ -1,6 +1,34 @@
+## VIGENTE — CARPN-B3P1 (15-nov-2026; candidato a PR23 Draft, verificar publicación y CI)
+
+- B3_SOURCE=PASS_SCOPED_LOCAL según pruebas del lote B3: 13/13 focales; seis suites, 99 PASS, 7 SKIP, 0 FAIL. Revisión independiente del producto y publicación son decisiones separadas.
+- PR23_EXPECTED=OPEN_DRAFT; rama feat/carpn-ab-v1; padre B1 011f314da6a15ca5920eb00a0a1c0b00a2cf4c15; PR21_BASE=e2f20c5231bff3d384430b3a07146ecac93a0eeb. Sin merge a main. La publicación efectiva se verifica comparando PR23 HEAD con el commit.
+- MCP_LOCAL=BLOCKED_ENV_NO_SDK; MCP_CI_NEW_SHA=PENDING_VERIFICATION; B3_SIDECAR_STDIO=NOT_RUN hasta una prueba específica del argumento y del readback por MCP. DESKTOP_B3=NOT_INSTALLED; KNOWLEDGE_B2=PASS_SCOPED_HISTORICAL; OWNER_UAT=NOT_RUN.
+- FABRICATION_READY=false; CUTTING_READY=false; DRILLING_READY=false; PURCHASE_READY=false; RELEASE=NO_GO.
+- B3 añade el sidecar consultivo opening-intents-review.json con esquema estricto, hash de geometría e IDs reales. La torre de cocina produjo 7 piezas nominales; el clóset empotrado, 14 piezas nominales con medidas de vano. Horno reservado y puertas corredizas sin sistema verificado quedan CONCEPT_ONLY, sin geometría inventada. Baño nuevo fuera de alcance.
+- Evidencia de origen: ZIP B3 V2 SHA-256 36e9191c856cee874f8343e304bef27c77a20826088daeca2750836d7748b7c4; ZIP B3R1 V2 SHA-256 4de53e76cfd94c16296ce6f696d8eea0d894b6ce5a57fd759f319c4f1121397d.
+- Alcance de las seis rutas B3: carpinova_agent/conversation_flow.py, carpinova_agent/mcp_bridge.py, carpinova_agent/pilot_cli.py, tests/mcp_runtime_contract.py, tests/test_b3_product_families.py y docs/PROJECT_CONTINUITY_CURRENT.md.
+- CI histórico de B1 no prueba B3. No registrar el SHA del commit que contiene este documento ni declarar CI/publicación PASS antes de verificarlos.
+- NEXT=CHATGPT_DIRECTOR_CHECK_B3_PUBLISHED_CI; PUBLICATION_PROOF=COMPARE_PR23_HEAD_WITH_COMMIT.
+
 # CarpiNova Agente — continuidad y reconstrucción canónicas
 
-## VIGENTE — CARPN-B1-V2 (14-nov-2026)
+## HISTÓRICO — CARPN-B3-V2 (14-nov-2026; trabajo local antes de publicar)
+
+- Repositorio `sierraglobalcompany-rgb/Carpinova-Agente`, worktree aislado `D:\codex\CARPN-WORKTREES\CARPN-B3-V2-PRODUCTO-20261114`, detached en `011f314da6a15ca5920eb00a0a1c0b00a2cf4c15` (B1/PR23). Worktree inicialmente limpio. Cambios locales sin commit; PR #23 sigue Draft y no se publicó nada. Remote PR23/PR21 se comprobó una vez al iniciar: PR23=B1; PR21=`e2f20c5231bff3d384430b3a07146ecac93a0eeb`. `main` observado entonces en `a5cdb7fce3728513ffb9fe8833af3503125740e9`; no se cambió.
+- B2 `PASS_FUNCTIONAL_SCOPED`, evidencia reportada `CARPN_B2R1_R2_V2_RETORNO_UNICO.zip`, SHA-256 `69d885df4e3ada7bba018600cfa49a233f8410e3f8059a2f48e770c666586f06`. Esto no es UAT humana: `source_pdf_bytes_verified=false` y `flow_review_json` vacío; no se revalidó B2 ni Knowledge.
+- B3 G1 corrige la pérdida de intención de apertura entre revisión guiada y paquete: `carpinova_generar_borrador` acepta el argumento MCP opcional `opening_review_json`; el manifiesto/allowlist/readback validan `opening-intents-review.json` contra el mismo CAD y hash de geometría. Cinco IDs reales (2 puertas + 3 fachadas), 29 piezas, SHA geométrico protegido `28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6`; handle→push preserva la geometría. Sin sidecar, los cinco artefactos históricos son byte-idénticos. El sidecar es una declaración consultiva no autenticada, no valida SKU ni posición y no cambia F6/frentes/CSV/flow-review.
+- B3 G2-A: torre de cocina F6 de un módulo, una repisa horizontal y dos puertas produce revisión nominal de 7 piezas cuando no se reserva aparato. Con reserva de horno empotrado, queda `CONCEPT_ONLY`, cero piezas y sin consulta modular ni hueco; pregunta modelo/ficha, medidas, ventilación, tomas, holguras y seguridad. No hay recorte de aparato.
+- B3 G2-B: clóset `built_in` de dos módulos de 900+900 mm reusa Maestro y sus mediciones de vano arriba/medio/abajo 2035/2024/2012 mm; gap nominal al mínimo=212 mm. Vano conflictivo 1800/1800/1800 y medidas ausentes bloquean geometría y piden corrección/medición. Medidas estructuradas distintas de las declaradas en texto se bloquean. Puertas corredizas quedan `CONCEPT_ONLY`, `SLIDING_DOOR_MECHANISM_PENDING`, cero piezas y sin convertirlas a abatibles. B3-C baño=`NOT_RUN_SCOPE`.
+- Pruebas focales al SHA fuente: B3 13/13; vecino MCP bridge 21 (6 skip de entorno/symlink); integridad piloto 8 (1 skip de symlink); M2 7/7; M3 8/8; guided-design vecino 49/49. Los skips no son fallos. `py_compile` en las tres fuentes modificadas y `git diff --check`/`git diff --cached --check` PASS; índice sin cambios.
+- `MCP_LOCAL=BLOCKED_ENV`: el SDK `mcp` no está instalado en Python 3.12.10 ni 3.13; el test de contrato runtime termina con `ModuleNotFoundError: No module named 'mcp'` / `RuntimeError: MCP SDK ausente`. No se instaló nada y no se simuló STDIO. Contrato estático mantiene seis entrypoints y el argumento nuevo opcional. `MCP_DESKTOP=NOT_TOUCHED`.
+- `KNOWLEDGE=NOT_REQUERIDA/NO_RECONSULTADA`; la referencia B2 anterior no autentica bytes del PDF ni aprueba mecanismos.
+- Permisos en todas las respuestas/manifiestos: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`; exportación CAD nativa no llamada. Sin commit, push, merge, release, deploy, cambios de Desktop/configuración/runtime, Knowledge, PR21 o `main`. Worktrees/WIP ajenos preservados.
+- Archivos locales B3: `carpinova_agent/mcp_bridge.py`, `carpinova_agent/pilot_cli.py`, `carpinova_agent/conversation_flow.py`, `tests/mcp_runtime_contract.py`, `tests/test_b3_product_families.py` (nuevo) y este documento. El árbol fuente queda dirty sobre HEAD B1; no hay SHA/build nuevo ni CI nuevo.
+- L1–L6: L1 reutiliza Maestro/F6/CADExchange, sin motor paralelo; L2 añade una sola evidencia sidecar y conserva el paquete legado; L3 valida entrada, IDs/SHA y mediciones antes de producir; L4 devuelve preguntas explícitas y evita huecos/puertas falsos; L5 pruebas locales atribuibles al SHA B1, revisión independiente pendiente; L6 un único lote, ningún reinicio ni cambio global.
+- `B3_PRODUCT=PASS_SCOPED` como evidencia funcional local del ejecutor; `MCP_LOCAL=BLOCKED_ENV`; `GITHUB_WRITTEN=NO`; `CI_NEW_SHA=NOT_RUN`; revisión independiente todavía no realizada.
+- **NEXT único:** `CHATGPT_DIRECTOR_INDEPENDENT_REVIEW_B3` sobre este diff, los logs y el ZIP de retorno. No ejecutar antiguos NEXT de los capítulos históricos.
+
+## HISTÓRICO — CARPN-B1-V2 (14-nov-2026; sustituido por B3)
 
 - Repositorio: [sierraglobalcompany-rgb/Carpinova-Agente](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente). PR [#23](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/pull/23) sigue OPEN/DRAFT; apilado sobre PR #21 en `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. `main` no se modifica.
 - Base GN9/PR23 antes de B1: `73a9574074ceabe1859e82243c0a401866d3efc2`. PR21 conserva HEAD `e2f20c5231bff3d384430b3a07146ecac93a0eeb`.

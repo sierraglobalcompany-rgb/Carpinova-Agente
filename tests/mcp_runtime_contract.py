@@ -5,7 +5,7 @@ from carpinova_agent.mcp_bridge import create_server
 
 
 class McpRuntimeContractTests(unittest.TestCase):
-    def test_six_tools_and_optional_bounded_flow_review_argument(self):
+    def test_six_tools_and_optional_review_arguments(self):
         server = create_server()
         expected = {
             "carpinova_estado", "carpinova_consultar", "carpinova_generar_borrador",
@@ -18,6 +18,10 @@ class McpRuntimeContractTests(unittest.TestCase):
         self.assertEqual(prop["type"], "string")
         self.assertEqual(prop["default"], "")
         self.assertNotIn("flow_review_json", params["required"])
+        opening_prop = params["properties"]["opening_review_json"]
+        self.assertEqual(opening_prop["type"], "string")
+        self.assertEqual(opening_prop["default"], "")
+        self.assertNotIn("opening_review_json", params["required"])
 
 
 if __name__ == "__main__":

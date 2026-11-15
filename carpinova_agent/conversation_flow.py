@@ -51,15 +51,20 @@ _REVIEW_SOURCES = frozenset((
 _REVIEW_STATE_FIELDS = frozenset(("schema_version", "revision", "decisions", "history"))
 _REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _REVIEW_QUESTION_ORDER = (
-    "project_type", "dimensions_mm", "use", "wall_contact", "countertop",
+    "project_type", "dimensions_mm", "site_width_mm", "use", "appliance_reserve",
+    "wall_contact", "countertop",
     "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
-    "back", "internal_layout", "drawers", "doors", "front_style",
-    "opening_intent", "material", "thickness_mm", "construction",
+    "back", "internal_layout", "drawers", "doors", "door_mechanism",
+    "front_style", "opening_intent",
+    "material", "thickness_mm", "construction",
     "finish", "hardware_reference",
 )
 _REVIEW_QUESTIONS = {
     "project_type": "¿Qué tipo de mueble quieres diseñar y para qué uso?",
     "dimensions_mm": "¿Cuáles son las medidas exteriores confirmadas del mueble?",
+    "site_width_mm": (
+        "¿Cuáles son los tres anchos medidos del vano: arriba, al medio y abajo?"
+    ),
     "use": "¿Qué uso tendrá y qué debe guardar o sostener?",
     "wall_contact": "¿El mueble irá contra la pared o separado de ella?",
     "countertop": "¿Lleva mesón o cubierta? Indica sus medidas y espesor si los conoces.",
@@ -73,6 +78,14 @@ _REVIEW_QUESTIONS = {
     "doors": "¿Lleva puertas? Si sí, ¿cuántas y cómo se distribuyen?",
     "front_style": "¿Prefieres los frentes sobrepuestos o embutidos?",
     "opening_intent": "¿Prefieres manija, uñero, perfil, apertura por presión o dejarlo pendiente?",
+    "door_mechanism": (
+        "Para puertas corredizas, indica ancho y alto del vano, cantidad de hojas, "
+        "riel/sistema, recorrido, solapes y ficha oficial del fabricante."
+    ),
+    "appliance_reserve": (
+        "Para la reserva conceptual, indica modelo y ficha del aparato, medidas, "
+        "ventilación, tomas eléctricas, holguras del fabricante y revisión de seguridad."
+    ),
     "material": "¿Qué material quieres usar? Si no lo sabes, puedo mostrar una propuesta sin aprobarla.",
     "thickness_mm": "¿Qué espesor real de tablero usarás?",
     "construction": "¿Prefieres laterales continuos o tapa y base entre los laterales?",
@@ -882,6 +895,17 @@ def _guided_text_updates(
     dimension = _guided_dimension_value(natural_preview, utterance, previous_state)
     if dimension:
         add("dimensions_mm", dimension["value"], dimension["status"])
+    site_measurements: dict[str, int] = {}
+    for key, pattern in (
+        ("top", r"\b(?:arriba|superior)\s*(?::|es|de)?\s*(\d{2,5})\s*mm\b"),
+        ("middle", r"\b(?:al\s+medio|medio|centro)\s*(?::|es|de)?\s*(\d{2,5})\s*mm\b"),
+        ("bottom", r"\b(?:abajo|inferior)\s*(?::|es|de)?\s*(\d{2,5})\s*mm\b"),
+    ):
+        match = re.search(pattern, text)
+        if match:
+            site_measurements[key] = int(match.group(1))
+    if len(site_measurements) == 3:
+        add("site_width_mm", site_measurements)
 
     if re.search(r"\b(caf[eé]|cafetera|coffee)\b", text):
         add("use", "coffee")
@@ -891,6 +915,27 @@ def _guided_text_updates(
         add("use", "bathroom")
     elif re.search(r"\b(?:nochero|mesa\s+de\s+noche|mesita\s+de\s+noche|dormitorio)\b", text):
         add("use", "bedroom")
+
+    appliance_context = re.search(
+        r"\b(?:empotr\w*|integr\w*|hueco|espacio|reserva|cavidad|nicho)\b", text,
+    )
+    no_appliance_reserve = re.search(
+        r"\b(?:sin|no\s+(?:quiero|deseo|necesito|reservo|lleva|tiene))\s+"
+        r"(?:ning[uú]n(?:a)?\s+|un(?:a)?\s+)?"
+        r"(?:espacio|hueco|reserva|cavidad|nicho)\b", text,
+    )
+    if appliance_context and not no_appliance_reserve:
+        appliance_names = []
+        for pattern, name in (
+            (r"\bhorno\b", "oven"),
+            (r"\bmicroondas?\b", "microwave"),
+            (r"\bcafeteras?\b", "coffee_machine"),
+        ):
+            match = re.search(pattern, text)
+            if match and not _guided_negated(text, match.start()):
+                appliance_names.append(name)
+        if appliance_names:
+            add("appliance_reserve", appliance_names, "proposed")
 
     material_pattern = re.compile(r"\b(melamina|mdp|mdf(?:\s+rh)?)\b")
     material_matches = list(material_pattern.finditer(text))
@@ -1112,6 +1157,16 @@ def _guided_text_updates(
     )
     if front_style:
         add("front_style", front_style)
+    sliding_match = re.search(r"\bcorrediz(?:a|as|o|os)\b", text)
+    no_sliding = re.search(
+        r"\b(?:sin|no\s+(?:quiero|deseo|lleva|llevar|tiene|usar))\s+"
+        r"(?:ning[uú]n(?:a)?\s+)?puertas?\s+corrediz(?:a|as|o|os)\b|"
+        r"\bpuertas?\s+no\s+(?:son|ser[aá]n|sean)\s+corrediz(?:a|as|o|os)\b",
+        text,
+    )
+    if (sliding_match and not no_sliding
+            and not _guided_negated(text, sliding_match.start())):
+        add("door_mechanism", "sliding", "proposed")
     if re.search(r"\b(?:sin\s+puertas?|no\s+(?:lleva|tiene|quiero)\s+puertas?)\b", text):
         add("doors", "none")
     else:
@@ -2281,6 +2336,13 @@ def _guided_multicomponent_handoff(
         installation = detail_spec.get("installation")
         if installation not in {"built_in", "freestanding", "wall_mounted"}:
             blockers.append("module_spec:installation_invalid")
+        if installation == "built_in" and detail_spec.get("site_width_mm") is not None:
+            owner_site = decisions.get("site_width_mm", {}).get("value")
+            if (type(owner_site) is not dict
+                    or set(owner_site) != {"top", "middle", "bottom"}):
+                blockers.append("site_width_mm:explicit_owner_measurements_required")
+            elif owner_site != detail_spec.get("site_width_mm"):
+                blockers.append("module_spec:site_measurements_mismatch_owner")
         if valid_dimensions and any(
             detail_spec.get(field) != dimensions[owner_field]
             for field, owner_field in (
@@ -2493,6 +2555,26 @@ def _guided_multicomponent_handoff(
         result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:32]
         return result
 
+    appliance_reserve = decisions.get("appliance_reserve", {}).get("value")
+    door_mechanism = decisions.get("door_mechanism", {}).get("value")
+    doors_value = decisions.get("doors", {}).get("value")
+    has_doors = (
+        type(doors_value) is dict and type(doors_value.get("count")) is int
+        and doors_value["count"] > 0
+    )
+    concept_blockers = []
+    if appliance_reserve is not None:
+        concept_blockers.append("appliance_reserve:integrated_appliance_concept_only")
+    if door_mechanism == "sliding" and has_doors:
+        concept_blockers.append("SLIDING_DOOR_MECHANISM_PENDING")
+    if concept_blockers:
+        result.update({
+            "nominal_draft_scope": "CONCEPT_ONLY",
+            "nominal_draft_engine_status": "CONCEPT_ONLY",
+            "nominal_draft_blockers": concept_blockers,
+        })
+        return result
+
     intent_entry = decisions.get("opening_intent")
     opening_intent = None
     opening_source = "PENDING"
@@ -2527,6 +2609,19 @@ def _guided_multicomponent_handoff(
             ):
                 result["nominal_draft_engine_status"] = modular.get("status")
                 result["nominal_draft_blockers"] = ["modular:NEEDS_SITE_MEASUREMENTS"]
+                result["nominal_draft_next_question"] = _REVIEW_QUESTIONS[
+                    "site_width_mm"
+                ]
+                return result
+            if (installation == "built_in"
+                    and type(modular.get("site")) is dict
+                    and modular["site"].get("conflict") is True):
+                result["nominal_draft_engine_status"] = modular.get("status")
+                result["nominal_draft_blockers"] = ["modular:SITE_CONFLICT"]
+                result["nominal_draft_next_question"] = (
+                    "El vano mínimo no permite esta suma de módulos. ¿Qué ancho de "
+                    "módulo quieres revisar o qué nuevo ancho de vano has medido?"
+                )
                 return result
             result["nominal_draft_engine_status"] = modular.get("status")
             if modular.get("status") != "DRAFT_NOT_FOR_CUTTING":
@@ -2872,6 +2967,8 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     if project_kind not in {"gabinete", "cabinet", "cajonera", "closet", "clóset"}:
         if "project_type" not in readiness_blockers:
             readiness_blockers.append("project_type")
+    if decisions.get("appliance_reserve") is not None:
+        readiness_blockers.append("appliance_reserve")
     ready = not readiness_blockers
 
     nominal_review = None
@@ -3048,6 +3145,93 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             nominal_handoff = _guided_open_cabinet_handoff(
                 decisions, photo_attached=photo_attached,
             )
+    appliance_entry = state["decisions"].get("appliance_reserve")
+    appliance_names = (
+        appliance_entry.get("value")
+        if type(appliance_entry) is dict else None
+    )
+    appliance_review = None
+    if appliance_entry is not None:
+        if (type(appliance_names) is not list or not appliance_names
+                or any(type(name) is not str for name in appliance_names)):
+            appliance_names = ["UNCLASSIFIED_APPLIANCE"]
+        appliance_review = {
+            "status": "CONCEPT_ONLY",
+            "intent_source": "CLIENT_DECLARED_NOT_AUTHENTICATED",
+            "appliances": list(dict.fromkeys(appliance_names)),
+            "geometry_included": False,
+            "opening_or_cutout_included": False,
+            "missing_inputs": [
+                "appliance_model_and_official_datasheet",
+                "appliance_width_height_depth",
+                "manufacturer_clearance_and_ventilation_requirements",
+                "electrical_outlet_and_circuit_location",
+                "service_access_and_safety_review",
+            ],
+            "question": _REVIEW_QUESTIONS["appliance_reserve"],
+        }
+    door_entry = state["decisions"].get("door_mechanism")
+    door_value = door_entry.get("value") if type(door_entry) is dict else None
+    doors_value = state["decisions"].get("doors", {}).get("value")
+    has_doors = (
+        type(doors_value) is dict and type(doors_value.get("count")) is int
+        and doors_value["count"] > 0
+    )
+    sliding_review = None
+    if door_value == "sliding" and has_doors:
+        sliding_review = {
+            "status": "CONCEPT_ONLY",
+            "mechanism": "SLIDING_DOOR_MECHANISM_PENDING",
+            "geometry_included": False,
+            "required_inputs": [
+                "opening_width_and_height", "leaf_count", "track_and_system",
+                "travel_and_overlap", "official_manufacturer_datasheet",
+            ],
+        }
+    concept_blockers = []
+    if appliance_review is not None:
+        concept_blockers.append("appliance_reserve:integrated_appliance_concept_only")
+        nominal_handoff.update({
+            "nominal_draft_scope": "CONCEPT_ONLY",
+            "nominal_draft_engine_status": "CONCEPT_ONLY",
+            "nominal_draft_request": None,
+            "nominal_draft_geometry_sha256": None,
+            "nominal_draft_piece_count": 0,
+            "nominal_draft_provenance": "CLIENT_DECLARED_CONCEPT_NOT_GEOMETRY",
+            "nominal_draft_opening_review": {
+                "status": "PENDING", "elements": [], "hardware_selected": False,
+            },
+            "nominal_draft_next_question": appliance_review["question"],
+        })
+        nominal_handoff["nominal_draft_warnings"] = list(dict.fromkeys([
+            *nominal_handoff.get("nominal_draft_warnings", []),
+            "INTEGRATED_APPLIANCE_RESERVE_IS_CONCEPT_ONLY_NO_CUTOUT_OR_PART.",
+            "NO_APPLIANCE_CLEARANCE_VENTILATION_ELECTRICAL_OR_SAFETY_REQUIREMENTS_VERIFIED.",
+        ]))
+    if sliding_review is not None:
+        concept_blockers.append("SLIDING_DOOR_MECHANISM_PENDING")
+        nominal_handoff.update({
+            "nominal_draft_scope": "CONCEPT_ONLY",
+            "nominal_draft_engine_status": "CONCEPT_ONLY",
+            "nominal_draft_request": None,
+            "nominal_draft_geometry_sha256": None,
+            "nominal_draft_piece_count": 0,
+            "nominal_draft_provenance": "CLIENT_DECLARED_CONCEPT_NOT_GEOMETRY",
+            "nominal_draft_opening_review": {
+                "status": "PENDING", "elements": [], "hardware_selected": False,
+            },
+            "nominal_draft_next_question": _REVIEW_QUESTIONS["door_mechanism"],
+        })
+        nominal_handoff["nominal_draft_warnings"] = list(dict.fromkeys([
+            *nominal_handoff.get("nominal_draft_warnings", []),
+            "SLIDING_DOORS_NOT_DRAWN_AS_SWING_DOORS.",
+            "TRACK_TRAVEL_OVERLAP_AND_COMPATIBILITY_REQUIRE_OFFICIAL_SYSTEM_DATA.",
+        ]))
+    if concept_blockers:
+        nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys([
+            *nominal_handoff.get("nominal_draft_blockers", []), *concept_blockers,
+        ]))[:32]
+        nominal_handoff["can_generate_f7c"] = False
     if (candidate_base is not None and revision_blocker is None
             and len(candidate_base.get("modules", [])) == 1
             and type(candidate_base.get("modules", [{}])[0]) is dict
@@ -3096,6 +3280,10 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         "piece_count": 0,
         "can_generate_f7c": False,
         **{flag: False for flag in _FLAGS},
+        **({"appliance_reserve_review": appliance_review}
+           if appliance_review is not None else {}),
+        **({"sliding_door_review": sliding_review}
+           if sliding_review is not None else {}),
         **nominal_handoff,
     }
     return result

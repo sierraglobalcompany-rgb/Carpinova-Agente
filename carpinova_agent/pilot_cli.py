@@ -6,9 +6,11 @@ service. No LLM, CAD application, network or third-party executable is run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -19,6 +21,7 @@ from .core import DesignError
 from .wall_bar_delivery import review_files
 from .maestro import MaestroError, consult_maestro
 from .modular_outputs import modular_bom_csv, modular_front_svg
+from .drawer_modules import OPENING_SYSTEMS
 from knowledge_client.reader import BundleError, load_bundle
 
 _BLOCKED_FLAGS = ("fabrication_ready", "cutting_ready",
@@ -27,6 +30,12 @@ _FILES = ("maestro-review.json", "front-review.svg",
           "parts-review.csv", "cad-exchange.json", "manifest.json")
 _MAX_MANIFEST_BYTES = 65536
 _MAX_BOOK_REQUEST_BYTES = 32768
+_OPENING_REVIEW_FILE = "opening-intents-review.json"
+_MAX_OPENING_REVIEW_BYTES = 16384
+_OPENING_FIELDS = frozenset((
+    "piece_id", "module_id", "element_type", "opening_system",
+))
+_FRONT_ROLES = frozenset(("front_left", "front_right", "front_single"))
 
 
 class PilotError(ValueError):
@@ -35,6 +44,99 @@ class PilotError(ValueError):
 
 class BookEvidenceError(PilotError):
     """A book-backed proposal cannot be generated or verified safely."""
+
+
+def _opening_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PilotError("opening_review_json contiene una clave duplicada.")
+        result[key] = value
+    return result
+
+
+def _opening_constant(value: str) -> None:
+    raise PilotError("opening_review_json no admite cifras no finitas.")
+
+
+def _opening_review_payload(raw: str) -> dict[str, Any]:
+    if type(raw) is not str or not raw.strip():
+        raise PilotError("opening_review_json debe ser texto JSON no vacío.")
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeError as exc:
+        raise PilotError("opening_review_json no es UTF-8 válido.") from exc
+    if len(encoded) > _MAX_OPENING_REVIEW_BYTES:
+        raise PilotError("opening_review_json supera 16 KiB.")
+    try:
+        value = json.loads(
+            raw, object_pairs_hook=_opening_pairs, parse_constant=_opening_constant,
+        )
+    except (ValueError, TypeError, RecursionError, UnicodeError) as exc:
+        raise PilotError("opening_review_json no contiene JSON válido.") from exc
+    if type(value) is not dict or set(value) != {
+        "schema_version", "source", "geometry_sha256", "elements",
+    }:
+        raise PilotError("opening_review_json no cumple el esquema estricto 1.0.")
+    if (value["schema_version"] != "1.0"
+            or value["source"] != "CLIENT_DECLARED_NOT_AUTHENTICATED"
+            or type(value["geometry_sha256"]) is not str
+            or not re.fullmatch(r"[0-9a-f]{64}", value["geometry_sha256"])):
+        raise PilotError("opening_review_json tiene versión, fuente o SHA inválido.")
+    elements = value["elements"]
+    if type(elements) is not list or not 1 <= len(elements) <= 128:
+        raise PilotError("opening_review_json requiere de 1 a 128 elementos.")
+    seen: set[str] = set()
+    for element in elements:
+        if type(element) is not dict or set(element) != _OPENING_FIELDS:
+            raise PilotError("Cada apertura requiere exactamente cuatro campos.")
+        if any(type(element[key]) is not str or not element[key].strip()
+               or len(element[key]) > 160 for key in _OPENING_FIELDS):
+            raise PilotError("IDs e intenciones de apertura deben ser texto acotado.")
+        if element["piece_id"] in seen:
+            raise PilotError("opening_review_json contiene IDs de pieza duplicados.")
+        seen.add(element["piece_id"])
+        if (element["element_type"] not in ("door", "drawer")
+                or element["opening_system"] not in OPENING_SYSTEMS):
+            raise PilotError("Tipo o intención de apertura no admitidos.")
+    return value
+
+
+def _opening_review_for_cad(
+    payload: dict[str, Any], exchange: dict[str, Any],
+) -> dict[str, Any]:
+    if payload["geometry_sha256"] != exchange["geometry_sha256"]:
+        raise PilotError("opening_review_json pertenece a otro geometry_sha256.")
+    actual: dict[str, tuple[str, str]] = {}
+    for box in exchange["boxes"]:
+        role = box.get("role")
+        if role in _FRONT_ROLES or role == "drawer_facade":
+            piece_id, module_id = box.get("piece_id"), box.get("module_id")
+            element_type = "drawer" if role == "drawer_facade" else "door"
+            if type(piece_id) is not str or type(module_id) is not str:
+                raise PilotError("CADExchange tiene una fachada sin IDs válidos.")
+            if piece_id in actual:
+                raise PilotError("CADExchange contiene IDs de fachada duplicados.")
+            actual[piece_id] = (module_id, element_type)
+    declared = {
+        item["piece_id"]: (item["module_id"], item["element_type"])
+        for item in payload["elements"]
+    }
+    if declared != actual:
+        raise PilotError(
+            "opening_review_json no coincide exactamente con las fachadas de CADExchange."
+        )
+    return {
+        "schema_version": "1.0",
+        "source": "CLIENT_DECLARED_NOT_AUTHENTICATED",
+        "geometry_sha256": exchange["geometry_sha256"],
+        "elements": sorted(payload["elements"], key=lambda item: item["piece_id"]),
+        "status": "NOT_APPROVED_NOT_FOR_FABRICATION",
+        "hardware_selected": False,
+        "drilling_ready": False,
+        "purchase_ready": False,
+        "authentication": "NOT_AUTHENTICATED",
+    }
 
 
 def _book_bundle(bundle_dir: Path | str | None) -> dict[str, Any]:
@@ -121,7 +223,7 @@ def _book_source_status(answer: dict[str, Any]) -> str:
 
 def pilot_review(
     request: dict[str, Any], flow_review: dict[str, Any] | None = None,
-    *, bundle_dir: Path | str | None = None,
+    *, bundle_dir: Path | str | None = None, opening_review_json: str = "",
 ) -> dict[str, str]:
     """Calculate every deliverable from one already-structured Maestro request.
 
@@ -161,6 +263,11 @@ def pilot_review(
     observed = {box["piece_id"] for box in exchange["boxes"]}
     if expected != observed or len(expected) != len(model["parts"]):
         raise PilotError("CAD/BOM no coincide con piezas de geometría Maestro.")
+    opening_review = None
+    if opening_review_json != "":
+        opening_review = _opening_review_for_cad(
+            _opening_review_payload(opening_review_json), exchange,
+        )
     if flow_review is not None:
         if type(flow_review) is not dict:
             raise PilotError("flow-review debe ser un objeto de revisión válido.")
@@ -173,13 +280,14 @@ def pilot_review(
             raise PilotError("Traza conversacional no corresponde al CAD del borrador.")
     extras = review_files(model) if model.get("wall_bar_review") else {}
     trace_files = ["flow-review.json"] if flow_review is not None else []
+    opening_files = [_OPENING_REVIEW_FILE] if opening_review is not None else []
     manifest = {
         "schema_version": "1.0",
         "status": "DRAFT_NOT_FOR_CUTTING",
         "source": "MAESTRO_MODULAR_F1_F7C",
         "piece_count": len(model["parts"]),
         "geometry_sha256": exchange["geometry_sha256"],
-        "files": list(_FILES) + trace_files + list(extras),
+        "files": list(_FILES) + trace_files + list(extras) + opening_files,
         "fabrication_ready": False,
         "cutting_ready": False,
         "drilling_ready": False,
@@ -205,6 +313,12 @@ def pilot_review(
             "book_source_metadata": _book_source_metadata(book),
             "book_source_status": book_status,
         })
+    opening_text = None
+    if opening_review is not None:
+        opening_text = json.dumps(opening_review, indent=2, ensure_ascii=False) + "\n"
+        manifest["opening_intents_review_sha256"] = hashlib.sha256(
+            opening_text.encode("utf-8")
+        ).hexdigest()
     manifest_text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
     if has_query and len(manifest_text.encode("utf-8")) > _MAX_MANIFEST_BYTES:
         raise BookEvidenceError(
@@ -222,13 +336,14 @@ def pilot_review(
         "manifest.json": manifest_text,
         **extras,
         **({"flow-review.json": flow_text} if flow_text is not None else {}),
+        **({_OPENING_REVIEW_FILE: opening_text} if opening_text is not None else {}),
     }
 
 
 def write_pilot_bundle(
     request: dict[str, Any], output_dir: Path,
     flow_review: dict[str, Any] | None = None,
-    *, bundle_dir: Path | str | None = None,
+    *, bundle_dir: Path | str | None = None, opening_review_json: str = "",
 ) -> dict[str, Any]:
     """Fail closed: stage complete files on the same filesystem before rename.
 
@@ -239,7 +354,10 @@ def write_pilot_bundle(
     parent = output_dir.parent
     if not parent.is_dir():
         raise PilotError("El directorio padre de salida debe existir.")
-    bundle = pilot_review(request, flow_review=flow_review, bundle_dir=bundle_dir)
+    bundle = pilot_review(
+        request, flow_review=flow_review, bundle_dir=bundle_dir,
+        opening_review_json=opening_review_json,
+    )
     with TemporaryDirectory(prefix=".carpinova-pilot-", dir=parent) as temp:
         staging = Path(temp) / "review"
         staging.mkdir()
@@ -271,6 +389,7 @@ def verify_pilot_bundle(
         "cad-exchange.json": 262144,
         "manifest.json": _MAX_MANIFEST_BYTES,
         "flow-review.json": 262144,
+        _OPENING_REVIEW_FILE: _MAX_OPENING_REVIEW_BYTES,
     }
     if not folder.is_dir() or folder.is_symlink():
         raise PilotError("El directorio del proyecto original no es confiable.")
@@ -345,7 +464,13 @@ def verify_pilot_bundle(
     if type(manifest_files) is not list:
         raise PilotError("Manifiesto sin lista segura de archivos.")
     has_flow_review = "flow-review.json" in manifest_files
-    expected_files = list(_FILES) + (["flow-review.json"] if has_flow_review else []) + list(expected_extras)
+    has_opening_review = _OPENING_REVIEW_FILE in manifest_files
+    expected_files = (
+        list(_FILES)
+        + (["flow-review.json"] if has_flow_review else [])
+        + list(expected_extras)
+        + ([_OPENING_REVIEW_FILE] if has_opening_review else [])
+    )
     if (manifest.get("schema_version") != "1.0"
             or manifest.get("source") != "MAESTRO_MODULAR_F1_F7C"
             or manifest.get("status") != "DRAFT_NOT_FOR_CUTTING"
@@ -371,6 +496,44 @@ def verify_pilot_bundle(
             or manifest.get("geometry_sha256") != expected_cad["geometry_sha256"]
             or len(actual_cad["boxes"]) != len(model["parts"])):
         raise PilotError("CAD, piezas o geometría diferentes del Maestro original.")
+
+    opening_path = folder / _OPENING_REVIEW_FILE
+    opening_hash = manifest.get("opening_intents_review_sha256")
+    if has_opening_review:
+        if (opening_path.is_symlink() or not opening_path.is_file()
+                or opening_path.stat().st_size > limits[_OPENING_REVIEW_FILE]):
+            raise PilotError("Sidecar de intenciones ausente, enlazado o excesivo.")
+        opening_bytes = opening_path.read_bytes()
+        actual_opening_hash = hashlib.sha256(opening_bytes).hexdigest()
+        if opening_hash != actual_opening_hash:
+            raise PilotError("Hash del sidecar de intenciones no coincide con el manifiesto.")
+        try:
+            opening_text = opening_bytes.decode("utf-8")
+            saved_opening = json.loads(
+                opening_text, object_pairs_hook=_opening_pairs,
+                parse_constant=_opening_constant,
+            )
+            if type(saved_opening) is not dict:
+                raise PilotError("Sidecar de intenciones debe ser un objeto JSON.")
+            payload = {key: saved_opening[key] for key in (
+                "schema_version", "source", "geometry_sha256", "elements",
+            )}
+            if set(saved_opening) != {
+                "schema_version", "source", "geometry_sha256", "elements",
+                "status", "hardware_selected", "drilling_ready", "purchase_ready",
+                "authentication",
+            }:
+                raise PilotError("Sidecar de intenciones tiene campos inesperados.")
+            expected_opening = _opening_review_for_cad(
+                _opening_review_payload(json.dumps(payload, ensure_ascii=False)),
+                actual_cad,
+            )
+        except (UnicodeError, ValueError, TypeError, KeyError, RecursionError) as exc:
+            raise PilotError("Sidecar de intenciones JSON inválido.") from exc
+        if saved_opening != expected_opening:
+            raise PilotError("Sidecar de intenciones no coincide con el CAD revisado.")
+    elif opening_path.exists() or opening_path.is_symlink() or opening_hash is not None:
+        raise PilotError("Sidecar de intenciones no declarado en el manifiesto.")
 
     flow_path = folder / "flow-review.json"
     if has_flow_review:
