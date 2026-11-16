@@ -1,4 +1,20 @@
-## VIGENTE — CARPN-B4P2-V2 (15-nov-2026; corrección del lector MCP, publicación condicionada)
+## VIGENTE — CARPN-B5-V2 (15-nov-2026; cocina mixta, cajones, MCP y Knowledge)
+
+- BASE=B4P2/PR23 feat/carpn-ab-v1@cbb4e7198c8f43fdde1e9d78d20e3b1b7a365cff; PR23 OPEN/DRAFT, base PR21 e2f20c5231bff3d384430b3a07146ecac93a0eeb en la comprobación inicial. main, PR21 y otros worktrees no se modificaron. El runtime de Desktop es independiente de este worktree.
+- G0=PASS: worktree aislado D:\codex\CARPN-WORKTREES\CARPN-B5-V2-20261115, base exacta, inicialmente limpio, sin WIP ajeno; se preservaron los worktrees existentes. El remoto y PR23 se comprobarán otra vez una sola vez antes de cualquier push.
+- B4P2_CI antecedente: run 43761077749, los cinco workflows SUCCESS; Linux/Windows del workflow de STDIO pasaron en B4P2. No prueba el escenario B5.
+- G1_CODE=PASS_REVIEWED: se amplía únicamente scripts/verify_local_mcp.py; reusa la sesión STDIO, _mcp_structured y lectores B4, mantiene los dos CASES, añade el fixture determinista de mixed_spec() con 29 piezas, 2 puertas y D1–D3. No cambia Maestro, puente MCP, CADExchange, piloto, Knowledge ni configuración.
+- B5_DRAWERS_STDIO_LOCAL=NOT_RUN_NO_SDK; B5_DRAWERS_STDIO=READY_FOR_CI, no PASS. La llamada única y el readback MCP de CADExchange, manifest y los sidecars B3/B4 solo se certificarán si aparece el marcador B5 en CI del SHA nuevo.
+- G2=PASS_SCOPED_LOCAL: 3/3 pruebas focales test_b5_mcp_drawer_fixture.py en Python 3.12 y py_compile PASS. Fixture idéntico a mixed_spec()/BASE_SPEC_JSON; 29 piezas y geometría 28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6. Entrada sidecar: cinco frentes, 2 puertas y 3 cajones. D1–D3 conservan slide_sku=null, slide_compatibility=NOT_VERIFIED, lectura 0/0 declarada solo para revisión y bloqueador no instalable; ninguna selección de SKU/placa ni perforación/compra. Pruebas locales no simulan transporte MCP.
+- G3_DESKTOP_CONFIG_SOURCE=RUNTIME_B1: el cwd y PYTHONPATH configurados apuntan a D:\codex\_RUNTIME\CarpiNova-Agente, HEAD 011f314da6a15ca5920eb00a0a1c0b00a2cf4c15; config SHA-256 bc69d72dd0d5923d99ec6fe584b274491201092dcc32a0cdbb3daf373d4d8686. Checkout limpio, hashes de fuente consultados. Esto identifica el origen configurado, no el proceso ya conectado.
+- G3_DESKTOP_LIVE_MCP=READ_ONLY_OBSERVED_UNATTRIBUTED: Codex expuso seis herramientas CarpiNova; una lectura carpinova_estado informó stdio/DRAFT_DESIGN_ONLY y los cuatro permisos en false; una consulta Knowledge devolvió REFERENCE_ONLY, FULL_BOOK, v1.2.0 y referencias marcadas VISUALLY_VERIFIED. El escaneo previo de procesos fue inconcluso; ACTIVE_PROCESS_SHA=UNATTESTED. Esta observación no certifica que Desktop ejecute el checkout B5.
+- G3_KNOWLEDGE_BUNDLE=PASS_MANIFEST_AND_LOAD: cpnc-2025, v1.2.0, scope=BOOK, 252 páginas declaradas; load_bundle() cargó el bundle localizado y los tres hashes de archivo coinciden con el manifest. source_pdf_bytes_verified=false; autenticidad de bytes del PDF original y persistencia tras reinicio NOT_PROVEN.
+- G3_CONFIG_EDIT=NOT_DONE; no se editó config, runtime, Desktop, ni Knowledge. No hubo instalación ni reinicio.
+- OWNER_AUTH=YES_CONDITIONAL_2026-11-15: como máximo un commit normal y un push normal sin force a PR23 Draft, solo si G0–G2 pasan y el guard remoto/PR Draft sigue exacto. No merge, deploy, PR21/main, segunda publicación ni reintento.
+- fabrication_ready=false; cutting_ready=false; drilling_ready=false; purchase_ready=false. Sin CAD nativo, despiece liberado, corte, perforación, compra ni fabricación. RELEASE=NO_GO; OWNER_UAT=NOT_RUN.
+- NEXT único: CHATGPT_DIRECTOR_VERIFY_B5 sobre el ZIP, el SHA publicado y los checks exactos, sin repetir las auditorías B1–B4. El encabezado B4P2 y las secciones inferiores quedan históricas; sus NEXT anteriores no están activos.
+
+## HISTÓRICO — CARPN-B4P2-V2 (15-nov-2026; corrección del lector MCP, publicación condicionada)
 
 - OWNER_AUTH=YES_CONDITIONAL_2026-11-15: un commit normal y un push sin fuerza a PR23 Draft solo si pasan G0–G3; sin segundo commit, merge, deploy, cambios Desktop ni fabricación.
 - BASE_B4P1=4a815bf64e506158cbe1f286ea46b3a572592ee1; PR23=`feat/carpn-ab-v1`, base=`feature/wall-bar-freecad-v10`. G0 local limpio y remoto/PR23 OPEN-DRAFT coincidentes antes del cambio; se reconfirmarán solo en la guardia previa al push.

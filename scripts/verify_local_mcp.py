@@ -22,7 +22,8 @@ from xml.etree import ElementTree
 # on sys.path. Restore the actual repo root BEFORE importing the package.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from carpinova_agent.cad_exchange import validate_exchange
+from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
+from carpinova_agent.maestro import consult_maestro
 CASES = (
     ("primer_mueble", "pilot-open-kitchen-800.json", 4),
     ("cocina_dos_modulos", "modular-kitchen-door-fronts.json", 13),
@@ -404,6 +405,187 @@ async def execute(output_root: Path) -> None:
                 "Rejected sidecar created a valid project directory"
             )
             print("MCP_B3_OPENING_NEGATIVE_PASS=" + negative_error)
+            print("B5_MIXED_DRAWERS_BEGIN")
+            b5_spec = json.loads((PROJECT_ROOT / "examples"
+                                  / "modular-mixed-kitchen-b5.json").read_text(
+                                      encoding="utf-8"))
+            b5_request = {"action": "modular", "module_spec": b5_spec}
+            b5_answer = consult_maestro(b5_request)
+            assert b5_answer.get("status") == "DRAFT_NOT_FOR_CUTTING"
+            assert all(b5_answer.get(flag) is False for flag in FLAGS)
+            assert all(b5_answer["modular"].get(flag) is False for flag in FLAGS)
+            b5_cad = validate_exchange(cad_exchange(b5_answer["modular"]))
+            assert len(b5_cad["boxes"]) == 29
+            assert b5_cad["geometry_sha256"] == (
+                "28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6"
+            )
+            assert len({box["piece_id"] for box in b5_cad["boxes"]}) == 29
+            assert all(b5_cad[flag] is False for flag in (
+                "fabrication_ready", "cutting_ready", "drilling_ready",
+            ))
+
+            expected_drawer_ids = {
+                drawer["drawer_id"]
+                for module in b5_spec["modules"]
+                if isinstance(module.get("drawers"), list)
+                for drawer in module.get("drawers", [])
+            }
+            assert expected_drawer_ids == {"D1", "D2", "D3"}
+            b5_fronts = [box for box in b5_cad["boxes"]
+                         if box.get("role") in (
+                             "front_left", "front_right", "front_single",
+                             "drawer_facade",
+                         )]
+            assert len(b5_fronts) == 5
+            opening_elements = sorted(({
+                "piece_id": box["piece_id"],
+                "module_id": box["module_id"],
+                "element_type": (
+                    "drawer" if box["role"] == "drawer_facade" else "door"
+                ),
+                "opening_system": "handle",
+            } for box in b5_fronts), key=lambda item: item["piece_id"])
+            assert [item["element_type"] for item in opening_elements].count("door") == 2
+            assert [item["element_type"] for item in opening_elements].count("drawer") == 3
+            assert {item["piece_id"] for item in opening_elements} == {
+                box["piece_id"] for box in b5_fronts
+            }
+            opening_input = {
+                "schema_version": "1.0",
+                "source": "CLIENT_DECLARED_NOT_AUTHENTICATED",
+                "geometry_sha256": b5_cad["geometry_sha256"],
+                "elements": opening_elements,
+            }
+            assert set(opening_input) == {
+                "schema_version", "source", "geometry_sha256", "elements",
+            }
+
+            b5_project = "cocina_mixta_b5"
+            b5_generation_response = await session.call_tool(
+                "carpinova_generar_borrador", {
+                    "solicitud_json": json.dumps(
+                        b5_request, ensure_ascii=False,
+                    ),
+                    "proyecto": b5_project,
+                    "opening_review_json": json.dumps(
+                        opening_input, ensure_ascii=False,
+                    ),
+                },
+            )
+            b5_generated = _mcp_structured(
+                b5_generation_response, "generate B5 mixed kitchen with drawers",
+            )
+            assert b5_generated.get("status") == "DRAFT_NOT_FOR_CUTTING"
+            assert b5_generated.get("geometry_sha256") == b5_cad["geometry_sha256"]
+            assert b5_generated.get("piece_count") == 29
+            assert all(b5_generated.get(flag) is False for flag in FLAGS)
+            assert "opening-intents-review.json" in b5_generated.get("files", [])
+            assert "hardware-reference-review.json" in b5_generated.get("files", [])
+
+            b5_cad_payload = await _read_payload_via_mcp(
+                session, b5_project, "cad-exchange.json",
+            )
+            b5_manifest_payload = await _read_payload_via_mcp(
+                session, b5_project, "manifest.json",
+            )
+            b5_opening_payload = await _read_payload_via_mcp(
+                session, b5_project, "opening-intents-review.json",
+            )
+            b5_hardware_payload = await _read_payload_via_mcp(
+                session, b5_project, "hardware-reference-review.json",
+            )
+            b5_saved_cad = validate_exchange(json.loads(b5_cad_payload["contenido"]))
+            b5_manifest = json.loads(b5_manifest_payload["contenido"])
+            b5_opening = json.loads(b5_opening_payload["contenido"])
+            b5_hardware = json.loads(b5_hardware_payload["contenido"])
+            assert b5_saved_cad == b5_cad
+            assert b5_saved_cad["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert len(b5_saved_cad["boxes"]) == 29
+            assert b5_manifest["status"] == "DRAFT_NOT_FOR_CUTTING"
+            assert b5_manifest["piece_count"] == 29
+            assert b5_manifest["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert all(b5_manifest.get(flag) is False for flag in FLAGS)
+            for filename in (
+                "cad-exchange.json", "manifest.json",
+                "opening-intents-review.json", "hardware-reference-review.json",
+            ):
+                assert filename in b5_manifest["files"]
+            assert all(b5_generated.get(flag) is False for flag in FLAGS)
+            assert all(b5_saved_cad.get(flag) is False for flag in (
+                "fabrication_ready", "cutting_ready", "drilling_ready",
+            ))
+
+            b5_opening_bytes = b5_opening_payload["contenido"].encode("utf-8")
+            b5_hardware_bytes = b5_hardware_payload["contenido"].encode("utf-8")
+            assert hashlib.sha256(b5_opening_bytes).hexdigest() == (
+                b5_manifest["opening_intents_review_sha256"]
+            )
+            assert hashlib.sha256(b5_hardware_bytes).hexdigest() == (
+                b5_manifest["hardware_reference_review_sha256"]
+            )
+            assert b5_opening["schema_version"] == "1.0"
+            assert b5_opening["source"] == "CLIENT_DECLARED_NOT_AUTHENTICATED"
+            assert b5_opening["authentication"] == "NOT_AUTHENTICATED"
+            assert b5_opening["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert b5_opening["status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert b5_opening["hardware_selected"] is False
+            assert set(b5_opening) >= {
+                "schema_version", "source", "geometry_sha256", "elements",
+                "status", "hardware_selected", "drilling_ready", "purchase_ready",
+            }
+            assert b5_opening["drilling_ready"] is False
+            assert b5_opening["purchase_ready"] is False
+            assert b5_opening["elements"] == opening_elements
+            expected_elements = {item["piece_id"]: item for item in opening_elements}
+            b5_rows = {row["piece_id"]: row for row in b5_hardware["elements"]}
+            assert set(b5_rows) == set(expected_elements)
+            assert b5_hardware["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert b5_hardware["status"] == "REFERENCE_ONLY_NOT_SELECTED"
+            assert b5_hardware["approval_status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert b5_hardware["hardware_selected"] is False
+            assert all(b5_hardware.get(flag) is False for flag in FLAGS)
+            for piece_id, row in b5_rows.items():
+                source = expected_elements[piece_id]
+                assert tuple(row[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) == tuple(source[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                ))
+                assert row["hardware_selected"] is False
+                assert all(row.get(flag) is False for flag in FLAGS)
+
+            b5_doors = [row for row in b5_rows.values()
+                        if row["element_type"] == "door"]
+            assert len(b5_doors) == 2
+            for row in b5_doors:
+                assert row["f4_status"] == "BLOCKED_HARDWARE_SPEC"
+                assert row["candidate_plate_sku"] is None
+                assert all(source["evidence"]
+                           == "HISTORICAL_MANUFACTURER_REFERENCE_NOT_COMPATIBILITY"
+                           for source in row["sources"])
+
+            b5_drawers = [row for row in b5_rows.values()
+                          if row["element_type"] == "drawer"]
+            assert len(b5_drawers) == 3
+            assert {row["drawer_id"] for row in b5_drawers} == expected_drawer_ids
+            for row in b5_drawers:
+                assert row["opening_system"] == "handle"
+                assert row["slide_sku"] is None
+                assert row["slide_compatibility"] == "NOT_VERIFIED"
+                assert row["slide_clearance_reading"] == {
+                    "status": "DECLARED_REVIEW_ONLY",
+                    "left_mm": 0,
+                    "right_mm": 0,
+                    "installation_status":
+                        "PENDING_EXACT_SKU_DATASHEET_AND_MOUNTING",
+                }
+                assert "ZERO_MM_CLEARANCES_ARE_PLACEHOLDERS_NOT_INSTALLABLE" in (
+                    row["blockers"]
+                )
+                assert row["drilling_ready"] is False
+                assert row["purchase_ready"] is False
+
+            print("MCP_B5_MIXED_DRAWERS_PASS=cocina_mixta_b5")
 
 
 
