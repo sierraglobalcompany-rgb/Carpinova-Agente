@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from carpinova_agent.cad_exchange import validate_exchange
+from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
 from carpinova_agent.maestro import consult_maestro
 from carpinova_agent.mcp_bridge import (
     carpinova_consultar, carpinova_estado, carpinova_exportar_3d,
@@ -98,6 +98,20 @@ def closet_text(*, sliding: bool = False,
         "sin fondo, sin cajones, sin mesón y directamente al piso."
         + site_text
     )
+
+
+def guided_session_turn(
+    utterance: str, review_state: dict | None = None,
+    review_updates: list[dict] | None = None,
+) -> dict:
+    """Call the real guided entrypoint with caller-carried conversation state."""
+    return prepare_guided_design_v1({
+        "review_kind": "guided_design_v1",
+        "utterance": utterance,
+        "review_state": review_state,
+        "review_updates": review_updates or [],
+        "photo_observations": None,
+    })
 
 
 class B3OpeningIntentTests(unittest.TestCase):
@@ -283,6 +297,9 @@ class B3ProductFamilyTests(unittest.TestCase):
         self.assertEqual(result["nominal_draft_blockers"], [])
         self.assertEqual(result["nominal_draft_piece_count"], 14)
         model = consult_maestro({"action": "modular", "module_spec": spec})["modular"]
+        exchange = validate_exchange(cad_exchange(model))
+        self.assertEqual(result["nominal_draft_geometry_sha256"],
+                         exchange["geometry_sha256"])
         owner_site = result["review_state"]["decisions"]["site_width_mm"]
         self.assertEqual(owner_site["source"], "OWNER_TEXT")
         self.assertEqual(owner_site["value"], spec["site_width_mm"])
@@ -351,6 +368,274 @@ class B3ProductFamilyTests(unittest.TestCase):
         self.assertNotIn("sliding_door_review", result)
         self.assertEqual(result["nominal_draft_blockers"], [])
         self.assertEqual(result["nominal_draft_piece_count"], 14)
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+
+class B6GuidedClosetTests(unittest.TestCase):
+    def assert_review_only(self, result: dict, pieces: int) -> None:
+        self.assertEqual(result["nominal_draft_piece_count"], pieces)
+        self.assertFalse(result["can_generate_f7c"])
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_builtin_closet_from_owner_text_without_detail_spec_matches_f6_contract(self):
+        result = guided_session_turn(closet_text())
+        self.assertIsNotNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_scope"],
+                         "CLIENT_PROPOSED_MULTICOMPONENT_REVIEW_ONLY")
+        self.assertEqual(result["nominal_draft_engine_status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assertEqual(result["nominal_draft_piece_count"], 14)
+        self.assertFalse(result["can_generate_f7c"])
+
+        request = result["nominal_draft_request"]
+        spec = request["module_spec"]
+        self.assertEqual(spec["installation"], "built_in")
+        self.assertEqual(spec["site_width_mm"],
+                         {"top": 2035, "middle": 2024, "bottom": 2012})
+        self.assertEqual([module["module_id"] for module in spec["modules"]],
+                         ["CLOSET_A", "CLOSET_B"])
+        self.assertEqual([module["width_mm"] for module in spec["modules"]], [900, 900])
+        self.assertEqual([module["fronts"]["leaf_count"] for module in spec["modules"]],
+                         [2, 2])
+
+        natural_modular = consult_maestro(request)["modular"]
+        natural_exchange = validate_exchange(cad_exchange(natural_modular))
+        self.assertEqual(natural_exchange["geometry_sha256"],
+                         result["nominal_draft_geometry_sha256"])
+        self.assertEqual(natural_modular["site"]["minimum_mm"], 2012)
+        self.assertEqual(natural_modular["site"]["nominal_gap_at_narrowest_mm"], 212)
+
+        reference_spec = closet_two_module_spec(installation="built_in")
+        reference_spec["site_width_mm"] = spec["site_width_mm"]
+        reference = consult_maestro({
+            "action": "modular", "module_spec": reference_spec,
+        })["modular"]
+        reference_exchange = validate_exchange(cad_exchange(reference))
+        self.assertEqual(reference["status"], natural_modular["status"])
+        self.assertEqual(len(reference_exchange["boxes"]), 14)
+        self.assertEqual(
+            sorted((piece["piece_id"], piece.get("role"))
+                   for piece in reference_exchange["boxes"]),
+            sorted((piece["piece_id"], piece.get("role"))
+                   for piece in natural_exchange["boxes"]),
+        )
+        for natural_module, reference_module in zip(spec["modules"], reference_spec["modules"]):
+            for field in (
+                "module_id", "width_mm", "panel_thickness_mm", "material_id",
+                "construction", "support", "fronts", "back", "drawers",
+            ):
+                self.assertEqual(natural_module[field], reference_module[field], field)
+            self.assertEqual(
+                natural_module["horizontal_divider"]["position_from_clear_bottom_mm"],
+                reference_module["horizontal_divider"]["position_from_clear_bottom_mm"],
+            )
+            self.assertNotEqual(
+                natural_module["horizontal_divider"]["depth_mm"],
+                reference_module["horizontal_divider"]["depth_mm"],
+            )
+        assumptions = result["nominal_draft_assumptions"]
+        proposed = {item["field"]: item for item in assumptions}
+        self.assertEqual(
+            proposed["internal_layout.shelf_position_from_clear_bottom_mm"]["source"],
+            "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+        )
+        self.assertEqual(
+            proposed["doors.per_module_distribution"]["source"],
+            "ENGINE_CALCULATED_FROM_OWNER_COUNTS",
+        )
+        natural_shelf = spec["modules"][0]["horizontal_divider"]
+        reference_shelf = reference_spec["modules"][0]["horizontal_divider"]
+        self.assertEqual(natural_shelf["position_from_clear_bottom_mm"], 700)
+        self.assertEqual(natural_shelf["depth_mm"], 550)
+        self.assertEqual(natural_shelf["depth_from_front_mm"], 0)
+        self.assertEqual(reference_shelf["depth_mm"], 515)
+        self.assertEqual(reference_shelf["depth_from_front_mm"], 18)
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+        self.assertFalse(result["can_generate_f7c"])
+
+    def test_builtin_closet_without_all_three_site_measurements_stays_blocked(self):
+        result = guided(closet_text(site_widths=None))
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
+        self.assertTrue(any("site_width_mm" in blocker
+                            for blocker in result["nominal_draft_blockers"]))
+        self.assertEqual(result["questions"][0]["field"], "site_width_mm")
+        self.assertIn("arriba, al medio y abajo",
+                      result["nominal_draft_next_question"])
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_t1_builtin_installation_survives_a_later_measurements_only_turn(self):
+        first = guided_session_turn(closet_text(site_widths=None))
+        self.assert_review_only(first, 0)
+        self.assertIsNone(first["nominal_draft_request"])
+        self.assertEqual(
+            first["review_state"]["decisions"]["installation"]["value"],
+            "built_in",
+        )
+        self.assertEqual(first["questions"][0]["field"], "site_width_mm")
+
+        second = guided_session_turn(
+            "Vano arriba 2035 mm, al medio 2024 mm y abajo 2012 mm.",
+            first["review_state"],
+        )
+        self.assert_review_only(second, 14)
+        spec = second["nominal_draft_request"]["module_spec"]
+        self.assertEqual(spec["installation"], "built_in")
+        self.assertEqual(spec["site_width_mm"], {
+            "top": 2035, "middle": 2024, "bottom": 2012,
+        })
+        self.assertEqual(second["nominal_draft_engine_status"],
+                         "DRAFT_NOT_FOR_CUTTING")
+
+    def test_t2_site_measurements_accumulate_and_one_value_correction_is_local(self):
+        result = guided_session_turn(closet_text(site_widths=None))
+        self.assert_review_only(result, 0)
+        result = guided_session_turn("Arriba 2035 mm.", result["review_state"])
+        self.assert_review_only(result, 0)
+        decision = result["review_state"]["decisions"]["site_width_mm"]
+        self.assertEqual(decision["value"], {"top": 2035})
+        self.assertEqual(decision["status"], "pending")
+        self.assertEqual(result["questions"][0]["field"], "site_width_mm")
+
+        result = guided_session_turn("Al medio 2024 mm.", result["review_state"])
+        self.assert_review_only(result, 0)
+        decision = result["review_state"]["decisions"]["site_width_mm"]
+        self.assertEqual(decision["value"], {"top": 2035, "middle": 2024})
+        self.assertEqual(decision["status"], "pending")
+        self.assertEqual(result["questions"][0]["field"], "site_width_mm")
+
+        result = guided_session_turn("Abajo 2012 mm.", result["review_state"])
+        self.assert_review_only(result, 14)
+        expected = {"top": 2035, "middle": 2024, "bottom": 2012}
+        self.assertEqual(
+            result["nominal_draft_request"]["module_spec"]["site_width_mm"],
+            expected,
+        )
+        corrected = guided_session_turn(
+            "Al medio 2023 mm.", result["review_state"],
+        )
+        self.assert_review_only(corrected, 14)
+        self.assertEqual(
+            corrected["nominal_draft_request"]["module_spec"]["site_width_mm"],
+            {"top": 2035, "middle": 2023, "bottom": 2012},
+        )
+        self.assertEqual(
+            corrected["review_state"]["decisions"]["site_width_mm"]["status"],
+            "confirmed",
+        )
+
+    def test_t2_conflicting_accumulated_site_widths_fail_closed(self):
+        first = guided_session_turn(closet_text(site_widths=None))
+        result = guided_session_turn(
+            "Arriba 1800 mm, al medio 1800 mm y abajo 1800 mm.",
+            first["review_state"],
+        )
+        self.assert_review_only(result, 0)
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_engine_status"], "SITE_CONFLICT")
+
+    def test_n_wall_contact_does_not_choose_installation_and_change_clears_stale_value(self):
+        against_wall = guided_session_turn(
+            closet_text(site_widths=None).replace(
+                "Clóset empotrado contra la pared", "Clóset contra la pared",
+            )
+        )
+        self.assert_review_only(against_wall, 0)
+        self.assertEqual(against_wall["questions"][0]["field"], "installation")
+        self.assertEqual(
+            against_wall["review_state"]["decisions"]["wall_contact"]["value"],
+            True,
+        )
+
+        built_in = guided_session_turn(closet_text())
+        changed = guided_session_turn(
+            "No será empotrado; será independiente y seguirá contra la pared.",
+            built_in["review_state"],
+        )
+        self.assertEqual(
+            changed["review_state"]["decisions"]["installation"]["value"],
+            "freestanding",
+        )
+        self.assertEqual(
+            changed["review_state"]["decisions"]["installation"]["source"],
+            "OWNER_TEXT",
+        )
+        self.assertNotIn("site_width_mm", [
+            question["field"] for question in changed["questions"]
+        ])
+        self.assertNotIn(
+            "closet:built_in_wall_contact_required",
+            changed["nominal_draft_blockers"],
+        )
+        self.assertTrue(all(changed[flag] is False for flag in FLAGS))
+
+    def test_n_ambiguous_negation_reopens_installation_question(self):
+        built_in = guided_session_turn(closet_text())
+        result = guided_session_turn(
+            "No será empotrado.", built_in["review_state"],
+        )
+        self.assert_review_only(result, 0)
+        self.assertIsNone(result["nominal_draft_request"])
+        decision = result["review_state"]["decisions"]["installation"]
+        self.assertEqual(decision["status"], "pending")
+        self.assertIsNone(decision["value"])
+        self.assertEqual(result["questions"][0]["field"], "installation")
+
+    def test_review_updates_cannot_set_fabrication_permissions(self):
+        first = guided_session_turn(closet_text())
+        self.assert_review_only(first, 14)
+        with self.assertRaises(conversation_flow.MaestroError):
+            guided_session_turn(
+                "Continuemos la revisión.",
+                first["review_state"],
+                [{
+                    "field": "fabrication_ready", "value": True,
+                    "status": "confirmed", "source": "OWNER_TEXT",
+                }],
+            )
+        forged = copy.deepcopy(first["review_state"])
+        forged["fabrication_ready"] = True
+        with self.assertRaises(conversation_flow.MaestroError):
+            guided_session_turn("Continuemos.", forged)
+
+    def test_builtin_closet_site_conflict_blocks_f6_geometry(self):
+        result = guided(closet_text(site_widths=(1800, 1800, 1800)))
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
+        self.assertEqual(result["nominal_draft_engine_status"], "SITE_CONFLICT")
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_builtin_sliding_doors_remain_concept_only_without_detail_spec(self):
+        result = guided(closet_text(sliding=True))
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_scope"], "CONCEPT_ONLY")
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
+        self.assertIn("SLIDING_DOOR_MECHANISM_PENDING",
+                      result["nominal_draft_blockers"])
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_closet_wall_contact_alone_does_not_infer_builtin_installation(self):
+        text = closet_text().replace("Clóset empotrado contra la pared",
+                                     "Clóset contra la pared")
+        result = guided(text)
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertNotEqual(
+            result["review_state"]["decisions"]["installation"]["status"],
+            "confirmed",
+        )
+        self.assertEqual(result["questions"][0]["field"], "installation")
+        self.assertIn("empotrado", result["nominal_draft_next_question"].lower())
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_builtin_closet_without_equal_module_statement_asks_instead_of_guessing(self):
+        text = closet_text().replace("dos módulos iguales", "dos módulos")
+        result = guided(text)
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertIn("internal_layout:equal_module_widths_owner_text_required",
+                      result["nominal_draft_blockers"])
+        self.assertEqual(result["questions"][0]["field"], "internal_layout")
+        self.assertIn("mismo ancho", result["nominal_draft_next_question"].lower())
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
         self.assertTrue(all(result[flag] is False for flag in FLAGS))
 
 

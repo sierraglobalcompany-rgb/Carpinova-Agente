@@ -51,7 +51,7 @@ _REVIEW_SOURCES = frozenset((
 _REVIEW_STATE_FIELDS = frozenset(("schema_version", "revision", "decisions", "history"))
 _REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _REVIEW_QUESTION_ORDER = (
-    "project_type", "dimensions_mm", "site_width_mm", "use", "appliance_reserve",
+    "project_type", "dimensions_mm", "installation", "site_width_mm", "use", "appliance_reserve",
     "wall_contact", "countertop",
     "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
     "back", "internal_layout", "drawers", "doors", "door_mechanism",
@@ -62,6 +62,10 @@ _REVIEW_QUESTION_ORDER = (
 _REVIEW_QUESTIONS = {
     "project_type": "¿Qué tipo de mueble quieres diseñar y para qué uso?",
     "dimensions_mm": "¿Cuáles son las medidas exteriores confirmadas del mueble?",
+    "installation": (
+        "¿El clóset irá empotrado dentro de un vano medido o será independiente "
+        "aunque quede contra la pared?"
+    ),
     "site_width_mm": (
         "¿Cuáles son los tres anchos medidos del vano: arriba, al medio y abajo?"
     ),
@@ -504,7 +508,7 @@ def update_review_state(
         old = decisions.get(field)
         owner_correction = (
             source in ("OWNER_TEXT", "OWNER_PHOTO_CONFIRMED")
-            and status in ("confirmed", "rejected")
+            and status in ("confirmed", "rejected", "pending")
         )
         if (old is not None and old["status"] in ("confirmed", "rejected")
                 and not owner_correction):
@@ -852,7 +856,7 @@ def _guided_count_items(text: str, nouns: str) -> list[tuple[int, str]]:
 def _guided_negated(text: str, start: int) -> bool:
     prefix = text[max(0, start - 32):start]
     return bool(re.search(
-        r"\b(?:no|sin|ni)\s+(?:(?:quiero|deseo|lleva|llevar|tiene|usar|use|va|ira|queda|esta)\s+)?$",
+        r"\b(?:no|sin|ni)\s+(?:(?:quiero|deseo|lleva|llevar|tiene|usar|use|va|ira|sera|sea|seria|queda|quede|esta)\s+)?$",
         prefix,
     ))
 
@@ -866,6 +870,21 @@ def _guided_text_updates(
         return []
     text = _fold(utterance)
     updates: list[dict[str, Any]] = []
+    closet_context = bool(
+        re.search(r"\b(?:cl[oó]set|closet)\b", text)
+        or _fold(str(
+            ((previous_state or {}).get("decisions", {})
+             .get("project_type", {}).get("value", ""))
+        )) == "closet"
+    )
+    installation_match = re.search(r"\b(?:empotr\w*|integr\w*)\b", text)
+    installation_negated = bool(
+        installation_match and _guided_negated(text, installation_match.start())
+    )
+    explicit_builtin_closet = bool(
+        closet_context and installation_match and not installation_negated
+    )
+    freestanding_match = re.search(r"\b(?:independiente|exento)\b", text)
 
     def add(field: str, value: Any, status: str = "confirmed",
             source: str = "OWNER_TEXT") -> None:
@@ -873,6 +892,17 @@ def _guided_text_updates(
             "field": field, "value": value, "status": status,
             "source": source,
         })
+
+    if closet_context:
+        if explicit_builtin_closet:
+            add("installation", "built_in")
+        elif (freestanding_match
+              and not _guided_negated(text, freestanding_match.start())):
+            add("installation", "freestanding")
+        elif installation_negated:
+            # A negative change invalidates an old built-in decision, but does
+            # not guess whether the alternative is freestanding or wall-mounted.
+            add("installation", None, "pending")
 
     project = natural_preview.get("proposed_request")
     project_data = project.get("project", {}) if type(project) is dict else {}
@@ -896,6 +926,16 @@ def _guided_text_updates(
     if dimension:
         add("dimensions_mm", dimension["value"], dimension["status"])
     site_measurements: dict[str, int] = {}
+    prior_site = ((previous_state or {}).get("decisions", {})
+                  .get("site_width_mm", {}))
+    if (type(prior_site) is dict and prior_site.get("source") == "OWNER_TEXT"
+            and prior_site.get("status") in ("confirmed", "pending")
+            and type(prior_site.get("value")) is dict
+            and set(prior_site["value"]).issubset({"top", "middle", "bottom"})
+            and all(type(value) is int and value > 0
+                    for value in prior_site["value"].values())):
+        site_measurements.update(prior_site["value"])
+    site_measurement_updated = False
     for key, pattern in (
         ("top", r"\b(?:arriba|superior)\s*(?::|es|de)?\s*(\d{2,5})\s*mm\b"),
         ("middle", r"\b(?:al\s+medio|medio|centro)\s*(?::|es|de)?\s*(\d{2,5})\s*mm\b"),
@@ -904,8 +944,17 @@ def _guided_text_updates(
         match = re.search(pattern, text)
         if match:
             site_measurements[key] = int(match.group(1))
-    if len(site_measurements) == 3:
-        add("site_width_mm", site_measurements)
+            site_measurement_updated = True
+    if site_measurement_updated:
+        complete_site_widths = (
+            set(site_measurements) == {"top", "middle", "bottom"}
+            and all(type(value) is int and value > 0
+                    for value in site_measurements.values())
+        )
+        add(
+            "site_width_mm", site_measurements,
+            "confirmed" if complete_site_widths else "pending",
+        )
 
     if re.search(r"\b(caf[eé]|cafetera|coffee)\b", text):
         add("use", "coffee")
@@ -1069,6 +1118,11 @@ def _guided_text_updates(
         r"\b(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro)\s+"
         r"repisas?\s+por\s+(?:cada\s+)?m[oó]dulo\b", text,
     )
+    if explicit_builtin_closet and shelf_per_module is None:
+        shelf_per_module = re.search(
+            r"\b(?P<count>\d{1,2}|un|uno|una|dos|tres|cuatro)\s+"
+            r"repisas?\s+(?:horizontal\s+)?en\s+cada\s+m[oó]dulo\b", text,
+        )
     shelf_position = re.search(
         r"\b(?P<mm>\d{1,5})\s*mm\s+desde\s+(?:la\s+)?base\s+interior\b",
         text,
@@ -1097,6 +1151,8 @@ def _guided_text_updates(
         }
         if explicit_module_count is not None:
             detail["module_count"] = explicit_module_count
+        if explicit_builtin_closet and equal_width_modules:
+            detail["modules_equal_width"] = True
         if shelf_position:
             detail["shelf_position_from_clear_bottom_mm"] = int(shelf_position.group("mm"))
         add("internal_layout", detail)
@@ -1322,7 +1378,10 @@ def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
         return ["dimensions_mm", "material", "thickness_mm", "construction"]
     coffee = decisions.get("use", {}).get("value") == "coffee"
     fields = ["dimensions_mm", "wall_contact"]
-    if _fold(str(project_type)) not in {"closet"}:
+    is_closet = _fold(str(project_type)) == "closet"
+    if is_closet:
+        fields.insert(1, "installation")
+    else:
         fields.insert(1, "use")
     if coffee:
         fields.extend(("countertop", "support"))
@@ -1381,6 +1440,7 @@ def _guided_compose_closet_spec(
         return entry.get("value")
 
     dimensions = confirmed("dimensions_mm")
+    installation = confirmed("installation")
     material = confirmed("material")
     thickness = confirmed("thickness_mm")
     construction = confirmed("construction")
@@ -1391,6 +1451,8 @@ def _guided_compose_closet_spec(
     doors = confirmed("doors")
     front_style = confirmed("front_style")
     back = confirmed("back")
+    is_built_in = installation == "built_in"
+    site_widths = confirmed("site_width_mm") if is_built_in else None
     if blockers:
         return None, assumptions, list(dict.fromkeys(blockers))
 
@@ -1404,8 +1466,24 @@ def _guided_compose_closet_spec(
         blockers.append("material:unsupported_catalog_value")
     if construction not in {"sides_full", "top_bottom_full"}:
         blockers.append("construction:unsupported")
-    if support != {"style": "floor_direct"} or wall_contact is not False:
-        blockers.append("closet:freestanding_floor_support_required")
+    if (type(installation) is not str
+            or installation not in {"built_in", "freestanding"}):
+        blockers.append("installation:closet_builtin_or_freestanding_required")
+    if is_built_in:
+        if support != {"style": "floor_direct"}:
+            blockers.append("closet:built_in_floor_direct_support_required")
+        if wall_contact is not True:
+            blockers.append("closet:built_in_wall_contact_required")
+        if (type(site_widths) is not dict
+                or set(site_widths) != {"top", "middle", "bottom"}
+                or any(type(value) is not int or value <= 0
+                       for value in site_widths.values())):
+            blockers.append("site_width_mm:three_positive_owner_measurements_required")
+    else:
+        if support != {"style": "floor_direct"}:
+            blockers.append("closet:freestanding_floor_support_required")
+        if type(wall_contact) is not bool:
+            blockers.append("wall_contact:explicit_owner_decision_required")
     if drawers != "none":
         blockers.append("closet:drawer_layout_not_supported_by_this_composer")
     if back != "none":
@@ -1414,7 +1492,7 @@ def _guided_compose_closet_spec(
         blockers.append("front_style:explicit_overlay_or_inset_required")
     if type(layout) is not dict or set(layout) - {
         "elements", "shelves_per_module", "module_count",
-        "shelf_position_from_clear_bottom_mm",
+        "shelf_position_from_clear_bottom_mm", "modules_equal_width",
     }:
         blockers.append("internal_layout:two_module_shelf_description_required")
     if type(doors) is not dict:
@@ -1430,15 +1508,45 @@ def _guided_compose_closet_spec(
     if (type(shelf_count) is not int or shelf_count != 1
             or layout.get("elements") != ["horizontal"]):
         blockers.append("internal_layout:one_horizontal_shelf_per_module_required")
-    if type(position) is not int or position < 0:
-        blockers.append("internal_layout:explicit_shelf_position_required")
     width = dimensions.get("width_mm") if type(dimensions) is dict else None
     height = dimensions.get("height_mm") if type(dimensions) is dict else None
     depth = dimensions.get("depth_mm") if type(dimensions) is dict else None
+    if is_built_in and layout.get("modules_equal_width") is not True:
+        blockers.append("internal_layout:equal_module_widths_owner_text_required")
+    if (position is None and is_built_in and shelf_count == 1
+            and type(height) is int and height > 0):
+        position = height // 3
+        assumptions.append({
+            "field": "internal_layout.shelf_position_from_clear_bottom_mm",
+            "value": position,
+            "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+            "reason": (
+                "La solicitud confirma una repisa por módulo, pero no su cota vertical; "
+                "se propone un tercio de la altura exterior para revisión nominal."
+            ),
+        })
+    if type(position) is not int or position < 0:
+        blockers.append("internal_layout:explicit_shelf_position_required")
     if type(count) is int and type(width) is int and count > 0 and width % count:
         blockers.append("internal_layout:equal_module_width_not_integral")
     per_module_doors = doors.get("per_module_count")
     door_modules = doors.get("module_count")
+    if (is_built_in and per_module_doors is None
+            and layout.get("modules_equal_width") is True
+            and type(count) is int and count > 0
+            and type(doors.get("count")) is int and doors["count"] > 0
+            and doors["count"] % count == 0):
+        per_module_doors = doors["count"] // count
+        door_modules = count
+        assumptions.append({
+            "field": "doors.per_module_distribution",
+            "value": {"per_module_count": per_module_doors, "module_count": count},
+            "source": "ENGINE_CALCULATED_FROM_OWNER_COUNTS",
+            "reason": (
+                "El propietario indicó módulos de igual ancho y puertas totales; "
+                "se distribuyen por igual para esta revisión nominal."
+            ),
+        })
     if (type(per_module_doors) is not int or per_module_doors not in (1, 2)
             or door_modules != count or doors.get("count") != per_module_doors * count):
         blockers.append("doors:module_distribution_must_be_explicit")
@@ -1455,7 +1563,10 @@ def _guided_compose_closet_spec(
     modules = []
     module_width = width // count
     for index in range(count):
-        module_id = f"CLOSET_{index + 1}"
+        module_id = (
+            f"CLOSET_{chr(ord('A') + index)}" if is_built_in
+            else f"CLOSET_{index + 1}"
+        )
         fronts: Any = "none"
         if per_module_doors:
             if front_style == "overlay":
@@ -1510,11 +1621,15 @@ def _guided_compose_closet_spec(
             "reason": "La solicitud da el fondo exterior pero no la profundidad ni el retiro de repisa; se representa de forma reversible a fondo completo y al ras del frente.",
         })
 
-    return {
+    spec = {
         "type": "modular_run", "application": "closet",
         "width_mm": width, "height_mm": height, "depth_mm": depth,
-        "installation": "freestanding", "modules": modules,
-    }, assumptions, []
+        "installation": "built_in" if is_built_in else "freestanding",
+        "modules": modules,
+    }
+    if is_built_in:
+        spec["site_width_mm"] = site_widths
+    return spec, assumptions, []
 
 
 def _guided_compose_product_spec(
@@ -2861,8 +2976,13 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     )
     accumulated = preview["review_state"]
     decisions = accumulated["decisions"]
-    missing = [field for field in _guided_question_fields(decisions)
-               if field not in decisions]
+    missing = [
+        field for field in _guided_question_fields(decisions)
+        if field not in decisions or (
+            field == "installation"
+            and decisions[field].get("status") != "confirmed"
+        )
+    ]
     guided = update_review_state(
         accumulated, pending_fields=missing, max_questions=3,
     )
@@ -2942,10 +3062,14 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
 
     is_coffee = decisions.get("use", {}).get("value") == "coffee"
     required = ["project_type", "dimensions_mm", "material", "thickness_mm", "construction"]
-    if _fold(str(decisions.get("project_type", {}).get("value", ""))) in {
+    project_type = _fold(str(decisions.get("project_type", {}).get("value", "")))
+    if project_type in {
         "gabinete", "cabinet", "cajonera", "closet", "clóset",
     }:
-        required.extend(("wall_contact", "internal_layout", "drawers", "doors", "back", "support"))
+        required.extend(("wall_contact", "internal_layout", "drawers", "doors",
+                         "back", "support"))
+        if project_type == "closet":
+            required.append("installation")
         if is_coffee:
             required.append("countertop")
     readiness_blockers: list[str] = []
@@ -3107,6 +3231,41 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
                         [*nominal_handoff.get("nominal_draft_blockers", []),
                          *compose_blockers]
                     ))[:32]
+                    follow_up = None
+                    if any(blocker.startswith("site_width_mm:")
+                           for blocker in compose_blockers):
+                        follow_up = (
+                            "site_width_mm", _REVIEW_QUESTIONS["site_width_mm"],
+                        )
+                    elif any(blocker.startswith("installation:")
+                               for blocker in compose_blockers):
+                        follow_up = (
+                            "installation", _REVIEW_QUESTIONS["installation"],
+                        )
+                    elif (
+                        "internal_layout:equal_module_widths_owner_text_required"
+                        in compose_blockers
+                    ):
+                        follow_up = (
+                            "internal_layout",
+                            "¿Los módulos tendrán el mismo ancho? Si no, indica el ancho de cada uno.",
+                        )
+                    elif "doors:module_distribution_must_be_explicit" in compose_blockers:
+                        follow_up = (
+                            "doors",
+                            "¿Cómo se reparten las puertas entre los módulos?",
+                        )
+                    elif "closet:freestanding_floor_support_required" in compose_blockers:
+                        follow_up = (
+                            "support",
+                            "¿El clóset va empotrado dentro de un vano medido o será independiente junto a la pared?",
+                        )
+                    if follow_up:
+                        field, question = follow_up
+                        questions = [{"field": field, "question": question}, *[
+                            item for item in questions if item.get("field") != field
+                        ][:2]]
+                        nominal_handoff["nominal_draft_next_question"] = question
             elif _fold(str(decisions.get("use", {}).get("value", ""))) in {
                 "kitchen", "bathroom", "bedroom",
             }:

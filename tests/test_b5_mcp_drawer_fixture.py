@@ -22,6 +22,13 @@ FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready
 DOOR_ROLES = {"front_left", "front_right", "front_single"}
 
 
+def _normalized_fixture_bytes(payload: bytes) -> bytes:
+    normalized = payload.replace(b"\r\n", b"\n")
+    if b"\r" in normalized:
+        raise ValueError("fixture contains a nonstandard carriage return")
+    return normalized
+
+
 def _request(spec: dict | None = None) -> dict:
     return {"action": "modular", "module_spec": spec or mixed_spec()}
 
@@ -59,7 +66,10 @@ class MixedKitchenDrawerFixtureTests(unittest.TestCase):
         fixture = json.loads(fixture_bytes.decode("utf-8"))
         self.assertEqual(fixture, mixed_spec())
         self.assertEqual(fixture, json.loads(BASE_SPEC_JSON))
-        self.assertEqual(hashlib.sha256(fixture_bytes).hexdigest(), EXPECTED_FIXTURE_SHA256)
+        normalized_bytes = _normalized_fixture_bytes(fixture_bytes)
+        self.assertEqual(
+            hashlib.sha256(normalized_bytes).hexdigest(), EXPECTED_FIXTURE_SHA256,
+        )
 
         reply = consult_maestro(_request(fixture))
         exchange = validate_exchange(cad_exchange(reply["modular"]))
@@ -76,6 +86,31 @@ class MixedKitchenDrawerFixtureTests(unittest.TestCase):
                       for d in m["drawers"]}
         self.assertEqual(drawer_ids, {"D1", "D2", "D3"})
         self.assertEqual(len({item["piece_id"] for item in openings}), 5)
+
+    def test_fixture_hash_normalizes_lf_and_crlf_but_rejects_corruption(self) -> None:
+        fixture_path = ROOT / "examples" / "modular-mixed-kitchen-b5.json"
+        lf_bytes = _normalized_fixture_bytes(fixture_path.read_bytes())
+        crlf_bytes = lf_bytes.replace(b"\n", b"\r\n")
+        lf_normalized = _normalized_fixture_bytes(lf_bytes)
+        crlf_normalized = _normalized_fixture_bytes(crlf_bytes)
+        self.assertEqual(lf_normalized, crlf_normalized)
+        self.assertEqual(
+            hashlib.sha256(lf_normalized).hexdigest(), EXPECTED_FIXTURE_SHA256,
+        )
+        self.assertEqual(
+            hashlib.sha256(crlf_normalized).hexdigest(), EXPECTED_FIXTURE_SHA256,
+        )
+
+        altered_fixture = json.loads(lf_normalized.decode("utf-8"))
+        altered_fixture["width_mm"] += 1
+        changed = _normalized_fixture_bytes(json.dumps(
+            altered_fixture, ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8"))
+        self.assertNotEqual(
+            hashlib.sha256(changed).hexdigest(), EXPECTED_FIXTURE_SHA256,
+        )
+        with self.assertRaisesRegex(ValueError, "nonstandard carriage return"):
+            _normalized_fixture_bytes(lf_bytes + b"\rvalue")
 
     def test_pilot_bundle_binds_cad_and_both_review_sidecars(self) -> None:
         request = _request()
