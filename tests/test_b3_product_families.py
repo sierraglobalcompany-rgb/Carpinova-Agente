@@ -784,6 +784,58 @@ class D2DepthSemanticsTests(unittest.TestCase):
         self.assert_no_manufacturing_authority(bathroom)
         self.assert_no_manufacturing_authority(countertop)
 
+    def test_d2_explicit_exterior_depth_stays_pending_without_carcass_value(self):
+        text = (
+            "Gabinete de cocina independiente, dimensiones exteriores de 800 mm "
+            "de ancho, 700 mm de alto y 500 mm de fondo, melamina de 18 mm, "
+            "laterales continuos, dos puertas sobrepuestas, sin cajones, sin "
+            "fondo, sin mesón, directo al piso, separado de la pared y manijas."
+        )
+        result = guided_session_turn(text)
+        depth = result["review_state"]["decisions"]["depth_reference"]
+        self.assertEqual(depth["status"], "pending")
+        self.assertEqual(depth["value"], {
+            "carcass_depth_mm": None,
+            "max_assembled_depth_mm": None,
+            "unresolved_depth_mm": 500,
+        })
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertIn("depth_reference",
+                      [item["field"] for item in result["questions"]])
+        self.assert_no_manufacturing_authority(result)
+
+    def test_d2_pending_depth_does_not_preempt_explicit_spec_or_owner_maximum(self):
+        def review(utterance: str, spec: dict) -> dict:
+            return prepare_guided_design_v1({
+                "review_kind": "guided_design_v1",
+                "utterance": utterance,
+                "review_state": None,
+                "review_updates": [],
+                "photo_observations": None,
+                "nominal_detail_spec": spec,
+            })
+
+        unqualified = closet_text().replace(
+            "carcasa de 1800 mm de ancho, 2100 mm de alto y 550 mm de profundidad",
+            "medidas de 1800 mm de ancho, 2100 mm de alto y 550 mm de fondo",
+        )
+        invalid_spec = closet_two_module_spec()
+        invalid_spec["modules"][0]["width_mm"] -= 1
+        invalid = review(unqualified, invalid_spec)
+        self.assertIn("module_spec:module_width_sum_mismatch",
+                      invalid["nominal_draft_blockers"])
+        self.assertNotEqual(invalid["nominal_draft_blockers"], [
+            "depth_reference:owner_clarification_required",
+        ])
+        self.assert_no_manufacturing_authority(invalid)
+
+        capped_text = closet_text() + " El clóset tendrá 550 mm máximo exterior contando puertas."
+        capped = review(capped_text, closet_two_module_spec())
+        self.assertEqual(capped["nominal_draft_engine_status"], "NEEDS_DEPTH_REVISION")
+        self.assertIsNone(capped["nominal_draft_request"])
+        self.assertIn("568 mm", capped["nominal_draft_next_question"])
+        self.assert_no_manufacturing_authority(capped)
+
     def test_builtin_closet_site_conflict_blocks_f6_geometry(self):
         result = guided(closet_text(site_widths=(1800, 1800, 1800)))
         self.assertIsNone(result["nominal_draft_request"])

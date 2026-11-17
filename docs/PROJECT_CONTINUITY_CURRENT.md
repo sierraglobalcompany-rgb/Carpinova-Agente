@@ -1,4 +1,15 @@
-## VIGENTE — CARPN-D2-R2 (LOCAL, SIN PUBLICAR; 16-nov-2026)
+## VIGENTE — CARPN-D2-CI-FIX (CANDIDATO PENDIENTE DE SHA NUEVO; 17-nov-2026)
+
+- `B6=PASS_SCOPED`; `D1_DESKTOP=PASS_FUNCTIONAL_SHA_INDIRECT`; `D2_R2=f15bebf82d9be966d2bf81e5aea05cff5244e3b4 CI_FAIL_11`; `D2_CI_FIX=CANDIDATE_PENDING_NEW_SHA`; `PRODUCT_COMPLETE=false`; `FABRICATION=false`.
+- Base de trabajo: PR23 `feat/carpn-ab-v1` desde `f15bebf82d9be966d2bf81e5aea05cff5244e3b4`; PR21 base `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. Consultar PR23 HEAD y checks vivos antes de publicar; ningún resultado CI nuevo se presume.
+- D2 R2 tuvo los mismos 11 fallos de compatibilidad en tres suites de 897 pruebas (no 33 regresiones distintas). La causa transversal fue crear `depth_reference=pending` en gabinetes históricos con frentes sobrepuestos y anteponerlo a validadores ya existentes.
+- D2 CI Fix restaura la semántica B6 de `depth_mm` como carcasa salvo contexto de clóset no cualificado o medidas que el propietario califica como exteriores; mantiene el máximo explícito, la validación de especificaciones y correcciones, y el mensaje de profundidad calculado por Maestro. El candidato modifica únicamente `carpinova_agent/conversation_flow.py`, `tests/test_b3_product_families.py` y esta continuidad.
+- QA local final del candidato: PASS, 899 pruebas y 20 skips identificados; el primer pase de 899 detectó cuatro fallos y una corrección focal precedió al pase final. CI asociado a un SHA nuevo sigue pendiente y no equivale a PASS de GitHub. Python 3.12.10 disponible, sin instalar paquetes. La autorización anterior de publicación se consumió con D2 R2; cualquier commit y push nuevos requieren autorización específica posterior a G0–G2.
+- Desktop/runtime, configuración, skills instaladas, Knowledge, otros worktrees, PR21 y `main` permanecen fuera del alcance. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`; sin CAD nativo, fabricación, corte, perforación ni compra.
+- L1–L6 en alcance: reutilizar Maestro/F6; evitar otro motor; corregir la causa transversal; conservar las decisiones del propietario; atribuir cada PASS al árbol/SHA ejecutado; un lote local con una sola publicación condicional.
+- **NEXT único:** `OWNER_AUTH_FOR_ONE_NORMAL_PR23_COMMIT_AND_PUSH_AFTER_LOCAL_QA`. Los NEXT de las secciones históricas no están activos.
+
+## HISTÓRICO — CARPN-D2-R2 (16-nov-2026)
 
 - Base: `sierraglobalcompany-rgb/Carpinova-Agente`, rama `codex/carpn-d2-r2-20261116`, HEAD `330addc2c5198c79c154cc46e214512a042fe2bc` (PR23 OPEN/DRAFT, base PR21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`). El worktree del runtime B6, el WIP del worktree PR23 y los demás repositorios quedaron intactos.
 - B6 está publicado en el HEAD base de PR23. GitHub confirmó para ese SHA cinco workflows completados con éxito: geometría `43815815653`, MCP stdio `43815815542`, Maestro F5 `43815815573`, Knowledge `43815815632` y herrajes `43815815531`. No representan CI del cambio D2, aún local.

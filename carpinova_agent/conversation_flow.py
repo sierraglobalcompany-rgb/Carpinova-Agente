@@ -51,7 +51,7 @@ _REVIEW_SOURCES = frozenset((
 _REVIEW_STATE_FIELDS = frozenset(("schema_version", "revision", "decisions", "history"))
 _REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _REVIEW_QUESTION_ORDER = (
-    "project_type", "dimensions_mm", "depth_reference", "installation",
+    "project_type", "dimensions_mm", "installation",
     "site_width_mm", "use", "appliance_reserve",
     "wall_contact", "countertop",
     "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
@@ -99,7 +99,8 @@ _REVIEW_QUESTIONS = {
     "hardware_reference": "¿Tienes la referencia exacta del herraje? Sin ella no se validan holguras ni taladros.",
 }
 _REVIEW_ALLOWED_FIELDS = frozenset((
-    *_REVIEW_QUESTION_ORDER, "photo_observations", "nominal_detail_spec",
+    *_REVIEW_QUESTION_ORDER, "depth_reference", "photo_observations",
+    "nominal_detail_spec",
 ))
 _GUIDED_COUNT_WORDS = {
     "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4,
@@ -978,6 +979,20 @@ def _guided_depth_reference_update(
             "status": "confirmed" if carcass is not None else "pending",
         }
     if type(current_depth) is not int or current_depth <= 0:
+        previous_unresolved = (
+            previous_value.get("unresolved_depth_mm")
+            if type(previous_value) is dict else None
+        )
+        if (no_overlay_extension and previous_maximum is None
+                and type(previous_unresolved) is int):
+            return {
+                "value": {
+                    "carcass_depth_mm": previous_unresolved,
+                    "max_assembled_depth_mm": None,
+                    "unresolved_depth_mm": None,
+                },
+                "status": "confirmed",
+            }
         return None
     if explicit_carcass or previous_carcass is not None:
         return {
@@ -993,6 +1008,25 @@ def _guided_depth_reference_update(
             "value": {
                 "carcass_depth_mm": current_depth,
                 "max_assembled_depth_mm": None,
+                "unresolved_depth_mm": None,
+            },
+            "status": "confirmed",
+        }
+    project_type = _fold(str(value_for("project_type") or ""))
+    exterior_dimensions_confirmed = any(
+        item.get("field") == "dimensions_mm"
+        and item.get("status") == "confirmed"
+        and item.get("source") == "OWNER_TEXT"
+        for item in updates
+    )
+    if project_type != "closet" and not exterior_dimensions_confirmed:
+        # B6 treated an unqualified depth as carcass depth. Keep that contract
+        # for existing cabinet/kitchen flows; D2 asks only for its new, explicit
+        # closet or owner-qualified exterior ambiguity.
+        return {
+            "value": {
+                "carcass_depth_mm": current_depth,
+                "max_assembled_depth_mm": previous_maximum,
                 "unresolved_depth_mm": None,
             },
             "status": "confirmed",
@@ -2654,6 +2688,12 @@ def _guided_multicomponent_handoff(
         **{flag: False for flag in _FLAGS},
     }
     blockers: list[str] = []
+    if re.search(
+        r"\b(?:hazlo|dejalo|deja|pon|vuelve|genera|entrega|quiero)\b"
+        r"[^.]{0,48}\b(?:cortable|fabricable|listo para cortar|listo para fabricar)\b",
+        _fold(utterance),
+    ):
+        blockers.append("authorization:fabrication_cutting_or_drilling_not_permitted")
     required = (
         "project_type", "dimensions_mm", "material", "thickness_mm",
         "construction", "wall_contact", "support", "internal_layout",
@@ -2957,13 +2997,6 @@ def _guided_multicomponent_handoff(
                     "LEGS_ARE_CONCEPT_ONLY_NOT_PHYSICAL_PIECES",
                 ))
 
-    if re.search(
-        r"\b(?:hazlo|dejalo|deja|pon|vuelve|genera|entrega|quiero)\b"
-        r"[^.]{0,48}\b(?:cortable|fabricable|listo para cortar|listo para fabricar)\b",
-        _fold(utterance),
-    ):
-        blockers.append("authorization:fabrication_cutting_or_drilling_not_permitted")
-
     result["nominal_draft_warnings"] = list(dict.fromkeys(warnings))
     if blockers:
         result["nominal_draft_blockers"] = list(dict.fromkeys(blockers))[:32]
@@ -3010,7 +3043,22 @@ def _guided_multicomponent_handoff(
                     if type(facade) is dict:
                         facade["opening_system"] = opening_intent
 
-    request = {"action": "modular", "module_spec": copy.deepcopy(detail_spec)}
+    request_spec = copy.deepcopy(detail_spec)
+    depth_entry = decisions.get("depth_reference")
+    if (type(request_spec) is dict and type(depth_entry) is dict
+            and depth_entry.get("source") == "OWNER_TEXT"):
+        try:
+            depth_value = _validated_depth_reference(depth_entry.get("value"))
+        except MaestroError as exc:
+            blockers.append(f"depth_reference:{exc}")
+        else:
+            owner_maximum = depth_value["max_assembled_depth_mm"]
+            if owner_maximum is not None:
+                spec_maximum = request_spec.get("max_assembled_depth_mm")
+                if spec_maximum not in (None, owner_maximum):
+                    blockers.append("module_spec:max_assembled_depth_mismatch_owner")
+                request_spec["max_assembled_depth_mm"] = owner_maximum
+    request = {"action": "modular", "module_spec": request_spec}
     try:
         maestro = consult_maestro(request)
         modular = maestro.get("modular")
@@ -3044,7 +3092,20 @@ def _guided_multicomponent_handoff(
                 )) or ["maestro:modular_status_" + str(modular.get("status"))]
                 questions = maestro.get("questions")
                 if type(questions) is list and questions:
-                    result["nominal_draft_next_question"] = questions[0].get("question")
+                    depth_review = modular.get("depth_review")
+                    depth_question = next((
+                        item.get("question") for item in questions
+                        if type(item) is dict
+                        and item.get("field") == "module_spec.max_assembled_depth_mm"
+                    ), None)
+                    if (modular.get("status") == "NEEDS_DEPTH_REVISION"
+                            and type(depth_review) is dict
+                            and type(depth_review.get("assembled_external_depth_mm")) is int
+                            and type(depth_review.get("max_assembled_depth_mm")) is int
+                            and type(depth_question) is str):
+                        result["nominal_draft_next_question"] = depth_question
+                    else:
+                        result["nominal_draft_next_question"] = questions[0].get("question")
                 return result
             parts = modular.get("parts")
             parts = parts if type(parts) is list else []
@@ -3386,7 +3447,11 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         type(depth_reference_entry) is dict
         and depth_reference_entry.get("status") == "pending"
     )
-    if depth_reference_pending:
+    depth_reference_prompted = (
+        depth_reference_pending and effective_detail_spec is None
+        and not drawer_correction
+    )
+    if depth_reference_prompted:
         readiness_blockers.append("depth_reference")
     thickness = decisions.get("thickness_mm", {}).get("value")
     if type(thickness) is not int or thickness <= 0:
@@ -3434,7 +3499,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     natural_summary = {key: copy.deepcopy(natural_preview[key])
                        for key in preview_keys if key in natural_preview}
     questions = [dict(item) for item in guided["questions"]]
-    if depth_reference_pending:
+    if depth_reference_prompted:
         depth_value = depth_reference_entry.get("value")
         depth_question = _guided_depth_reference_question(depth_value)
         dimension_value = decisions.get("dimensions_mm", {}).get("value")
@@ -3468,18 +3533,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         photo is not None or type(historical_photo) is dict
         and historical_photo.get("source") == "IMAGE_OBSERVED_UNCONFIRMED"
     )
-    if depth_reference_pending:
-        nominal_handoff = _guided_multicomponent_handoff(
-            decisions, None, photo_attached=photo_attached, utterance=utterance,
-        )
-        nominal_handoff["nominal_draft_engine_status"] = "NEEDS_USER_CONFIRMATION"
-        nominal_handoff["nominal_draft_blockers"] = [
-            "depth_reference:owner_clarification_required",
-        ]
-        nominal_handoff["nominal_draft_next_question"] = _guided_depth_reference_question(
-            depth_reference_entry.get("value"),
-        )
-    elif effective_detail_spec is not None:
+    if effective_detail_spec is not None:
         nominal_handoff = _guided_multicomponent_handoff(
             decisions, effective_detail_spec, photo_attached=photo_attached,
             utterance=utterance, revision=revision,
@@ -3640,16 +3694,23 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             nominal_handoff = _guided_open_cabinet_handoff(
                 decisions, photo_attached=photo_attached,
             )
-    if nominal_handoff.get("nominal_draft_engine_status") == "NEEDS_DEPTH_REVISION":
-        depth_value = depth_reference_entry.get("value") if type(
-            depth_reference_entry
-        ) is dict else None
-        if type(depth_value) is dict:
+    if depth_reference_prompted:
+        if nominal_handoff.get("nominal_draft_request") is not None:
+            nominal_handoff.update({
+                "nominal_draft_scope": "BLOCKED_UNSUPPORTED_OR_INCOMPLETE",
+                "nominal_draft_request": None,
+                "nominal_draft_geometry_sha256": None,
+                "nominal_draft_piece_count": 0,
+            })
+        nominal_handoff["nominal_draft_blockers"] = list(dict.fromkeys([
+            *nominal_handoff.get("nominal_draft_blockers", []),
+            "depth_reference:owner_clarification_required",
+        ]))[:32]
+        if nominal_handoff.get("nominal_draft_engine_status") is None:
+            nominal_handoff["nominal_draft_engine_status"] = "NEEDS_USER_CONFIRMATION"
+        if not nominal_handoff.get("nominal_draft_next_question"):
             nominal_handoff["nominal_draft_next_question"] = (
-                f"La carcasa mide {depth_value['carcass_depth_mm']} mm y el máximo "
-                f"exterior declarado es {depth_value['max_assembled_depth_mm']} mm. "
-                "Maestro indica que el conjunto excede el límite. ¿Qué profundidad "
-                "de carcasa o máximo quieres corregir?"
+                _guided_depth_reference_question(depth_reference_entry.get("value"))
             )
     appliance_entry = state["decisions"].get("appliance_reserve")
     appliance_names = (
