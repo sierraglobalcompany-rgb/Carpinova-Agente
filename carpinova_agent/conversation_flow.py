@@ -51,7 +51,8 @@ _REVIEW_SOURCES = frozenset((
 _REVIEW_STATE_FIELDS = frozenset(("schema_version", "revision", "decisions", "history"))
 _REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _REVIEW_QUESTION_ORDER = (
-    "project_type", "dimensions_mm", "installation", "site_width_mm", "use", "appliance_reserve",
+    "project_type", "dimensions_mm", "depth_reference", "installation",
+    "site_width_mm", "use", "appliance_reserve",
     "wall_contact", "countertop",
     "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
     "back", "internal_layout", "drawers", "doors", "door_mechanism",
@@ -62,6 +63,7 @@ _REVIEW_QUESTION_ORDER = (
 _REVIEW_QUESTIONS = {
     "project_type": "¿Qué tipo de mueble quieres diseñar y para qué uso?",
     "dimensions_mm": "¿Cuáles son las medidas exteriores confirmadas del mueble?",
+    "depth_reference": "Aclaremos si el fondo indicado corresponde a la carcasa o al exterior montado.",
     "installation": (
         "¿El clóset irá empotrado dentro de un vano medido o será independiente "
         "aunque quede contra la pared?"
@@ -378,6 +380,22 @@ def _photo_observation(value: Any) -> dict[str, Any]:
     return copy.deepcopy(value)
 
 
+def _validated_depth_reference(value: Any) -> dict[str, int | None]:
+    fields = {"carcass_depth_mm", "max_assembled_depth_mm", "unresolved_depth_mm"}
+    if type(value) is not dict or set(value) != fields:
+        raise MaestroError("depth_reference requiere carcasa, máximo y fondo sin aclarar.")
+    for field, amount in value.items():
+        if amount is not None and (type(amount) is not int or amount <= 0):
+            raise MaestroError(f"depth_reference.{field} debe ser un entero mm positivo.")
+    if value["unresolved_depth_mm"] is not None and value["carcass_depth_mm"] is not None:
+        raise MaestroError("depth_reference no puede confirmar y dejar sin aclarar el mismo fondo.")
+    if (value["carcass_depth_mm"] is None
+            and value["max_assembled_depth_mm"] is None
+            and value["unresolved_depth_mm"] is None):
+        raise MaestroError("depth_reference debe contener una medida declarada.")
+    return copy.deepcopy(value)
+
+
 def update_review_state(
     previous_state: dict[str, Any] | None = None,
     *,
@@ -448,6 +466,15 @@ def update_review_state(
                 raise MaestroError("Una observación de imagen debe permanecer sin confirmar.")
             if field == "photo_observations":
                 _photo_observation(current["value"])
+            if field == "depth_reference":
+                depth_value = _validated_depth_reference(current["value"])
+                if current["source"] != "OWNER_TEXT" or current["status"] not in (
+                    "confirmed", "pending",
+                ):
+                    raise MaestroError("depth_reference solo conserva declaraciones explícitas del propietario.")
+                if ((current["status"] == "confirmed")
+                        != (depth_value["carcass_depth_mm"] is not None)):
+                    raise MaestroError("El estado depth_reference no coincide con la medida de carcasa.")
             try:
                 encoded_value = json.dumps(
                     current["value"], ensure_ascii=False, allow_nan=False,
@@ -497,8 +524,19 @@ def update_review_state(
         if source in ("IMAGE_OBSERVED_UNCONFIRMED", "BOOK_GUIDANCE", "ENGINE_CALCULATED") \
                 and status not in ("proposed", "pending"):
             raise MaestroError(f"{source} no puede confirmar ni rechazar una decisión humana.")
-        value = (_photo_observation(update["value"])
-                 if field == "photo_observations" else copy.deepcopy(update["value"]))
+        value = (
+            _photo_observation(update["value"]) if field == "photo_observations"
+            else _validated_depth_reference(update["value"])
+            if field == "depth_reference" else copy.deepcopy(update["value"])
+        )
+        if field == "depth_reference" and (
+            source != "OWNER_TEXT" or status not in ("confirmed", "pending")
+        ):
+            raise MaestroError("depth_reference solo conserva declaraciones explícitas del propietario.")
+        if field == "depth_reference" and (
+            (status == "confirmed") != (value["carcass_depth_mm"] is not None)
+        ):
+            raise MaestroError("El estado depth_reference no coincide con la medida de carcasa.")
         try:
             encoded_value = json.dumps(value, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, OverflowError, RecursionError) as exc:
@@ -721,17 +759,107 @@ def preview_conversation(
     return result
 
 
+def _guided_max_assembled_depth(
+    utterance: str,
+) -> tuple[int, tuple[int, int]] | None:
+    number = r"(?P<amount>\d{1,5}(?:[.,]\d+)?)\s*(?P<unit>mm|cm)\b"
+    patterns = (
+        re.compile(
+            rf"\b{number}\s+(?:(?:de\s+)?(?:fondo|profundidad)\s+)?"
+            r"(?:exterior\s+)?m[aá]xim[oa]\b[^.;\n]{0,45}?"
+            r"\b(?:exterior|montad[oa]|contando\s+puertas?|incluyendo\s+puertas?)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:fondo|profundidad)\s+(?:exterior\s+)?m[aá]xim[oa]\b"
+            rf"[^.;\n]{{0,55}}?{number}", re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:m[aá]xim[oa]|l[ií]mite\s+m[aá]xim[oa])\b"
+            r"[^.;\n]{0,50}?\b(?:exterior|montad[oa]|contando\s+puertas?|"
+            r"incluyendo\s+puertas?)\b[^.;\n]{0,40}?"
+            rf"{number}", re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(utterance)
+        if match is None:
+            continue
+        if pattern is patterns[1]:
+            clause_start = max(
+                utterance.rfind(mark, 0, match.start()) for mark in (".", ";", "\n")
+            ) + 1
+            clause_end = min((
+                position for mark in (".", ";", "\n")
+                if (position := utterance.find(mark, match.end())) >= 0
+            ), default=len(utterance))
+            if not re.search(
+                r"\b(?:exterior|montad[oa]|contando\s+puertas?|incluyendo\s+puertas?)\b",
+                utterance[clause_start:clause_end], re.IGNORECASE,
+            ):
+                continue
+        amount = Decimal(match.group("amount").replace(",", "."))
+        millimetres = amount * (10 if match.group("unit").casefold() == "cm" else 1)
+        if millimetres != millimetres.to_integral_value() or not 1 <= millimetres <= 100000:
+            return None
+        return int(millimetres), match.span()
+    return None
+
+
+def _guided_normalize_carcass_depth_text(utterance: str) -> str:
+    """Normalize explicit carcass-depth phrasing for the existing extractor."""
+    return re.sub(
+        r"\b(fondo|profundidad)\s+(?:de\s+(?:la\s+)?)?"
+        r"(?:carcasa|caja|cuerpo)\s+"
+        r"(?:(?:ser[aá]|queda|qued[aó]|es|mide|est[aá])\s+)?"
+        r"(?:de|en)\s+(?=\d)",
+        r"\1 ", utterance, flags=re.IGNORECASE,
+    )
+
+
+def _guided_component_measurement_start(text: str, *, include_legs: bool = False):
+    names = r"mes[oó]n|cubierta|encimera"
+    if include_legs:
+        names += r"|patas?"
+    return next((match for match in re.finditer(
+        rf"\b(?:{names})\b", text, re.IGNORECASE,
+    ) if not _guided_negated(text, match.start())), None)
+
+
+def _guided_has_explicit_carcass_depth(text: str) -> bool:
+    scoped = _fold(text)
+    return bool(re.search(
+        r"\b(?:carcasa|caja|cuerpo)\b[^.;\n]{0,70}\b(?:fondo|profundidad)\b|"
+        r"\b(?:fondo|profundidad)\b[^.;\n]{0,70}\b(?:carcasa|caja|cuerpo)\b",
+        scoped,
+    ))
+
+
 def _guided_dimension_value(
     natural_preview: dict[str, Any], utterance: str,
     previous_state: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    normalized = _fold(utterance)
-    component = re.search(r"\b(?:meson|cubierta|encimera|patas?)\b", normalized)
-    evidence = extract_explicit_dimensions(utterance[:component.start()]) if component else None
+    max_depth = _guided_max_assembled_depth(utterance)
+    dimension_text = utterance
+    if max_depth is not None:
+        start, end = max_depth[1]
+        dimension_text = utterance[:start] + (" " * (end - start)) + utterance[end:]
+    normalized_depth_text = _guided_normalize_carcass_depth_text(dimension_text)
+    has_normalized_carcass_depth = normalized_depth_text != dimension_text
+    dimension_text = normalized_depth_text
+    normalized = _fold(dimension_text)
+    component = _guided_component_measurement_start(
+        normalized, include_legs=True,
+    )
+    evidence = extract_explicit_dimensions(dimension_text[:component.start()]) if component else None
     if component:
         measurements = (evidence.get("dimensions_mm")
                         if evidence is not None else None)
         ambiguous = set(evidence.get("ambiguous_fields", [])) if evidence else set()
+    elif max_depth is not None or has_normalized_carcass_depth:
+        evidence = extract_explicit_dimensions(dimension_text)
+        measurements = evidence.get("dimensions_mm")
+        ambiguous = set(evidence.get("ambiguous_fields", []))
     else:
         measurements = natural_preview.get("explicit_measurements")
         ambiguous = set(natural_preview.get("ambiguous_fields", []))
@@ -743,12 +871,15 @@ def _guided_dimension_value(
         return None
     previous = ((previous_state or {}).get("decisions", {}).get("dimensions_mm", {}))
     previous_value = previous.get("value") if type(previous) is dict else None
-    previous_complete = (
-        type(previous_value) is dict
-        and set(previous_value) == {"width_mm", "height_mm", "depth_mm"}
+    dimension_fields = {"width_mm", "height_mm", "depth_mm"}
+    previous_subset = (
+        type(previous) is dict and previous.get("source") == "OWNER_TEXT"
+        and previous.get("status") in ("confirmed", "proposed", "pending")
+        and type(previous_value) is dict
+        and set(previous_value).issubset(dimension_fields)
         and all(type(value) is int and value > 0 for value in previous_value.values())
     )
-    if set(measurements) != {"width_mm", "height_mm", "depth_mm"} and previous_complete:
+    if set(measurements) != dimension_fields and previous_subset:
         merged = dict(previous_value)
         merged.update(measurements)
         measurements = merged
@@ -757,7 +888,7 @@ def _guided_dimension_value(
     exterior = bool(re.search(
         r"\b(?:exterior(?:es)?|externo|externa|carcasa|caja exterior)\b",
         normalized,
-    ))
+    )) or _guided_has_explicit_carcass_depth(utterance)
     already_confirmed = (
         type(previous) is dict and previous.get("status") == "confirmed"
     )
@@ -766,6 +897,135 @@ def _guided_dimension_value(
         "status": "confirmed" if complete and unambiguous and (exterior or already_confirmed)
         else "proposed",
     }
+
+
+def _guided_depth_reference_update(
+    utterance: str, previous_state: dict[str, Any] | None,
+    updates: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    normalized = _fold(utterance)
+    component = _guided_component_measurement_start(normalized)
+    cabinet_text = utterance[:component.start()] if component else utterance
+    maximum = _guided_max_assembled_depth(cabinet_text)
+    scoped_text = cabinet_text
+    if maximum is not None:
+        start, end = maximum[1]
+        scoped_text = cabinet_text[:start] + (" " * (end - start)) + cabinet_text[end:]
+    depth_text = _guided_normalize_carcass_depth_text(scoped_text)
+    evidence = extract_explicit_dimensions(depth_text) if depth_text.strip() else {}
+    current_depth = evidence.get("dimensions_mm", {}).get("depth_mm")
+    scoped = _fold(scoped_text)
+    explicit_carcass = _guided_has_explicit_carcass_depth(scoped_text)
+    previous_decisions = (previous_state or {}).get("decisions", {})
+    previous_entry = previous_decisions.get("depth_reference")
+    previous_value = None
+    previous_maximum = None
+    previous_carcass = None
+    if type(previous_entry) is dict:
+        previous_value = _validated_depth_reference(previous_entry.get("value"))
+        previous_maximum = previous_value["max_assembled_depth_mm"]
+        if previous_entry.get("status") == "confirmed":
+            previous_carcass = previous_value["carcass_depth_mm"]
+    else:
+        # B6 states predate depth_reference; retain their established meaning.
+        previous_dimensions = previous_decisions.get("dimensions_mm", {})
+        previous_dimension_value = (
+            previous_dimensions.get("value")
+            if type(previous_dimensions) is dict else None
+        )
+        if (type(previous_dimensions) is dict
+                and previous_dimensions.get("status") == "confirmed"
+                and previous_dimensions.get("source") == "OWNER_TEXT"
+                and type(previous_dimension_value) is dict
+                and type(previous_dimension_value.get("depth_mm")) is int
+                and previous_dimension_value["depth_mm"] > 0):
+            previous_carcass = previous_dimension_value["depth_mm"]
+
+    def value_for(field: str) -> Any:
+        current = next((item for item in reversed(updates)
+                        if item.get("field") == field), None)
+        if current is not None:
+            return current.get("value")
+        entry = previous_decisions.get(field)
+        return entry.get("value") if type(entry) is dict else None
+
+    doors = value_for("doors")
+    drawers = value_for("drawers")
+    front_style = value_for("front_style")
+    doors_absent = doors == "none" or (
+        type(doors) is dict and doors.get("count") == 0
+    )
+    drawers_absent = drawers == "none" or (
+        type(drawers) is dict and drawers.get("count") == 0
+    )
+    no_overlay_extension = (
+        doors_absent and drawers_absent or front_style == "inset"
+    )
+
+    if maximum is not None:
+        carcass = current_depth if explicit_carcass else (
+            current_depth if previous_carcass is not None and current_depth is not None
+            else previous_carcass
+        )
+        unresolved = current_depth if carcass is None else None
+        value = {
+            "carcass_depth_mm": carcass,
+            "max_assembled_depth_mm": maximum[0],
+            "unresolved_depth_mm": unresolved,
+        }
+        return {
+            "value": value,
+            "status": "confirmed" if carcass is not None else "pending",
+        }
+    if type(current_depth) is not int or current_depth <= 0:
+        return None
+    if explicit_carcass or previous_carcass is not None:
+        return {
+            "value": {
+                "carcass_depth_mm": current_depth,
+                "max_assembled_depth_mm": previous_maximum,
+                "unresolved_depth_mm": None,
+            },
+            "status": "confirmed",
+        }
+    if no_overlay_extension and previous_maximum is None:
+        return {
+            "value": {
+                "carcass_depth_mm": current_depth,
+                "max_assembled_depth_mm": None,
+                "unresolved_depth_mm": None,
+            },
+            "status": "confirmed",
+        }
+    return {
+        "value": {
+            "carcass_depth_mm": None,
+            "max_assembled_depth_mm": previous_maximum,
+            "unresolved_depth_mm": current_depth,
+        },
+        "status": "pending",
+    }
+
+
+def _guided_depth_reference_question(value: dict[str, Any] | None) -> str:
+    if type(value) is dict and value.get("unresolved_depth_mm") is not None:
+        amount = value["unresolved_depth_mm"]
+        if value.get("max_assembled_depth_mm") is not None:
+            maximum = value["max_assembled_depth_mm"]
+            return (
+                f"El máximo exterior de {maximum} mm contando las puertas queda guardado. "
+                f"¿Los {amount} mm corresponden a la carcasa o al exterior total?"
+            )
+        return (
+            f"¿{amount} mm corresponden a la carcasa o a la profundidad exterior total "
+            "contando las puertas?"
+        )
+    if type(value) is dict and value.get("max_assembled_depth_mm") is not None:
+        return (
+            f"El límite exterior de {value['max_assembled_depth_mm']} mm contando las "
+            "puertas queda guardado. ¿Cuál es la profundidad de la carcasa?"
+        )
+    return "¿Cuál es la profundidad de la carcasa?"
 
 
 def _guided_countertop_value(utterance: str) -> tuple[dict[str, Any], str] | None:
@@ -1155,6 +1415,12 @@ def _guided_text_updates(
             detail["modules_equal_width"] = True
         if shelf_position:
             detail["shelf_position_from_clear_bottom_mm"] = int(shelf_position.group("mm"))
+        prior_layout = ((previous_state or {}).get("decisions", {})
+                        .get("internal_layout", {}))
+        if (type(prior_layout) is dict and prior_layout.get("source") == "OWNER_TEXT"
+                and prior_layout.get("status") == "confirmed"
+                and type(prior_layout.get("value")) is dict):
+            detail = {**prior_layout["value"], **detail}
         add("internal_layout", detail)
     elif scoped_shelf:
         detail = {
@@ -1300,6 +1566,12 @@ def _guided_text_updates(
             )
             add("back", thickness_value)
 
+    depth_reference = _guided_depth_reference_update(
+        utterance, previous_state, updates,
+    )
+    if depth_reference is not None:
+        add("depth_reference", depth_reference["value"], depth_reference["status"])
+
     return updates
 
 
@@ -1424,6 +1696,31 @@ def _guided_needs_modular_spec(decisions: dict[str, dict[str, Any]]) -> bool:
     )
 
 
+def _guided_depth_values(
+    decisions: dict[str, dict[str, Any]], dimensions: Any,
+) -> tuple[int | None, int | None, list[str]]:
+    dimension_depth = (
+        dimensions.get("depth_mm") if type(dimensions) is dict else None
+    )
+    entry = decisions.get("depth_reference")
+    if entry is None:
+        # Backward compatibility: validated B6 states used depth_mm as carcass depth.
+        return dimension_depth, None, []
+    if (type(entry) is not dict or entry.get("source") != "OWNER_TEXT"
+            or entry.get("status") != "confirmed"):
+        return None, None, ["depth_reference:owner_clarification_required"]
+    try:
+        value = _validated_depth_reference(entry.get("value"))
+    except MaestroError:
+        return None, None, ["depth_reference:invalid_owner_value"]
+    carcass = value["carcass_depth_mm"]
+    if carcass is None:
+        return None, None, ["depth_reference:carcass_depth_required"]
+    if type(dimension_depth) is not int or carcass != dimension_depth:
+        return None, None, ["depth_reference:carcass_dimension_mismatch"]
+    return carcass, value["max_assembled_depth_mm"], []
+
+
 def _guided_compose_closet_spec(
     decisions: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[str]]:
@@ -1511,6 +1808,10 @@ def _guided_compose_closet_spec(
     width = dimensions.get("width_mm") if type(dimensions) is dict else None
     height = dimensions.get("height_mm") if type(dimensions) is dict else None
     depth = dimensions.get("depth_mm") if type(dimensions) is dict else None
+    _, max_assembled_depth, depth_blockers = _guided_depth_values(
+        decisions, dimensions,
+    )
+    blockers.extend(depth_blockers)
     if is_built_in and layout.get("modules_equal_width") is not True:
         blockers.append("internal_layout:equal_module_widths_owner_text_required")
     if (position is None and is_built_in and shelf_count == 1
@@ -1627,6 +1928,8 @@ def _guided_compose_closet_spec(
         "installation": "built_in" if is_built_in else "freestanding",
         "modules": modules,
     }
+    if max_assembled_depth is not None:
+        spec["max_assembled_depth_mm"] = max_assembled_depth
     if is_built_in:
         spec["site_width_mm"] = site_widths
     return spec, assumptions, []
@@ -1673,6 +1976,10 @@ def _guided_compose_product_spec(
     width = dimensions.get("width_mm") if type(dimensions) is dict else None
     height = dimensions.get("height_mm") if type(dimensions) is dict else None
     depth = dimensions.get("depth_mm") if type(dimensions) is dict else None
+    _, max_assembled_depth, depth_blockers = _guided_depth_values(
+        decisions, dimensions,
+    )
+    blockers.extend(depth_blockers)
     thickness = values["thickness_mm"]
     if type(thickness) is not int or thickness <= 0:
         blockers.append("thickness_mm:positive_integer_required")
@@ -1940,16 +2247,6 @@ def _guided_compose_product_spec(
     if blockers:
         return None, assumptions, list(dict.fromkeys(blockers))
 
-    max_depth_match = re.search(
-        r"\b(?:fondo|profundidad)\s+(?:exterior\s+)?m[aá]xim[oa]\s+"
-        r"montad[oa][^.;\n]{0,40}?(\d{2,5})\s*mm\b|"
-        r"\b(\d{2,5})\s*mm\s+(?:de\s+)?(?:fondo|profundidad)\s+"
-        r"(?:exterior\s+)?m[aá]xim[oa]\s+montad[oa]\b",
-        _fold(utterance),
-    )
-    max_assembled_depth = int(next(
-        group for group in max_depth_match.groups() if group
-    )) if max_depth_match else None
     spec = {
         "type": "modular_run", "application": application,
         "width_mm": width, "height_mm": height, "depth_mm": depth,
@@ -3084,6 +3381,13 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             or any(type(value) is not int or value <= 0 for value in dimensions.values())):
         if "dimensions_mm" not in readiness_blockers:
             readiness_blockers.append("dimensions_mm")
+    depth_reference_entry = decisions.get("depth_reference")
+    depth_reference_pending = (
+        type(depth_reference_entry) is dict
+        and depth_reference_entry.get("status") == "pending"
+    )
+    if depth_reference_pending:
+        readiness_blockers.append("depth_reference")
     thickness = decisions.get("thickness_mm", {}).get("value")
     if type(thickness) is not int or thickness <= 0:
         if "thickness_mm" not in readiness_blockers:
@@ -3129,7 +3433,26 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     )
     natural_summary = {key: copy.deepcopy(natural_preview[key])
                        for key in preview_keys if key in natural_preview}
-    questions = guided["questions"]
+    questions = [dict(item) for item in guided["questions"]]
+    if depth_reference_pending:
+        depth_value = depth_reference_entry.get("value")
+        depth_question = _guided_depth_reference_question(depth_value)
+        dimension_value = decisions.get("dimensions_mm", {}).get("value")
+        if (type(dimension_value) is dict
+                and {"width_mm", "height_mm"}.issubset(dimension_value)):
+            questions = [item for item in questions
+                         if item.get("field") != "dimensions_mm"]
+        depth_question_item = next(
+            (item for item in questions if item.get("field") == "depth_reference"),
+            None,
+        )
+        if depth_question_item is None:
+            questions.insert(0, {
+                "field": "depth_reference", "status": "pending",
+                "unit": "choice_or_description",
+            })
+            depth_question_item = questions[0]
+        depth_question_item["question"] = depth_question
     warnings = [
         "review_state es una traza declarada por el cliente; no autentica identidad ni autoriza fabricación.",
         "No se reciben píxeles ni rutas de imagen; cualquier observación se mantiene sin confirmar.",
@@ -3145,7 +3468,18 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         photo is not None or type(historical_photo) is dict
         and historical_photo.get("source") == "IMAGE_OBSERVED_UNCONFIRMED"
     )
-    if effective_detail_spec is not None:
+    if depth_reference_pending:
+        nominal_handoff = _guided_multicomponent_handoff(
+            decisions, None, photo_attached=photo_attached, utterance=utterance,
+        )
+        nominal_handoff["nominal_draft_engine_status"] = "NEEDS_USER_CONFIRMATION"
+        nominal_handoff["nominal_draft_blockers"] = [
+            "depth_reference:owner_clarification_required",
+        ]
+        nominal_handoff["nominal_draft_next_question"] = _guided_depth_reference_question(
+            depth_reference_entry.get("value"),
+        )
+    elif effective_detail_spec is not None:
         nominal_handoff = _guided_multicomponent_handoff(
             decisions, effective_detail_spec, photo_attached=photo_attached,
             utterance=utterance, revision=revision,
@@ -3305,6 +3639,17 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         else:
             nominal_handoff = _guided_open_cabinet_handoff(
                 decisions, photo_attached=photo_attached,
+            )
+    if nominal_handoff.get("nominal_draft_engine_status") == "NEEDS_DEPTH_REVISION":
+        depth_value = depth_reference_entry.get("value") if type(
+            depth_reference_entry
+        ) is dict else None
+        if type(depth_value) is dict:
+            nominal_handoff["nominal_draft_next_question"] = (
+                f"La carcasa mide {depth_value['carcass_depth_mm']} mm y el máximo "
+                f"exterior declarado es {depth_value['max_assembled_depth_mm']} mm. "
+                "Maestro indica que el conjunto excede el límite. ¿Qué profundidad "
+                "de carcasa o máximo quieres corregir?"
             )
     appliance_entry = state["decisions"].get("appliance_reserve")
     appliance_names = (

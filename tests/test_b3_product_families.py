@@ -597,6 +597,193 @@ class B6GuidedClosetTests(unittest.TestCase):
         with self.assertRaises(conversation_flow.MaestroError):
             guided_session_turn("Continuemos.", forged)
 
+
+class D2DepthSemanticsTests(unittest.TestCase):
+    def assert_no_manufacturing_authority(self, result: dict) -> None:
+        self.assertEqual(result["piece_count"], 0)
+        self.assertIs(result["can_generate_f7c"], False)
+        self.assertTrue(all(result[flag] is False for flag in FLAGS))
+
+    def test_d2_a_explicit_carcass_depth_keeps_overlay_extension_in_f6(self):
+        first = guided_session_turn(closet_text())
+        self.assertNotIn(
+            "depth_reference",
+            {item["field"] for item in first["questions"]},
+        )
+        review = guided_session_turn("Manijas visibles.", first["review_state"])
+        request = review["nominal_draft_request"]
+        self.assertIsNotNone(request)
+        self.assertNotIn("max_assembled_depth_mm", request["module_spec"])
+        self.assertEqual(
+            review["nominal_draft_geometry_sha256"],
+            "bf9da470138632b04c764c74d2ad08e5b80e87e5523d7958824f6f0c94a48e87",
+        )
+
+        answer = consult_maestro(request)
+        depth = answer["modular"]["depth_review"]
+        self.assertEqual(depth, {
+            "carcass_depth_mm": 550,
+            "front_extension_mm": 18,
+            "assembled_external_depth_mm": 568,
+            "max_assembled_depth_mm": None,
+            "conflict": False,
+        })
+        self.assertEqual(review["nominal_draft_piece_count"], 14)
+        self.assertEqual(len({part["piece_id"] for part in answer["modular"]["parts"]}), 14)
+        self.assert_no_manufacturing_authority(review)
+
+    def test_d2_b_unqualified_depth_asks_once_and_preserves_other_decisions(self):
+        text = closet_text().replace(
+            "carcasa de 1800 mm de ancho, 2100 mm de alto y 550 mm de profundidad",
+            "medidas de 1800 mm de ancho, 2100 mm de alto y 550 mm de fondo",
+        ) + " Manijas visibles."
+        result = guided_session_turn(text)
+
+        self.assertIsNone(result["nominal_draft_request"])
+        self.assertEqual(result["nominal_draft_piece_count"], 0)
+        self.assertEqual([item["field"] for item in result["questions"]],
+                         ["depth_reference"])
+        self.assertEqual(
+            result["questions"][0]["question"],
+            "¿550 mm corresponden a la carcasa o a la profundidad exterior total contando las puertas?",
+        )
+        self.assertEqual(result["review_state"]["decisions"]["dimensions_mm"]["value"][
+            "depth_mm"], 550)
+        self.assertEqual(result["confirmed"]["doors"]["count"], 4)
+        self.assertEqual(result["confirmed"]["material"], "melamina")
+        self.assert_no_manufacturing_authority(result)
+
+    def test_d2_c_explicit_maximum_survives_turns_without_inventing_carcass(self):
+        text = closet_text().replace(
+            "y 550 mm de profundidad", "y profundidad por definir",
+        ) + " El máximo exterior contando puertas es de 550 mm. Manijas visibles."
+        first = guided_session_turn(text)
+        value = first["review_state"]["decisions"]["depth_reference"]["value"]
+        self.assertEqual(value["carcass_depth_mm"], None)
+        self.assertEqual(value["max_assembled_depth_mm"], 550)
+        self.assertEqual(first["review_state"]["decisions"][
+            "depth_reference"]["source"], "OWNER_TEXT")
+        self.assertIsNone(first["nominal_draft_request"])
+        self.assertEqual(first["questions"][0]["field"], "depth_reference")
+        self.assertIn("profundidad de la carcasa",
+                      first["questions"][0]["question"].lower())
+        self.assert_no_manufacturing_authority(first)
+
+        affirmative = guided_session_turn("Sí.", first["review_state"])
+        self.assertEqual(affirmative["review_state"]["decisions"][
+            "depth_reference"]["value"]["max_assembled_depth_mm"], 550)
+        shelf = guided_session_turn(
+            "Una repisa por módulo, a 700 mm desde la base interior.",
+            affirmative["review_state"],
+        )
+        self.assertEqual(shelf["review_state"]["decisions"][
+            "depth_reference"]["value"]["max_assembled_depth_mm"], 550)
+        self.assertIsNone(shelf["nominal_draft_request"])
+        self.assert_no_manufacturing_authority(shelf)
+
+        corrected = guided_session_turn(
+            "La profundidad de la carcasa será de 532 mm.", shelf["review_state"],
+        )
+        request = corrected["nominal_draft_request"]
+        self.assertIsNotNone(request)
+        self.assertEqual(request["module_spec"]["depth_mm"], 532)
+        self.assertEqual(request["module_spec"]["max_assembled_depth_mm"], 550)
+        answer = consult_maestro(request)
+        self.assertEqual(answer["modular"]["depth_review"][
+            "assembled_external_depth_mm"], 550)
+        self.assertEqual(answer["modular"]["status"], "DRAFT_NOT_FOR_CUTTING")
+        self.assert_no_manufacturing_authority(corrected)
+
+    def test_d2_d_excess_over_explicit_maximum_blocks_until_carcass_correction(self):
+        first = guided_session_turn(closet_text() + " Manijas visibles.")
+        self.assertIsNotNone(first["nominal_draft_request"])
+        initial_hash = first["nominal_draft_geometry_sha256"]
+
+        conflict = guided_session_turn(
+            "El clóset tendrá 550 mm máximo exterior contando puertas.",
+            first["review_state"],
+        )
+        self.assertIsNone(conflict["nominal_draft_request"])
+        self.assertEqual(conflict["nominal_draft_engine_status"],
+                         "NEEDS_DEPTH_REVISION")
+        self.assertEqual(conflict["nominal_draft_piece_count"], 0)
+        self.assertTrue(any("568 mm" in blocker and "550 mm" in blocker
+                            for blocker in conflict["nominal_draft_blockers"]))
+        self.assert_no_manufacturing_authority(conflict)
+
+        corrected = guided_session_turn(
+            "La profundidad de carcasa queda en 532 mm.", conflict["review_state"],
+        )
+        request = corrected["nominal_draft_request"]
+        self.assertIsNotNone(request)
+        self.assertEqual(request["module_spec"]["depth_mm"], 532)
+        self.assertEqual(request["module_spec"]["max_assembled_depth_mm"], 550)
+        self.assertEqual(corrected["confirmed"]["dimensions_mm"]["depth_mm"], 532)
+        self.assertNotEqual(corrected["nominal_draft_geometry_sha256"], initial_hash)
+        answer = consult_maestro(request)
+        depth = answer["modular"]["depth_review"]
+        self.assertEqual(depth["carcass_depth_mm"], 532)
+        self.assertEqual(depth["front_extension_mm"], 18)
+        self.assertEqual(depth["assembled_external_depth_mm"], 550)
+        self.assertEqual(depth["max_assembled_depth_mm"], 550)
+        self.assertEqual(len(answer["modular"]["parts"]), 14)
+        self.assert_no_manufacturing_authority(corrected)
+
+    def test_d2_e_kitchen_maximum_recalculates_and_open_bathroom_stays_unextended(self):
+        kitchen_text = (
+            "Gabinete de cocina independiente con carcasa de 800 mm de ancho, "
+            "700 mm de alto y 500 mm de profundidad, melamina de 18 mm, "
+            "laterales continuos, interior abierto, dos puertas sobrepuestas, "
+            "sin cajones, sin fondo, sin mesón, separado de la pared, "
+            "directamente al piso y manijas visibles."
+        )
+        kitchen = guided_session_turn(kitchen_text)
+        self.assertIsNotNone(kitchen["nominal_draft_request"])
+        capped = guided_session_turn(
+            "El máximo exterior contando puertas será de 550 mm.",
+            kitchen["review_state"],
+        )
+        self.assertEqual(capped["nominal_draft_request"]["module_spec"][
+            "max_assembled_depth_mm"], 550)
+        first_depth = consult_maestro(capped["nominal_draft_request"])[
+            "modular"]["depth_review"]
+        self.assertEqual(first_depth["assembled_external_depth_mm"], 518)
+
+        thinner = guided_session_turn(
+            "Espesor del tablero 15 mm.", capped["review_state"],
+        )
+        self.assertEqual(thinner["nominal_draft_request"]["module_spec"][
+            "max_assembled_depth_mm"], 550)
+        thinner_depth = consult_maestro(thinner["nominal_draft_request"])[
+            "modular"]["depth_review"]
+        self.assertEqual(thinner_depth["assembled_external_depth_mm"], 515)
+
+        bathroom_text = (
+            "Mueble de baño independiente de 800 mm ancho, 700 mm alto y "
+            "450 mm fondo, MDP de 15 mm, laterales continuos, abierto, "
+            "sin puertas, sin cajones, sin fondo y sin mesón, apoyado en el piso."
+        )
+        bathroom_first = guided_session_turn(bathroom_text)
+        bathroom = guided_session_turn(
+            "Confirmo las dimensiones exteriores: 800 mm de ancho, "
+            "700 mm de alto y 450 mm de profundidad.",
+            bathroom_first["review_state"],
+        )
+        self.assertEqual(bathroom["confirmed"]["dimensions_mm"]["depth_mm"], 450)
+        self.assertIsNone(bathroom["review_state"]["decisions"][
+            "depth_reference"]["value"]["max_assembled_depth_mm"])
+        self.assertEqual(bathroom["nominal_draft_piece_count"], 4)
+        countertop = guided_session_turn(
+            "El mesón tendrá 650 mm de fondo.", bathroom["review_state"],
+        )
+        self.assertEqual(countertop["review_state"]["decisions"][
+            "dimensions_mm"]["value"]["depth_mm"], 450)
+        self.assertEqual(countertop["review_state"]["decisions"][
+            "depth_reference"]["value"]["carcass_depth_mm"], 450)
+        self.assert_no_manufacturing_authority(thinner)
+        self.assert_no_manufacturing_authority(bathroom)
+        self.assert_no_manufacturing_authority(countertop)
+
     def test_builtin_closet_site_conflict_blocks_f6_geometry(self):
         result = guided(closet_text(site_widths=(1800, 1800, 1800)))
         self.assertIsNone(result["nominal_draft_request"])
