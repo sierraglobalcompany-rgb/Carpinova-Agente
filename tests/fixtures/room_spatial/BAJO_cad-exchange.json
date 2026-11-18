@@ -1,0 +1,545 @@
+{
+  "schema_version": "0.1.0",
+  "source_engine": "F7C_DRAWER_BOXES_FROM_F1",
+  "unit": "mm",
+  "coordinate_system": "right-handed X width/right, Y height/up, Z depth/back",
+  "status": "DRAFT_NOT_FOR_CUTTING",
+  "fabrication_ready": false,
+  "cutting_ready": false,
+  "drilling_ready": false,
+  "manufacturing_holes": [],
+  "bounds_xyz_mm": [
+    1000,
+    800,
+    518
+  ],
+  "boxes": [
+    {
+      "piece_id": "KITCHEN_LEFT-LEFT_SIDE",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "left_side",
+      "origin_xyz_mm": [
+        0,
+        18,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        764,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-RIGHT_SIDE",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "right_side",
+      "origin_xyz_mm": [
+        482,
+        18,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        764,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-TOP",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "top",
+      "origin_xyz_mm": [
+        0,
+        782,
+        18
+      ],
+      "size_xyz_mm": [
+        500,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-BOTTOM",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "bottom",
+      "origin_xyz_mm": [
+        0,
+        0,
+        18
+      ],
+      "size_xyz_mm": [
+        500,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-FRONT_LEFT",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "front_left",
+      "origin_xyz_mm": [
+        3,
+        4,
+        0
+      ],
+      "size_xyz_mm": [
+        245,
+        792,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-FRONT_RIGHT",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "front_right",
+      "origin_xyz_mm": [
+        252,
+        4,
+        0
+      ],
+      "size_xyz_mm": [
+        245,
+        792,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_LEFT-SHELF",
+      "module_id": "KITCHEN_LEFT",
+      "material_id": "MELAMINA_18",
+      "role": "shelf_horizontal",
+      "origin_xyz_mm": [
+        18,
+        353,
+        18
+      ],
+      "size_xyz_mm": [
+        464,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-LEFT_SIDE",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "left_side",
+      "origin_xyz_mm": [
+        500,
+        18,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        764,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-RIGHT_SIDE",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "right_side",
+      "origin_xyz_mm": [
+        982,
+        18,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        764,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-TOP",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "top",
+      "origin_xyz_mm": [
+        500,
+        782,
+        18
+      ],
+      "size_xyz_mm": [
+        500,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-BOTTOM",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "bottom",
+      "origin_xyz_mm": [
+        500,
+        0,
+        18
+      ],
+      "size_xyz_mm": [
+        500,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_SIDE_LEFT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_left",
+      "origin_xyz_mm": [
+        518,
+        36,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_SIDE_RIGHT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_right",
+      "origin_xyz_mm": [
+        964,
+        36,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_FRONT_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_front_wall",
+      "origin_xyz_mm": [
+        536,
+        36,
+        18
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_REAR_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_rear_wall",
+      "origin_xyz_mm": [
+        536,
+        36,
+        500
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_BOTTOM",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_bottom",
+      "origin_xyz_mm": [
+        518,
+        18,
+        18
+      ],
+      "size_xyz_mm": [
+        464,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D1-DRAWER_FACADE",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_facade",
+      "origin_xyz_mm": [
+        517,
+        17,
+        0
+      ],
+      "size_xyz_mm": [
+        466,
+        238,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_SIDE_LEFT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_left",
+      "origin_xyz_mm": [
+        518,
+        300,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_SIDE_RIGHT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_right",
+      "origin_xyz_mm": [
+        964,
+        300,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_FRONT_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_front_wall",
+      "origin_xyz_mm": [
+        536,
+        300,
+        18
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_REAR_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_rear_wall",
+      "origin_xyz_mm": [
+        536,
+        300,
+        500
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_BOTTOM",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_bottom",
+      "origin_xyz_mm": [
+        518,
+        282,
+        18
+      ],
+      "size_xyz_mm": [
+        464,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D2-DRAWER_FACADE",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_facade",
+      "origin_xyz_mm": [
+        517,
+        281,
+        0
+      ],
+      "size_xyz_mm": [
+        466,
+        238,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_SIDE_LEFT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_left",
+      "origin_xyz_mm": [
+        518,
+        564,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_SIDE_RIGHT",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_side_right",
+      "origin_xyz_mm": [
+        964,
+        564,
+        18
+      ],
+      "size_xyz_mm": [
+        18,
+        198,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_FRONT_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_front_wall",
+      "origin_xyz_mm": [
+        536,
+        564,
+        18
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_REAR_WALL",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_rear_wall",
+      "origin_xyz_mm": [
+        536,
+        564,
+        500
+      ],
+      "size_xyz_mm": [
+        428,
+        198,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_BOTTOM",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_bottom",
+      "origin_xyz_mm": [
+        518,
+        546,
+        18
+      ],
+      "size_xyz_mm": [
+        464,
+        18,
+        500
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_RIGHT-D3-DRAWER_FACADE",
+      "module_id": "KITCHEN_RIGHT",
+      "material_id": "MELAMINA_18",
+      "role": "drawer_facade",
+      "origin_xyz_mm": [
+        517,
+        545,
+        0
+      ],
+      "size_xyz_mm": [
+        466,
+        238,
+        18
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    }
+  ],
+  "hardware_included": false,
+  "finished_panel_edges_included": false,
+  "cad_warning": "Nominal drawers from F1 and explicit inset/overlay facades. Slides, joins, bores, face mounting and load capacity NOT certified.",
+  "front_shift_mm": 18,
+  "geometry_sha256": "28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6"
+}

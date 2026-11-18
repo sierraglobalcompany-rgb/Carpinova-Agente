@@ -1,0 +1,65 @@
+{
+  "review_kind": "room_layout_v1",
+  "assemblies": [
+    {
+      "group_id": "BASE_A",
+      "module_spec": {
+        "type": "modular_run",
+        "application": "kitchen",
+        "width_mm": 800,
+        "height_mm": 720,
+        "depth_mm": 560,
+        "installation": "freestanding",
+        "modules": [
+          {
+            "module_id": "BASE_A",
+            "width_mm": 800,
+            "panel_thickness_mm": 18,
+            "material_id": "MELAMINA_18",
+            "construction": "sides_full",
+            "support": "floor",
+            "fronts": "none",
+            "back": "none",
+            "drawers": "none"
+          }
+        ]
+      },
+      "origin_xyz_mm": [0, 0, 0],
+      "rotation_deg": 0
+    },
+    {
+      "group_id": "BASE_B",
+      "module_spec": {
+        "type": "modular_run",
+        "application": "kitchen",
+        "width_mm": 600,
+        "height_mm": 720,
+        "depth_mm": 560,
+        "installation": "freestanding",
+        "modules": [
+          {
+            "module_id": "BASE_B",
+            "width_mm": 600,
+            "panel_thickness_mm": 18,
+            "material_id": "MELAMINA_18",
+            "construction": "sides_full",
+            "support": "floor",
+            "fronts": "none",
+            "back": "none",
+            "drawers": "none"
+          }
+        ]
+      },
+      "origin_xyz_mm": [800, 0, 0],
+      "rotation_deg": 90
+    }
+  ],
+  "service_zones": [
+    {
+      "zone_id": "SINK_PIPE_1",
+      "purpose": "plumbing",
+      "origin_xyz_mm": [100, 100, 100],
+      "size_xyz_mm": [60, 200, 60]
+    }
+  ]
+}

@@ -25,6 +25,7 @@ from .conversation_flow import (
     prepare_wall_bar_p5_nominal_review,
 )
 from .board_plan_review import build_board_plan_review
+from .room_spatial import review_room_from_specs
 
 
 _MAX_REQUEST_BYTES = 65536
@@ -127,6 +128,8 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
             return prepare_guided_design_v1(request)
         if request["review_kind"] == "board_plan_nominal":
             return build_board_plan_review(request)
+        if request["review_kind"] == "room_layout_v1":
+            return review_room_from_specs(request)
         if set(request) != {"review_kind", "utterance", "corrections"}:
             raise MaestroError(
                 "La revisión P5 exige solo review_kind, utterance y corrections."

@@ -1,0 +1,131 @@
+{
+  "schema_version": "0.1.0",
+  "source_engine": "F7C_EXPLICIT_FRONTS_FROM_F6",
+  "unit": "mm",
+  "coordinate_system": "right-handed X width/right, Y height/up, Z depth/back",
+  "status": "DRAFT_NOT_FOR_CUTTING",
+  "fabrication_ready": false,
+  "cutting_ready": false,
+  "drilling_ready": false,
+  "manufacturing_holes": [],
+  "bounds_xyz_mm": [
+    1000,
+    700,
+    365
+  ],
+  "boxes": [
+    {
+      "piece_id": "KITCHEN_1-LEFT_SIDE",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "left_side",
+      "origin_xyz_mm": [
+        0,
+        0,
+        15
+      ],
+      "size_xyz_mm": [
+        15,
+        700,
+        350
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_1-RIGHT_SIDE",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "right_side",
+      "origin_xyz_mm": [
+        985,
+        0,
+        15
+      ],
+      "size_xyz_mm": [
+        15,
+        700,
+        350
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_1-TOP",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "top",
+      "origin_xyz_mm": [
+        15,
+        685,
+        15
+      ],
+      "size_xyz_mm": [
+        970,
+        15,
+        350
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_1-BOTTOM",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "bottom",
+      "origin_xyz_mm": [
+        15,
+        0,
+        15
+      ],
+      "size_xyz_mm": [
+        970,
+        15,
+        350
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_1-FRONT_LEFT",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "front_left",
+      "origin_xyz_mm": [
+        3,
+        4,
+        0
+      ],
+      "size_xyz_mm": [
+        495,
+        692,
+        15
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    },
+    {
+      "piece_id": "KITCHEN_1-FRONT_RIGHT",
+      "module_id": "KITCHEN_1",
+      "material_id": "MELAMINA_15",
+      "role": "front_right",
+      "origin_xyz_mm": [
+        502,
+        4,
+        0
+      ],
+      "size_xyz_mm": [
+        495,
+        692,
+        15
+      ],
+      "grain_world_axis": "UNCONFIRMED",
+      "construction_geometry": "NOMINAL_PANEL_BOX"
+    }
+  ],
+  "hardware_included": false,
+  "finished_panel_edges_included": false,
+  "cad_warning": "Nominal carcass and front leaf boxes. All boxes share an explicit forward-Z CAD shift. No hinges, drilling, sweeps, hardware or finished cut authority.",
+  "front_shift_mm": 15,
+  "geometry_sha256": "528b1c8f0680d468115ab43ee51bfc4ae77e5fa4329c0267d81800e5343d6ca5"
+}
