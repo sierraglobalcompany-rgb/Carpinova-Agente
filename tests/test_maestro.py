@@ -66,7 +66,7 @@ class MaestroRoutingTests(unittest.TestCase):
             "module_spec.modules.BASE.drawers.TOP.facade",
             "module_spec.modules.BASE.finish",
         ])
-        self.assertIn("embutido", r["questions"][0]["question"])
+        self.assertIn("sobrepuesta separada", r["questions"][0]["question"])
         self.assertFalse(r["fabrication_ready"])
         self.assertFalse(r["drilling_ready"])
 

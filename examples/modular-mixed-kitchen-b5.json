@@ -1,0 +1,146 @@
+{
+  "type": "modular_run",
+  "application": "kitchen",
+  "installation": "freestanding",
+  "width_mm": 1000,
+  "height_mm": 800,
+  "depth_mm": 500,
+  "modules": [
+    {
+      "module_id": "KITCHEN_LEFT",
+      "width_mm": 500,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_18",
+      "construction": "top_bottom_full",
+      "support": "floor",
+      "back": "none",
+      "drawers": "none",
+      "fronts": {
+        "style": "overlay",
+        "leaf_count": 2,
+        "material_id": "MELAMINA_18",
+        "thickness_mm": 18,
+        "hinge_sides": [
+          "left",
+          "right"
+        ],
+        "left_reveal_mm": 3,
+        "right_reveal_mm": 3,
+        "top_reveal_mm": 4,
+        "bottom_reveal_mm": 4,
+        "center_gap_mm": 4
+      },
+      "horizontal_divider": {
+        "material_id": "MELAMINA_18",
+        "thickness_mm": 18,
+        "position_from_clear_bottom_mm": 335,
+        "depth_mm": 500,
+        "depth_from_front_mm": 0
+      }
+    },
+    {
+      "module_id": "KITCHEN_RIGHT",
+      "width_mm": 500,
+      "panel_thickness_mm": 18,
+      "material_id": "MELAMINA_18",
+      "construction": "top_bottom_full",
+      "support": "floor",
+      "fronts": "none",
+      "back": "none",
+      "drawers": [
+        {
+          "drawer_id": "D1",
+          "opening_bottom_offset_mm": 0,
+          "opening_height_mm": 236,
+          "opening_depth_mm": 500,
+          "box_height_mm": 216,
+          "panel_thickness_mm": 18,
+          "bottom_thickness_mm": 18,
+          "slide_clearance_left_mm": 0,
+          "slide_clearance_right_mm": 0,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 0,
+          "material_id": "MELAMINA_18",
+          "bottom_material_id": "MELAMINA_18",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MELAMINA_18",
+            "thickness_mm": 18,
+            "left_overlap_mm": 1,
+            "right_overlap_mm": 1,
+            "top_overlap_mm": 1,
+            "bottom_overlap_mm": 1,
+            "opening_system": "handle"
+          },
+          "front_construction": "separate"
+        },
+        {
+          "drawer_id": "D2",
+          "opening_bottom_offset_mm": 264,
+          "opening_height_mm": 236,
+          "opening_depth_mm": 500,
+          "box_height_mm": 216,
+          "panel_thickness_mm": 18,
+          "bottom_thickness_mm": 18,
+          "slide_clearance_left_mm": 0,
+          "slide_clearance_right_mm": 0,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 0,
+          "material_id": "MELAMINA_18",
+          "bottom_material_id": "MELAMINA_18",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MELAMINA_18",
+            "thickness_mm": 18,
+            "left_overlap_mm": 1,
+            "right_overlap_mm": 1,
+            "top_overlap_mm": 1,
+            "bottom_overlap_mm": 1,
+            "opening_system": "handle"
+          },
+          "front_construction": "separate"
+        },
+        {
+          "drawer_id": "D3",
+          "opening_bottom_offset_mm": 528,
+          "opening_height_mm": 236,
+          "opening_depth_mm": 500,
+          "box_height_mm": 216,
+          "panel_thickness_mm": 18,
+          "bottom_thickness_mm": 18,
+          "slide_clearance_left_mm": 0,
+          "slide_clearance_right_mm": 0,
+          "front_setback_mm": 0,
+          "rear_setback_mm": 0,
+          "material_id": "MELAMINA_18",
+          "bottom_material_id": "MELAMINA_18",
+          "facade": {
+            "style": "overlay",
+            "material_id": "MELAMINA_18",
+            "thickness_mm": 18,
+            "left_overlap_mm": 1,
+            "right_overlap_mm": 1,
+            "top_overlap_mm": 1,
+            "bottom_overlap_mm": 1,
+            "opening_system": "handle"
+          },
+          "front_construction": "separate"
+        }
+      ],
+      "drawer_layout_reference": {
+        "type": "drawer_layout_proposal",
+        "width_mm": 500,
+        "height_mm": 800,
+        "depth_mm": 500,
+        "panel_thickness_mm": 18,
+        "construction": "top_bottom_full",
+        "vertical_gap_mm": 28,
+        "drawer_weights": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import base64
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,8 @@ from xml.etree import ElementTree
 # on sys.path. Restore the actual repo root BEFORE importing the package.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-from carpinova_agent.cad_exchange import validate_exchange
+from carpinova_agent.cad_exchange import cad_exchange, validate_exchange
+from carpinova_agent.maestro import consult_maestro
 CASES = (
     ("primer_mueble", "pilot-open-kitchen-800.json", 4),
     ("cocina_dos_modulos", "modular-kitchen-door-fronts.json", 13),
@@ -35,6 +37,155 @@ TOOLS = {
     "carpinova_leer_entregable",
 }
 FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready", "purchase_ready")
+
+
+def _mcp_structured(response, context: str) -> dict:
+    if getattr(response, "isError", getattr(response, "is_error", False)):
+        raise AssertionError(f"MCP tool error ({context}): {response}")
+    value = getattr(response, "structuredContent", None)
+    if value is None:
+        value = getattr(response, "structured_content", None)
+    assert isinstance(value, dict), f"Missing structured MCP response ({context})"
+    return value
+
+
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str):
+    raise ValueError("non-standard JSON constant")
+
+
+def _read_json_object(text: str, context: str) -> dict:
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError):
+        raise AssertionError(f"Invalid JSON text in MCP read ({context})") from None
+    if type(value) is not dict:
+        raise AssertionError(f"MCP read JSON must be an object ({context})")
+    return value
+
+
+def _reader_protocol_shape(response, context: str) -> AssertionError:
+    content = getattr(response, "content", None)
+    blocks = content if type(content) is list else []
+    block_types = []
+    text_length = 0
+    for block in blocks:
+        block_type = getattr(block, "type", None)
+        block_types.append(
+            block_type if type(block_type) is str else type(block).__name__
+        )
+        text = getattr(block, "text", None)
+        if type(text) is str:
+            text_length += len(text)
+    metadata = {
+        "type": type(response).__name__,
+        "structured_present": any(
+            getattr(response, name, None) is not None
+            for name in ("structuredContent", "structured_content")
+        ),
+        "content_count": len(content) if type(content) is list else None,
+        "block_types": block_types,
+        "text_length": text_length,
+    }
+    return AssertionError(
+        f"BLOCKED_PROTOCOL_SHAPE ({context}): {json.dumps(metadata, sort_keys=True)}"
+    )
+
+
+async def _read_payload_via_mcp(session, project: str, filename: str) -> dict:
+    response = await session.call_tool(
+        "carpinova_leer_entregable", {"proyecto": project, "archivo": filename},
+    )
+    context = f"read {project}/{filename}"
+    if (getattr(response, "isError", False) is True
+            or getattr(response, "is_error", False) is True):
+        raise AssertionError(f"MCP tool error ({context})")
+
+    structured = []
+    for name in ("structuredContent", "structured_content"):
+        value = getattr(response, name, None)
+        if value is None:
+            continue
+        if type(value) is not dict:
+            raise _reader_protocol_shape(response, context)
+        structured.append((name, value))
+    if len(structured) > 1 and any(
+        value != structured[0][1] for _, value in structured[1:]
+    ):
+        raise AssertionError(f"Contradictory structured MCP aliases ({context})")
+
+    if structured:
+        payload = structured[0][1]
+        content = getattr(response, "content", None)
+        if type(content) is list:
+            for block in content:
+                if getattr(block, "type", None) != "text":
+                    continue
+                text = getattr(block, "text", None)
+                if type(text) is not str:
+                    continue
+                try:
+                    comparable = json.loads(
+                        text,
+                        object_pairs_hook=_reject_duplicate_json_keys,
+                        parse_constant=_reject_json_constant,
+                    )
+                except json.JSONDecodeError:
+                    continue
+                except ValueError:
+                    raise AssertionError(
+                        f"Invalid comparable MCP JSON text ({context})"
+                    ) from None
+                if type(comparable) is not dict or comparable != payload:
+                    raise AssertionError(
+                        f"Contradictory structured and text MCP responses ({context})"
+                    )
+    else:
+        content = getattr(response, "content", None)
+        if (type(content) is not list or len(content) != 1
+                or getattr(content[0], "type", None) != "text"
+                or type(getattr(content[0], "text", None)) is not str):
+            raise _reader_protocol_shape(response, context)
+        payload = _read_json_object(content[0].text, context)
+
+    required = {
+        "proyecto", "archivo", "encoding", "status", "contenido", *FLAGS,
+    }
+    if not required.issubset(payload) or set(payload) - required - {"book_evidence_status"}:
+        raise AssertionError(f"Invalid MCP artifact response fields ({context})")
+    if (type(payload["proyecto"]) is not str or payload["proyecto"] != project
+            or type(payload["archivo"]) is not str or payload["archivo"] != filename):
+        raise AssertionError(f"MCP artifact identity mismatch ({context})")
+    if (type(payload["encoding"]) is not str or payload["encoding"] != "utf-8"
+            or type(payload["status"]) is not str
+            or payload["status"] != "DRAFT_NOT_FOR_CUTTING"):
+        raise AssertionError(f"MCP artifact state mismatch ({context})")
+    if type(payload["contenido"]) is not str:
+        raise AssertionError(f"MCP artifact content must be text ({context})")
+    if any(type(payload[flag]) is not bool or payload[flag] is not False
+           for flag in FLAGS):
+        raise AssertionError(f"MCP artifact fabrication flags must be false ({context})")
+    if ("book_evidence_status" in payload
+            and type(payload["book_evidence_status"]) is not str):
+        raise AssertionError(f"Invalid MCP book evidence status ({context})")
+    return payload
+
+
+async def _read_json_via_mcp(session, project: str, filename: str) -> dict:
+    payload = await _read_payload_via_mcp(session, project, filename)
+    return json.loads(payload["contenido"])
 
 
 def verified_requests() -> list[tuple[str, str, int]]:
@@ -108,6 +259,333 @@ async def execute(output_root: Path) -> None:
                     output_root / project / "lamina/three-views.png"
                 ).read_bytes()
                 print("MCP_IMAGE_CONTENT_PASS=" + project)
+
+            # Exercise the B3 opening-intent sidecar through this already-open
+            # stdio session, using the real geometry generated above.
+            project, request, _ = next(item for item in requests
+                                       if item[0] == "cocina_dos_modulos")
+            base_cad = await _read_json_via_mcp(
+                session, project, "cad-exchange.json",
+            )
+            base_manifest = await _read_json_via_mcp(
+                session, project, "manifest.json",
+            )
+            assert base_manifest["geometry_sha256"] == base_cad["geometry_sha256"]
+            sidecar_input = {
+                "schema_version": "1.0",
+                "source": "CLIENT_DECLARED_NOT_AUTHENTICATED",
+                "geometry_sha256": base_cad["geometry_sha256"],
+                "elements": sorted(({
+                    "piece_id": box["piece_id"],
+                    "module_id": box["module_id"],
+                    "element_type": "door",
+                    "opening_system": "handle",
+                } for box in base_cad["boxes"]
+                    if box.get("role") in (
+                        "front_left", "front_right", "front_single",
+                    )), key=lambda item: item["piece_id"]),
+            }
+            assert len(sidecar_input["elements"]) > 0
+            assert set(sidecar_input) == {
+                "schema_version", "source", "geometry_sha256", "elements",
+            }
+            hardware_project = "cocina_dos_modulos_b4"
+            generated_response = await session.call_tool(
+                "carpinova_generar_borrador", {
+                    "solicitud_json": request,
+                    "proyecto": hardware_project,
+                    "opening_review_json": json.dumps(
+                        sidecar_input, ensure_ascii=False,
+                    ),
+                },
+            )
+            generated = _mcp_structured(
+                generated_response, "generate B3 opening sidecar",
+            )
+            assert generated.get("status") == "DRAFT_NOT_FOR_CUTTING"
+            assert generated.get("geometry_sha256") == base_cad["geometry_sha256"]
+            assert generated.get("piece_count") == base_manifest["piece_count"]
+            assert all(generated.get(flag) is False for flag in FLAGS)
+            assert "opening-intents-review.json" in generated.get("files", [])
+            assert "hardware-reference-review.json" in generated.get("files", [])
+
+            opening_payload = await _read_payload_via_mcp(
+                session, hardware_project, "opening-intents-review.json",
+            )
+            saved_opening = json.loads(opening_payload["contenido"])
+            hardware_payload = await _read_payload_via_mcp(
+                session, hardware_project, "hardware-reference-review.json",
+            )
+            saved_hardware = json.loads(hardware_payload["contenido"])
+            hardware_manifest = await _read_json_via_mcp(
+                session, hardware_project, "manifest.json",
+            )
+            expected_ids = {item["piece_id"] for item in sidecar_input["elements"]}
+            assert "opening-intents-review.json" in hardware_manifest["files"]
+            assert "hardware-reference-review.json" in hardware_manifest["files"]
+            assert saved_opening["schema_version"] == "1.0"
+            assert saved_opening["source"] == "CLIENT_DECLARED_NOT_AUTHENTICATED"
+            assert saved_opening["authentication"] == "NOT_AUTHENTICATED"
+            assert saved_opening["geometry_sha256"] == base_cad["geometry_sha256"]
+            assert saved_opening["status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert saved_opening["hardware_selected"] is False
+            assert {
+                tuple(item[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) for item in saved_opening["elements"]
+            } == {
+                tuple(item[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) for item in sidecar_input["elements"]
+            }
+            assert {item["piece_id"] for item in saved_opening["elements"]} == expected_ids
+            assert {item["opening_system"] for item in saved_opening["elements"]} == {"handle"}
+            # MCP readback is authoritative here; corroborate its exact bytes
+            # against the manifest's digest and deterministic JSON encoding.
+            opening_bytes = opening_payload["contenido"].encode("utf-8")
+            assert hashlib.sha256(opening_bytes).hexdigest() == (
+                hardware_manifest["opening_intents_review_sha256"]
+            )
+            assert opening_bytes == (
+                json.dumps(saved_opening, indent=2, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+
+            assert saved_hardware["geometry_sha256"] == base_cad["geometry_sha256"]
+            assert saved_hardware["status"] == "REFERENCE_ONLY_NOT_SELECTED"
+            assert saved_hardware["approval_status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert saved_hardware["hardware_selected"] is False
+            assert all(saved_hardware[flag] is False for flag in FLAGS)
+            rows = saved_hardware["elements"]
+            assert [row["piece_id"] for row in rows] == sorted(expected_ids)
+            assert {row["piece_id"] for row in rows} == expected_ids
+            assert {
+                tuple(row[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) for row in rows
+            } == {
+                tuple(item[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) for item in sidecar_input["elements"]
+            }
+            assert all(row["opening_system"] == "handle" for row in rows)
+            assert all(row["status"] == "REFERENCE_ONLY_NOT_SELECTED" for row in rows)
+            assert all(row["approval_status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+                       and row["hardware_selected"] is False
+                       and all(row[flag] is False for flag in FLAGS) for row in rows)
+            assert hashlib.sha256(
+                hardware_payload["contenido"].encode("utf-8")
+            ).hexdigest() == hardware_manifest["hardware_reference_review_sha256"]
+            assert all(hardware_manifest[flag] is False for flag in FLAGS)
+            print("MCP_B3_OPENING_AND_HARDWARE_REFERENCE_PASS=" + hardware_project)
+
+            negative_project = "cocina_dos_modulos_b4_bad"
+            invalid_input = json.loads(json.dumps(sidecar_input))
+            invalid_input["elements"][0]["piece_id"] = "CARPN-B4-FAKE-ID"
+            negative_error = None
+            try:
+                negative_response = await session.call_tool(
+                    "carpinova_generar_borrador", {
+                        "solicitud_json": request,
+                        "proyecto": negative_project,
+                        "opening_review_json": json.dumps(
+                            invalid_input, ensure_ascii=False,
+                        ),
+                    },
+                )
+            except Exception as exc:
+                negative_error = f"exception:{type(exc).__name__}"
+            else:
+                if getattr(negative_response, "isError",
+                           getattr(negative_response, "is_error", False)):
+                    negative_error = "response:isError"
+            assert negative_error is not None, (
+                "MCP accepted an altered opening piece ID instead of rejecting it"
+            )
+            assert not (output_root / negative_project).exists(), (
+                "Rejected sidecar created a valid project directory"
+            )
+            print("MCP_B3_OPENING_NEGATIVE_PASS=" + negative_error)
+            print("B5_MIXED_DRAWERS_BEGIN")
+            b5_spec = json.loads((PROJECT_ROOT / "examples"
+                                  / "modular-mixed-kitchen-b5.json").read_text(
+                                      encoding="utf-8"))
+            b5_request = {"action": "modular", "module_spec": b5_spec}
+            b5_answer = consult_maestro(b5_request)
+            assert b5_answer.get("status") == "DRAFT_NOT_FOR_CUTTING"
+            assert all(b5_answer.get(flag) is False for flag in FLAGS)
+            assert all(b5_answer["modular"].get(flag) is False for flag in FLAGS)
+            b5_cad = validate_exchange(cad_exchange(b5_answer["modular"]))
+            assert len(b5_cad["boxes"]) == 29
+            assert b5_cad["geometry_sha256"] == (
+                "28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6"
+            )
+            assert len({box["piece_id"] for box in b5_cad["boxes"]}) == 29
+            assert all(b5_cad[flag] is False for flag in (
+                "fabrication_ready", "cutting_ready", "drilling_ready",
+            ))
+
+            expected_drawer_ids = {
+                drawer["drawer_id"]
+                for module in b5_spec["modules"]
+                if isinstance(module.get("drawers"), list)
+                for drawer in module.get("drawers", [])
+            }
+            assert expected_drawer_ids == {"D1", "D2", "D3"}
+            b5_fronts = [box for box in b5_cad["boxes"]
+                         if box.get("role") in (
+                             "front_left", "front_right", "front_single",
+                             "drawer_facade",
+                         )]
+            assert len(b5_fronts) == 5
+            opening_elements = sorted(({
+                "piece_id": box["piece_id"],
+                "module_id": box["module_id"],
+                "element_type": (
+                    "drawer" if box["role"] == "drawer_facade" else "door"
+                ),
+                "opening_system": "handle",
+            } for box in b5_fronts), key=lambda item: item["piece_id"])
+            assert [item["element_type"] for item in opening_elements].count("door") == 2
+            assert [item["element_type"] for item in opening_elements].count("drawer") == 3
+            assert {item["piece_id"] for item in opening_elements} == {
+                box["piece_id"] for box in b5_fronts
+            }
+            opening_input = {
+                "schema_version": "1.0",
+                "source": "CLIENT_DECLARED_NOT_AUTHENTICATED",
+                "geometry_sha256": b5_cad["geometry_sha256"],
+                "elements": opening_elements,
+            }
+            assert set(opening_input) == {
+                "schema_version", "source", "geometry_sha256", "elements",
+            }
+
+            b5_project = "cocina_mixta_b5"
+            b5_generation_response = await session.call_tool(
+                "carpinova_generar_borrador", {
+                    "solicitud_json": json.dumps(
+                        b5_request, ensure_ascii=False,
+                    ),
+                    "proyecto": b5_project,
+                    "opening_review_json": json.dumps(
+                        opening_input, ensure_ascii=False,
+                    ),
+                },
+            )
+            b5_generated = _mcp_structured(
+                b5_generation_response, "generate B5 mixed kitchen with drawers",
+            )
+            assert b5_generated.get("status") == "DRAFT_NOT_FOR_CUTTING"
+            assert b5_generated.get("geometry_sha256") == b5_cad["geometry_sha256"]
+            assert b5_generated.get("piece_count") == 29
+            assert all(b5_generated.get(flag) is False for flag in FLAGS)
+            assert "opening-intents-review.json" in b5_generated.get("files", [])
+            assert "hardware-reference-review.json" in b5_generated.get("files", [])
+
+            b5_cad_payload = await _read_payload_via_mcp(
+                session, b5_project, "cad-exchange.json",
+            )
+            b5_manifest_payload = await _read_payload_via_mcp(
+                session, b5_project, "manifest.json",
+            )
+            b5_opening_payload = await _read_payload_via_mcp(
+                session, b5_project, "opening-intents-review.json",
+            )
+            b5_hardware_payload = await _read_payload_via_mcp(
+                session, b5_project, "hardware-reference-review.json",
+            )
+            b5_saved_cad = validate_exchange(json.loads(b5_cad_payload["contenido"]))
+            b5_manifest = json.loads(b5_manifest_payload["contenido"])
+            b5_opening = json.loads(b5_opening_payload["contenido"])
+            b5_hardware = json.loads(b5_hardware_payload["contenido"])
+            assert b5_saved_cad == b5_cad
+            assert b5_saved_cad["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert len(b5_saved_cad["boxes"]) == 29
+            assert b5_manifest["status"] == "DRAFT_NOT_FOR_CUTTING"
+            assert b5_manifest["piece_count"] == 29
+            assert b5_manifest["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert all(b5_manifest.get(flag) is False for flag in FLAGS)
+            for filename in (
+                "cad-exchange.json", "manifest.json",
+                "opening-intents-review.json", "hardware-reference-review.json",
+            ):
+                assert filename in b5_manifest["files"]
+            assert all(b5_generated.get(flag) is False for flag in FLAGS)
+            assert all(b5_saved_cad.get(flag) is False for flag in (
+                "fabrication_ready", "cutting_ready", "drilling_ready",
+            ))
+
+            b5_opening_bytes = b5_opening_payload["contenido"].encode("utf-8")
+            b5_hardware_bytes = b5_hardware_payload["contenido"].encode("utf-8")
+            assert hashlib.sha256(b5_opening_bytes).hexdigest() == (
+                b5_manifest["opening_intents_review_sha256"]
+            )
+            assert hashlib.sha256(b5_hardware_bytes).hexdigest() == (
+                b5_manifest["hardware_reference_review_sha256"]
+            )
+            assert b5_opening["schema_version"] == "1.0"
+            assert b5_opening["source"] == "CLIENT_DECLARED_NOT_AUTHENTICATED"
+            assert b5_opening["authentication"] == "NOT_AUTHENTICATED"
+            assert b5_opening["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert b5_opening["status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert b5_opening["hardware_selected"] is False
+            assert set(b5_opening) >= {
+                "schema_version", "source", "geometry_sha256", "elements",
+                "status", "hardware_selected", "drilling_ready", "purchase_ready",
+            }
+            assert b5_opening["drilling_ready"] is False
+            assert b5_opening["purchase_ready"] is False
+            assert b5_opening["elements"] == opening_elements
+            expected_elements = {item["piece_id"]: item for item in opening_elements}
+            b5_rows = {row["piece_id"]: row for row in b5_hardware["elements"]}
+            assert set(b5_rows) == set(expected_elements)
+            assert b5_hardware["geometry_sha256"] == b5_cad["geometry_sha256"]
+            assert b5_hardware["status"] == "REFERENCE_ONLY_NOT_SELECTED"
+            assert b5_hardware["approval_status"] == "NOT_APPROVED_NOT_FOR_FABRICATION"
+            assert b5_hardware["hardware_selected"] is False
+            assert all(b5_hardware.get(flag) is False for flag in FLAGS)
+            for piece_id, row in b5_rows.items():
+                source = expected_elements[piece_id]
+                assert tuple(row[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                )) == tuple(source[key] for key in (
+                    "piece_id", "module_id", "element_type", "opening_system",
+                ))
+                assert row["hardware_selected"] is False
+                assert all(row.get(flag) is False for flag in FLAGS)
+
+            b5_doors = [row for row in b5_rows.values()
+                        if row["element_type"] == "door"]
+            assert len(b5_doors) == 2
+            for row in b5_doors:
+                assert row["f4_status"] == "BLOCKED_HARDWARE_SPEC"
+                assert row["candidate_plate_sku"] is None
+                assert all(source["evidence"]
+                           == "HISTORICAL_MANUFACTURER_REFERENCE_NOT_COMPATIBILITY"
+                           for source in row["sources"])
+
+            b5_drawers = [row for row in b5_rows.values()
+                          if row["element_type"] == "drawer"]
+            assert len(b5_drawers) == 3
+            assert {row["drawer_id"] for row in b5_drawers} == expected_drawer_ids
+            for row in b5_drawers:
+                assert row["opening_system"] == "handle"
+                assert row["slide_sku"] is None
+                assert row["slide_compatibility"] == "NOT_VERIFIED"
+                assert row["slide_clearance_reading"] == {
+                    "status": "DECLARED_REVIEW_ONLY",
+                    "left_mm": 0,
+                    "right_mm": 0,
+                    "installation_status":
+                        "PENDING_EXACT_SKU_DATASHEET_AND_MOUNTING",
+                }
+                assert "ZERO_MM_CLEARANCES_ARE_PLACEHOLDERS_NOT_INSTALLABLE" in (
+                    row["blockers"]
+                )
+                assert row["drilling_ready"] is False
+                assert row["purchase_ready"] is False
+
+            print("MCP_B5_MIXED_DRAWERS_PASS=cocina_mixta_b5")
 
 
 

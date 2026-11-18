@@ -432,6 +432,20 @@ jobs:
                 for x in rows if x["matched_content_records"]==0]
           print("LEXICAL_ZERO_MATCH_TERMS_NEED_HUMAN_REVIEW=",zero)
           PY
+      - name: Install pinned MCP and 2D review dependencies for P7
+        run: python -m pip install --disable-pip-version-check -r requirements-mcp.txt
+      - name: P7 real MCP book-bound generation, replay, render and read
+        env:
+          CARPINOVA_KNOWLEDGE_BUNDLE_DIR: ${{ runner.temp }}/knowledge-1.2.0
+          CARPINOVA_NATIVE_EXECUTION_ENABLED: "0"
+          P7_EVIDENCE_DIR: ${{ runner.temp }}/p7-book-evidence
+        run: python -m unittest discover -s tests -p test_pr23_p7_book_first.py -v
+      - name: Archive P7 sanitized MCP evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-book-bound-mcp-evidence
+          retention-days: 14
+          path: ${{ runner.temp }}/p7-book-evidence/real-mcp-book-e2e.json
       - name: Archive F7 real full-book retrieval matrix
         uses: actions/upload-artifact@v4
         with:

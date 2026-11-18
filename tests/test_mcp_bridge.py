@@ -145,7 +145,7 @@ class McpBridgeContractTests(unittest.TestCase):
         import re
         for fixture, count, pages in (
             ("pilot-open-kitchen-800.json", 4, 3),
-            ("wall-bar-900-review.json", 21, 7),
+            ("wall-bar-900-review.json", 28, 7),
             ("four-drawer-500x500x800-INSET-UNCONFIRMED.json", 28, 8),
         ):
             with self.subTest(fixture=fixture), TemporaryDirectory() as root:
@@ -349,8 +349,8 @@ class McpBridgeContractTests(unittest.TestCase):
         with TemporaryDirectory() as root:
             with patch.dict(os.environ, {"CARPINOVA_OUTPUT_ROOT": root}):
                 response = carpinova_generar_borrador(request, "barra001")
-                self.assertEqual(response["piece_count"], 21)
-                self.assertEqual(len(response["files"]), 10)
+                self.assertEqual(response["piece_count"], 28)
+                self.assertEqual(len(response["files"]), 14)
                 for letter in "ABC":
                     filename = f"CN-BAR-001-cajon-{letter}.svg"
                     delivered = carpinova_leer_entregable("barra001", filename)
@@ -358,22 +358,43 @@ class McpBridgeContractTests(unittest.TestCase):
                     self.assertEqual(len([
                         node for node in drawing.iter()
                         if node.get("data-piece-id") is not None
-                    ]), 5)
+                    ]), 6)
                 schedule = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-referencias.csv")
                 self.assertIn("E01", schedule["contenido"])
-                self.assertIn("C05", schedule["contenido"])
+                self.assertIn("C06", schedule["contenido"])
+                edge_csv = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-cantos-por-borde-REVISION.csv")
+                self.assertEqual(len(edge_csv["contenido"].splitlines()), 97)
+                edge_json = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-cantos-por-borde-REVISION.json")
+                self.assertEqual(len(json.loads(edge_json["contenido"])), 96)
                 guide = carpinova_leer_entregable(
                     "barra001", "CN-BAR-001-guia-de-armado-REVISION.md")
                 self.assertIn("NO FABRICAR", guide["contenido"])
+                p6 = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-P6-revision-constructiva.json")
+                p6_review = json.loads(p6["contenido"])
+                self.assertEqual(p6_review["geometry_sha256"],
+                                 response["geometry_sha256"])
+                self.assertEqual(p6_review["edge_review"]["edge_count"], 96)
+                criteria = carpinova_leer_entregable(
+                    "barra001", "CN-BAR-001-P6-criterios.md")
+                self.assertIn("Qué recomienda el libro", criteria["contenido"])
                 folder = Path(root) / "barra001"
                 original = verify_pilot_bundle(folder)
+                p6_path = folder / "CN-BAR-001-P6-revision-constructiva.json"
+                p6_bytes = p6_path.read_bytes()
+                p6_path.write_bytes(p6_bytes + b"ALTERADO")
+                with self.assertRaisesRegex(PilotError, "distinto del CAD"):
+                    verify_pilot_bundle(folder)
+                p6_path.write_bytes(p6_bytes)
                 path = folder / "CN-BAR-001-cajon-C.svg"
                 path.write_text(path.read_text(encoding="utf-8") + "ALTERADO",
                                 encoding="utf-8")
                 with self.assertRaisesRegex(PilotError, "distinto del CAD"):
                     verify_pilot_bundle(folder)
-                self.assertEqual(len(original["boxes"]), 21)
+                self.assertEqual(len(original["boxes"]), 28)
                 for flag in ("fabrication_ready", "cutting_ready",
                              "drilling_ready", "purchase_ready"):
                     self.assertFalse(response[flag])

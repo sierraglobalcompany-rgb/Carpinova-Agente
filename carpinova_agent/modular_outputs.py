@@ -61,6 +61,16 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
         "drawer_facade_style", "opening_system_intent",
     ])
     for piece in draft["parts"]:
+        module = next((m for m in draft["modules"]
+                       if m["module_id"] == piece["module_id"]), None)
+        formula = piece["source_formula"]
+        if (piece["role"] in ("front_left", "front_right")
+                and module is not None
+                and "review_hypotheses" in module):
+            formula += " | HYPOTHESIS_PREVIEW_ONLY; no bisagra/giro verificados"
+        if piece["role"] in ("upper_front_tie", "upper_rear_tie",
+                             "lower_rear_tie"):
+            formula += " | REVIEW_HEIGHT_HYPOTHESIS_ONLY; uniones/resistencia no verificadas"
         writer.writerow([
             piece["piece_id"], piece["module_id"], piece["role"],
             piece["material_id"], piece["nominal_face_x_mm"],
@@ -72,7 +82,7 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
              piece["edgebanding_thickness_mm"] is not None else "UNCONFIRMED"),
             (piece["edgebanding_nominal_total_mm"] if
              piece["edgebanding_nominal_total_mm"] is not None else "UNCONFIRMED"),
-            *piece["nominal_origin_xyz_mm"], piece["source_formula"],
+            *piece["nominal_origin_xyz_mm"], formula,
             "BORRADOR_NO_CORTAR", piece.get("hinge_side_requested", ""), piece.get("drawer_id",""),
             *_drawer_review_labels(piece),
         ])
@@ -82,6 +92,11 @@ def modular_bom_csv(model: dict[str, Any]) -> str:
 def modular_front_svg(model: dict[str, Any]) -> str:
     """Scaled elevation. All panel coordinates are from F6, not recalculated."""
     draft = _review_draft(model)
+    has_support_leg_concepts = any(
+        piece["role"] == "support_leg_concept" for piece in draft["parts"]
+    )
+    has_upper_support_review = "upper_support_review" in draft
+    support_review_y = 715 if has_upper_support_review else 700
     w, h = draft["dimensions_mm"]["width"], draft["dimensions_mm"]["height"]
     viewport_w, viewport_h = 1000, 790
     max_w, max_h = 850, 475
@@ -98,13 +113,19 @@ def modular_front_svg(model: dict[str, Any]) -> str:
     ))
     for piece in ordered:
         role = piece["role"]
-        if role in ("left_side", "right_side", "drawer_side_left", "drawer_side_right"):
+        if role in ("left_side", "right_side", "divider_vertical",
+                    "drawer_side_left", "drawer_side_right"):
             pw, ph = piece["thickness_mm"], piece["nominal_face_y_mm"]
-        elif role in ("top", "bottom", "drawer_bottom"):
+        elif role in ("top", "bottom", "drawer_bottom",
+                      "shelf_horizontal", "countertop"):
             pw, ph = piece["nominal_face_x_mm"], piece["thickness_mm"]
+        elif role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
+            pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         elif role in ("back_full", "back_top", "back_bottom",
                       "front_single", "front_left", "front_right",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
+            pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
+        elif role == "support_leg_concept":
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         else:
             raise DesignError("Rol de panel desconocido.")
@@ -117,14 +138,36 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         sx = x0+px*scale
         sy = y0+(h-(py+ph))*scale
         name = escape(str(piece["piece_id"]), quote=True)
+        if has_upper_support_review and piece.get("finish_note"):
+            name += " | " + escape(piece["finish_note"], quote=True)
+        if role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
+            review = draft.get("upper_support_review", {})
+            name += (" | ALTURA " + str(review.get("tie_height_mm", "UNCONFIRMED"))
+                     + " mm " + escape(str(review.get("tie_height_status", "UNCONFIRMED")),
+                                       quote=True)
+                     + " | HYPOTHESIS_PREVIEW_ONLY | uniones/resistencia NO VERIFICADAS")
+        if (has_upper_support_review and role in ("front_left", "front_right")
+                and any(m["module_id"] == piece["module_id"]
+                        and "review_hypotheses" in m for m in draft["modules"])):
+            name += " | HYPOTHESIS_PREVIEW_ONLY | giro/herraje NO VERIFICADOS"
         if role == "drawer_facade":
             style, intent = _drawer_review_labels(piece)
             # Explicit text metadata only; not a depiction of real hardware.
             name += (f" | {escape(style, quote=True)} | "
                      f"{escape(intent, quote=True)} | SIN MECANIZADO")
-        panel_class = "front" if role.startswith("front_") or role=="drawer_facade" else "panel"
+        panel_class = ("support" if role == "support_leg_concept" else
+                       "front" if role.startswith("front_") or role=="drawer_facade" else
+                       "panel")
+        if role == "support_leg_concept":
+            name += " | APOYO CONCEPTUAL | SIN SKU"
+        piece_id_attribute = (
+            f'data-piece-id="{escape(str(piece["piece_id"]), quote=True)}" '
+            if has_upper_support_review else ""
+        )
         shapes.append(
-            f'<rect x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
+            f'<rect {piece_id_attribute}'
+            f'data-role="{escape(role, quote=True)}" '
+            f'x="{sx:.4f}" y="{sy:.4f}" width="{pw*scale:.4f}" '
             f'height="{ph*scale:.4f}" class="{panel_class}"><title>{name}</title></rect>'
         )
     titles = []
@@ -143,6 +186,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         '<style>svg{background-color:#ffffff}'
         '.panel{fill:#e2e8f0;stroke:#334155;stroke-width:1.15}'
         '.front{fill:#e8cfad;stroke:#475569;stroke-width:1.4}'
+        '.support{fill:#8c7864;stroke:#4f4032;stroke-width:1.2}'
         'text{font-family:Arial,sans-serif;fill:#1e293b;font-size:18px}'
         '.bad{font-size:25px;fill:#b91c1c;font-weight:bold}'
         '.note{font-size:15px;fill:#475569}.module{font-size:14px}'
@@ -164,9 +208,32 @@ def modular_front_svg(model: dict[str, Any]) -> str:
         f'M {x0-23:.3f} {y0:.3f} V {y0+scaled_h:.3f}"/>'
         f'<text x="{x0-34:.3f}" y="{y0+scaled_h/2:.3f}" text-anchor="middle" '
         f'transform="rotate(-90 {x0-34:.3f} {y0+scaled_h/2:.3f})">{h} mm</text>'
-        '<text x="45" y="730" class="note">Veta y canto están en el CSV de revisión. '
+        f'<text x="45" y="{740 if has_upper_support_review else 730}" class="note">'
+        'Veta y canto están en el CSV de revisión. '
         'Las dimensiones no compensan espesor de tapacanto.</text>'
-        '<text x="45" y="755" class="note">No muestra uniones de fondos, '
+        f'<text x="45" y="{765 if has_upper_support_review else 755}" class="note">'
+        'No muestra uniones de fondos, '
         'fijaciones ni verificación estructural. Comprobar en sitio.</text>'
-        '</svg>\n'
+        + ''.join(
+            f'<text x="45" y="{support_review_y}" class="note">'
+            f'AP: {escape(str(module["support_review"]["style"]))} '
+            f'{module["support_review"]["support_height_mm"]} mm conceptuales; '
+            'piezas no modeladas.</text>'
+            for module in draft["modules"] if has_upper_support_review
+            and "support_review" in module
+            and module["support_review"]["style"] in ("legs", "plinth")
+        )
+         + (f'<text x="45" y="675" class="note">'
+            f'Tres correas de canto: altura '
+            f'{draft["upper_support_review"]["tie_height_mm"]} mm '
+            f'{escape(draft["upper_support_review"]["tie_height_status"])}; '
+            '<tspan x="45" dy="18">'
+            'HYPOTHESIS_PREVIEW_ONLY; resistencia y uniones NO verificadas.'
+            '</tspan></text>'
+            if has_upper_support_review else "")
+         + ('<text x="45" y="700" class="note">'
+            'Patas: geometría CAD conceptual bajo cajonera; sin material ni SKU.</text>'
+            if has_support_leg_concepts
+           else "")
+        + '</svg>\n'
     )

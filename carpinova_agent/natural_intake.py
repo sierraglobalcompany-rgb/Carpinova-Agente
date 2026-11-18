@@ -20,12 +20,13 @@ MAX_UTTERANCE_CHARS = 2000
 MAX_CANDIDATE_UTF8_BYTES = 65536
 
 
-_DIM_LABEL = r"(?:ancho|anchura|alto|altura|fondo|profundidad)"
+_DIM_LABEL = r"(?:ancho|anchura|largo|alto|altura|fondo|profundidad)"
 _DIM_NUMBER = r"\d{1,5}(?:[.,]\d{1,2})?"
 _DIM_UNIT = r"(?:mm|cm|mil[ií]metros?|cent[ií]metros?)"
 _DIM_FIRST = re.compile(
     rf"(?<!\w)(?P<label>{_DIM_LABEL})\s*"
-    rf"(?:exterior(?:es)?|total(?:es)?)?\s*(?:de|es|mide|:|=)?\s*"
+    rf"(?:exterior(?:es)?|total(?:es)?)?\s*"
+    rf"(?:es\s+de|de|es|mide|:|=)?\s*"
     rf"(?P<amount>{_DIM_NUMBER})\s*(?P<unit>{_DIM_UNIT})(?!\w)",
     re.IGNORECASE,
 )
@@ -34,11 +35,29 @@ _DIM_REVERSE = re.compile(
     rf"\s*(?:de|del|de la)?\s*(?P<label>{_DIM_LABEL})(?!\w)",
     re.IGNORECASE,
 )
+_DIM_UNITLESS = re.compile(
+    rf"(?<![\w.])(?P<amount>{_DIM_NUMBER})\s+(?:de\s+)?"
+    rf"(?P<label>{_DIM_LABEL})(?!\w)", re.IGNORECASE,
+)
+_DIM_VALUE = re.compile(
+    rf"(?<![\w.])(?P<amount>{_DIM_NUMBER})\s*(?P<unit>{_DIM_UNIT})(?!\w)",
+    re.IGNORECASE,
+)
 _MEASURE_FIELDS = {
     "ancho": "width_mm", "anchura": "width_mm",
+    "largo": "width_mm",
     "alto": "height_mm", "altura": "height_mm",
     "fondo": "depth_mm", "profundidad": "depth_mm",
 }
+
+
+def _dimension_field(label: str, *, wall_bar_context: bool) -> str | None:
+    label = _fold(label)
+    if label == "largo":
+        return "width_mm" if wall_bar_context else None
+    if wall_bar_context and label in {"ancho", "anchura"}:
+        return "depth_mm"
+    return _MEASURE_FIELDS.get(label)
 
 
 def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
@@ -49,6 +68,9 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
     """
     if type(utterance) is not str or not utterance.strip() or len(utterance) > MAX_UTTERANCE_CHARS:
         raise MaestroError("Las medidas requieren texto de 1 a 2000 caracteres.")
+    wall_bar_context = bool(re.search(
+        r"(?<!\w)barra(?:\s+de\s+cocina)?(?!\w)", _fold(utterance)
+    ))
     hits: dict[str, list[tuple[int, int, str, int]]] = {}
     # A common phrase "ancho 70 cm alto 95 cm" contains an overlapping
     # reverse span ("70 cm alto"). A single literal cannot be two dimensions.
@@ -60,7 +82,11 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
                 for a, b in forward_spans
             ):
                 continue
-            field = _MEASURE_FIELDS[_fold(match.group("label"))]
+            field = _dimension_field(
+                match.group("label"), wall_bar_context=wall_bar_context,
+            )
+            if field is None:
+                continue
             try:
                 qty = Decimal(match.group("amount").replace(",", "."))
                 unit = _fold(match.group("unit"))
@@ -76,22 +102,109 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
     # A depth quoted for a door/drawer is not automatically cabinet depth.
     subparts = ("cajón", "cajon", "cajones", "gaveta", "gavetas",
                 "puerta", "puertas", "repisa", "repisas",
-                "estante", "estantes", "entrepaño", "entrepano")
+                "estante", "estantes", "entrepaño", "entrepano",
+                "pata", "patas")
     part_scoped: set[str] = set()
+    component_measurements: list[dict[str, Any]] = []
+    global_hits: dict[str, list[tuple[int, int, str, int]]] = {}
     for field, candidates in hits.items():
-        for start, _, _, _ in candidates:
+        for start, end, literal, value in candidates:
             prefix = _fold(utterance[max(0, start - 50):start])
-            if any(re.search(
-                    r"(?<!\w)" + re.escape(_fold(noun))
-                    + r"(?:\s+\w+){0,2}\s+(?:de|del)\s*$", prefix
-                ) for noun in subparts):
+            scope = next((noun for noun in subparts if re.search(
+                r"(?<!\w)" + re.escape(_fold(noun))
+                + r"(?:\s+\w+){0,2}\s+(?:de|del)\s*$", prefix
+            )), None)
+            if scope is not None and wall_bar_context and scope in {"pata", "patas"}:
+                component_measurements.append({
+                    "field": field, "scope": "patas", "literal": literal,
+                    "value_mm": value, "start": start, "end": end,
+                    "source": "user_literal_component",
+                })
+            elif scope is not None:
                 part_scoped.add(field)
+            else:
+                global_hits.setdefault(field, []).append(
+                    (start, end, literal, value)
+                )
     dimensions: dict[str, int] = {}
     evidence: list[dict[str, Any]] = []
     conflicts: list[str] = []
+    unit_requires_confirmation: list[dict[str, Any]] = []
+    resolved_unit_confirmations: list[dict[str, Any]] = []
+
+    # In a wall-bar request, keep "46 de ancho" visible as unresolved unless
+    # the same value is explicitly given with a unit beside a wall reference.
+    unitless_bar: list[dict[str, Any]] = []
+    if wall_bar_context:
+        # Explicit labelled spans are collected directly, avoiding unit
+        # inheritance from adjacent dimensions or from unrelated numbers.
+        labelled_spans = [
+            (match.start(), match.end())
+            for regex in (_DIM_FIRST, _DIM_REVERSE)
+            for match in regex.finditer(utterance)
+        ]
+        for match in _DIM_UNITLESS.finditer(utterance):
+            if any(a < match.end() and match.start() < b for a, b in labelled_spans):
+                continue
+            field = _dimension_field(
+                match.group("label"), wall_bar_context=True,
+            )
+            if field is None:
+                continue
+            try:
+                amount = Decimal(match.group("amount").replace(",", "."))
+            except InvalidOperation:
+                continue
+            if amount != amount.to_integral_value() or not 1 <= amount <= 100000:
+                continue
+            item = {
+                "field": field, "literal": match.group(0),
+                "value_without_unit": int(amount), "start": match.start(),
+                "end": match.end(), "source": "user_literal_unit_missing",
+            }
+            unitless_bar.append(item)
+
+        wall_positions = [m.start() for m in re.finditer(
+            r"(?<!\w)(?:pared|muro)(?!\w)", _fold(utterance)
+        )]
+        for item in unitless_bar:
+            clarified: list[tuple[re.Match[str], int]] = []
+            if item["field"] == "depth_mm":
+                for value_match in _DIM_VALUE.finditer(utterance):
+                    distance = min((abs(value_match.start() - pos)
+                                    for pos in wall_positions), default=10**9)
+                    try:
+                        amount = Decimal(value_match.group("amount").replace(",", "."))
+                    except InvalidOperation:
+                        continue
+                    if distance <= 80 and amount == item["value_without_unit"]:
+                        unit = _fold(value_match.group("unit"))
+                        multiplier = 10 if unit.startswith(("cm", "centimet")) else 1
+                        mm = amount * multiplier
+                        if mm == mm.to_integral_value() and 1 <= mm <= 100000:
+                            clarified.append((value_match, int(mm)))
+            if len(clarified) == 1:
+                value_match, value_mm = clarified[0]
+                field = item["field"]
+                global_hits.setdefault(field, []).append((
+                    value_match.start(), value_match.end(),
+                    value_match.group(0), value_mm,
+                ))
+                resolved_unit_confirmations.append({
+                    **item, "resolved_value_mm": value_mm,
+                    "clarification_literal": value_match.group(0),
+                    "clarification_start": value_match.start(),
+                    "clarification_end": value_match.end(),
+                    "source": "user_clarification_same_value_near_wall",
+                })
+            else:
+                unit_requires_confirmation.append(item)
+
     for field in ("width_mm", "height_mm", "depth_mm"):
-        candidates = hits.get(field, [])
+        candidates = global_hits.get(field, [])
         if not candidates:
+            if field in part_scoped:
+                conflicts.append(field)
             continue
         # Alternative readings like "80 cm de ancho o 90 cm" require review.
         alternatives = any(
@@ -104,10 +217,22 @@ def extract_explicit_dimensions(utterance: str) -> dict[str, Any]:
             continue
         start, end, literal, value = sorted(candidates)[0]
         dimensions[field] = value
-        evidence.append({"field": field, "literal": literal, "value_mm": value,
-                         "start": start, "end": end, "source": "user_literal"})
-    return {"dimensions_mm": dimensions, "source_provenance": evidence,
-            "ambiguous_fields": conflicts}
+        clarified = next((item for item in resolved_unit_confirmations
+                          if item.get("clarification_start") == start
+                          and item.get("clarification_end") == end), None)
+        evidence.append({
+            "field": field, "literal": literal, "value_mm": value,
+            "start": start, "end": end,
+            "source": (clarified["source"] if clarified
+                       else "user_literal"),
+        })
+    return {
+        "dimensions_mm": dimensions, "source_provenance": evidence,
+        "ambiguous_fields": conflicts,
+        "component_measurements": component_measurements,
+        "unit_requires_confirmation": unit_requires_confirmation,
+        "resolved_unit_confirmations": resolved_unit_confirmations,
+    }
 
 
 def _explicit_project_type(utterance: str) -> str | None:
@@ -213,16 +338,55 @@ _DRAWER_NUMBER_WORDS = {
     "un": 1, "uno": 1, "una": 1,
     "dos": 2, "tres": 3, "cuatro": 4,
 }
+OWNER_DIRECTIVE_SOURCE = "OWNER_DIRECTIVE_CURRENT_PROMPT"
 _DRAWER_LAYOUT_EXCLUSIONS = (
     "grande", "grandes", "pequeño", "pequenos", "pequena",
     "pequeñas", "arriba", "abajo", "superior", "inferior",
     "distintos", "diferentes", "desiguales", "alto diferente",
-    "puertas", "puerta", "patas", "zocalo", "banqueo",
+    "patas", "zocalo", "banqueo",
     "suspendido", "empotrado", "mural", "riel", "rieles",
-    "corredera", "bisagra", "tablero", "espesor", "mdf", "mdp",
-    "melamina", "entrepaño", "repisa", "estante", "modulos",
+    "corredera", "bisagra", "entrepaño", "repisa", "estante", "modulos",
     "módulos", "izquierda", "derecha", "dividido", "dividida",
 )
+_ILLUSTRATIVE_DRAWER_PANEL_MM = 18
+_DOOR_MENTION = re.compile(r"(?<!\w)puertas?(?!\w)")
+_DOOR_NEGATION = re.compile(
+    r"(?<!\w)(?:sin\s+(?:(?:ningun[oa]?|un[oa]?|las?|los?|"
+    r"unos?|unas?|dos|tres|cuatro|[1-9])\s+)?puertas?"
+    r"|no\s+(?:lleva|llevan|tiene|tienen|incluye|incluyen|hay)\s+"
+    r"(?:(?:ningun[oa]?|un[oa]?|las?|los?|unos?|unas?|dos|tres|"
+    r"cuatro|[1-9])\s+)?puertas?)(?!\w)"
+)
+_PANEL_THICKNESS = re.compile(
+    r"(?<!\w)(?:"
+    r"(?:tablero|panel)(?:\s+de\s+(?:melamina|mdp|mdf(?:\s+rh)?))?"
+    r"|mdf(?:\s+rh)?|mdp|melamina"
+    r")\s+(?:de\s+)?(?P<thickness>\d{1,3})\s*mm(?!\w)"
+)
+_COUNTERTOP_CONTEXT = re.compile(r"(?<!\w)(?:meson|cubierta|encimera)(?!\w)")
+_PANEL_CONTEXT = re.compile(
+    r"(?<!\w)(?:carcasa|cuerpo|estructura|tablero|panel|mueble)(?!\w)"
+)
+
+
+def _has_unnegated_door_mention(normalized: str) -> bool:
+    negated = [match.span() for match in _DOOR_NEGATION.finditer(normalized)]
+    return any(not any(start <= mention.start() and mention.end() <= end
+                       for start, end in negated)
+               for mention in _DOOR_MENTION.finditer(normalized))
+
+
+def _explicit_panel_thicknesses(normalized: str) -> list[int]:
+    thicknesses = []
+    for match in _PANEL_THICKNESS.finditer(normalized):
+        prefix = normalized[max(0, match.start() - 100):match.start()]
+        clause = re.split(r"[.;,\n]", prefix)[-1]
+        countertop = list(_COUNTERTOP_CONTEXT.finditer(clause))
+        panel = list(_PANEL_CONTEXT.finditer(clause))
+        if countertop and (not panel or panel[-1].start() < countertop[-1].start()):
+            continue
+        thicknesses.append(int(match.group("thickness")))
+    return thicknesses
 
 
 def _illustrative_drawer_layout_option(
@@ -244,7 +408,12 @@ def _illustrative_drawer_layout_option(
     if set(project) - {*keys, "project_type"}:
         return None
     normalized = _fold(utterance)
-    if not re.search(r"(?<!\w)(?:cajonera|mueble|gabinete)(?!\w)", normalized):
+    if _has_unnegated_door_mention(normalized):
+        return None
+    if not re.search(
+        r"(?<!\w)(?:cajonera|mueble|gabinete|nochero|mesa\s+de\s+noche|"
+        r"mesita\s+de\s+noche)(?!\w)", normalized,
+    ):
         return None
     matches = list(_DRAWER_COUNT.finditer(normalized))
     if len(matches) != 1:
@@ -259,6 +428,11 @@ def _illustrative_drawer_layout_option(
     if any(re.search(r"(?<!\w)" + re.escape(_fold(word)) + r"(?!\w)", normalized)
            for word in _DRAWER_LAYOUT_EXCLUSIONS):
         return None
+    thicknesses = _explicit_panel_thicknesses(normalized)
+    if len(set(thicknesses)) > 1 or any(
+        thickness != _ILLUSTRATIVE_DRAWER_PANEL_MM for thickness in thicknesses
+    ):
+        return None
     amount = matches[0].group("count")
     count = int(amount) if amount.isdecimal() else _DRAWER_NUMBER_WORDS[amount]
     if any(type(project[k]) is not int for k in keys):
@@ -270,7 +444,7 @@ def _illustrative_drawer_layout_option(
     module_spec = {
         "type": "drawer_layout_proposal",
         **{k: project[k] for k in keys},
-        "panel_thickness_mm": 18,
+        "panel_thickness_mm": _ILLUSTRATIVE_DRAWER_PANEL_MM,
         "construction": "top_bottom_full",
         "vertical_gap_mm": 28 if count > 1 else 0,
         "drawer_weights": [1] * count,
@@ -278,14 +452,15 @@ def _illustrative_drawer_layout_option(
     return {
         "status": "OPTIONAL_DRAWER_LAYOUT_REQUIRES_APPROVAL",
         "description": (
-            f"Esquema de {count} aberturas iguales, "
-            "sin cajas de cajón ni frentes fabricables."
+            f"Esquema de {count} aberturas iguales. Propuesta inicial: "
+            "caja completa con fachada aplicada separada; aún sin cajas "
+            "ni frentes como piezas fabricables."
         ),
         "proposed_request": {"action": "modular", "module_spec": module_spec},
         "explicit_user_values_to_confirm": {**{k: project[k] for k in keys},
                                   "drawer_count": count},
         "suggested_fields": {
-            "panel_thickness_mm": 18,
+            "panel_thickness_mm": _ILLUSTRATIVE_DRAWER_PANEL_MM,
             "construction": "top_bottom_full",
             "vertical_gap_mm": module_spec["vertical_gap_mm"],
             "drawer_weights": list(module_spec["drawer_weights"]),
@@ -294,7 +469,8 @@ def _illustrative_drawer_layout_option(
         "assumptions": [
             "Alturas iguales, solo para iniciar una conversación visual.",
             "Espesor de 18 mm y franjas de 28 mm ilustrativos, no seleccionados.",
-            "La profundidad se interpreta como carcasa; fachada pendiente.",
+            "La profundidad se interpreta como carcasa; extensión exterior de fachada no definida.",
+            "No se calcularon solapes, material, espesor, montaje ni fijación de fachada.",
             "Las franjas entre aberturas NO son tableros ni travesaños.",
             "No se eligen rieles, tiradores, caras, fondos, uniones ni apoyos.",
         ],
@@ -351,11 +527,31 @@ def preview_natural_request(
             "no se infieren medidas o decisiones de fabricación."
         ),
     }
+    if re.search(r"(?<!\w)(?:cajon(?:es|era)?|gavetas?)(?!\w)", _fold(utterance)):
+        result["current_owner_directives"] = {
+            "drawer_front_construction": {
+                "front_construction": "separate",
+                "front_style": "overlay",
+                "source": OWNER_DIRECTIVE_SOURCE,
+                "meaning": (
+                    "caja completa con cuatro paredes y fondo; fachada "
+                    "exterior decorativa aplicada, separada de la caja"
+                ),
+                "not_manufacturing_approval": True,
+            },
+        }
     if proposed_request is None:
         evidence = extract_explicit_dimensions(utterance)
         result["explicit_measurements"] = evidence["dimensions_mm"]
         result["source_provenance"] = evidence["source_provenance"]
         result["ambiguous_fields"] = evidence["ambiguous_fields"]
+        result["component_measurements"] = evidence["component_measurements"]
+        result["unit_requires_confirmation"] = evidence[
+            "unit_requires_confirmation"
+        ]
+        result["resolved_unit_confirmations"] = evidence[
+            "resolved_unit_confirmations"
+        ]
         if not evidence["dimensions_mm"]:
             return result
         # User must still confirm which dimension is exterior. No material,
@@ -453,6 +649,22 @@ _CORRECTION = re.compile(
     r"(?:\s+que\s+(?:antes|ahora))?$",
     re.IGNORECASE,
 )
+_CORRECTION_INTENT = re.compile(
+    r"^(?:(?:haz|pon|deja|ajusta|cambia)\s+)?"
+    r"(?:el\s+)?(?:(?:cajon|gaveta)\s+)?[a-d]\b"
+    r".*\b(?:mas|menos|alto|bajo)\b", re.IGNORECASE,
+)
+
+
+def is_drawer_correction_instruction(instruction: str) -> bool:
+    """Recognize A-D edit intent; the existing parser still validates syntax."""
+    if type(instruction) is not str:
+        return False
+    normalized = _fold(instruction).strip()
+    return bool(_CORRECTION.fullmatch(normalized)
+                or _CORRECTION_INTENT.search(normalized))
+
+
 _MAX_REVISIONS = 12
 _MIN_ILLUSTRATIVE_OPENING_MM = 60
 
@@ -461,7 +673,8 @@ def _parse_drawer_correction(instruction: str, count: int) -> tuple[str, int]:
     if (type(instruction) is not str or not instruction.strip()
             or len(instruction) > 120):
         raise MaestroError("Corrección: texto breve y explícito requerido.")
-    match = _CORRECTION.fullmatch(_fold(instruction).strip())
+    normalized = _fold(instruction).strip().rstrip(".!?¡¿ ")
+    match = _CORRECTION.fullmatch(normalized)
     if not match:
         raise MaestroError(
             "Corrección ambigua: usar «haz el cajón A 10 cm más alto» "
