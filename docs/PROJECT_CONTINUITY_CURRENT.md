@@ -1,4 +1,23 @@
-## VIGENTE — CARPN-D2-CI-FIX (CANDIDATO PENDIENTE DE SHA NUEVO; 17-nov-2026)
+## VIGENTE — CARPN-D3-R2 (17-nov-2026)
+- Base: `main` integrado en PR23 `93af91abccf844d7cd46e25aa3e1fca70d3006a3`; PR23/PR21 refs fueron comprobadas en G0 (PR23 OPEN/DRAFT, base PR21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`). No hubo publicación D3.
+- D2: `PASS_LOCAL_SCOPED`, publicado en la base anterior; QA reportada 879 ejecutadas, 20 omitidas, 0 fallos. No repetir D2.
+- D1: MCP/Knowledge y clóset de 14 piezas reportados funcionales con procedencia SHA indirecta; UAT del propietario y CAD nativo continúan pendientes.
+- D3 implementa una ruta conversacional estrecha para cocina/clóset de dos módulos a Maestro/F1/F6; no acepta `nominal_detail_spec` inyectado en el camino principal. F6, CADExchange, modular.py y MCP bridge no cambiaron.
+- K1 conversacional PASS: módulos 500+500 mm, repisa izquierda a 335 mm y tres cajones derechos; confirmación de propuestas de revisión precede al borrador. SHA original fixture `28845f0e3ec430af001eaec252625042ff13381e80a3a073caba81dc15f0edb6`.
+- C1 conversacional PASS: clóset 1800×2100×550 mm, vano 2035/2024/2012, repisa/puertas izquierda y cajones derecha; corrección central a 2023 mm se conserva. Carcasa 550 + frente 18 = 568 mm exterior; IDs únicos.
+- Cuatro paquetes nominales A/B generados con `incluir_planos=false` y verificados por `verify_pilot_bundle` + CADExchange. K1 29 piezas en A/B y geometría cambia al ancho 1100; C1 29 en A/B y SHA de piezas permanece igual al cambiar solo el vano central. Evidencia/paquetes dentro del ZIP D3.
+- QA focal final: K1 9/9 y C1/T1/T2 4/4. `py_compile` y `git diff --check` PASS. Suite final del árbol: `Ran 902`, 20 omitidas, 882 ejecutadas, 0 fallos/errores, exit 0.
+- B1 baño: `BATH_PLUMBING=NOT_IMPLEMENTED_CONCEPT_ONLY`; ambos canarios GN3/GN4 pasan. No se implementaron tuberías ni perforaciones.
+- `NO_ACTIONS`: ningún workflow remoto lanzado ni consultado; `CI=NOT_RUN_NO_QUOTA`. Sin cambios en Desktop, configuración, skills, Knowledge, runtime, PR21 o main.
+- WIP local único en `codex/carpn-d3-r2-20261117`, HEAD base `93af91a`: `conversation_flow.py`, `test_m2_mixed_kitchen.py`, `test_b3_product_families.py` y esta continuidad.
+- Gates permanentes: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`; sin CAD nativo, herrajes compatibles certificados, compra, corte ni fabricación.
+- L1–L6: Maestro/F1/F6 y ruta acotada; sin segundo motor; causa de parser adicional revertida; propuestas y placeholders declarados; PASS atribuido a suite local real, sin autoaprobación; un lote local único.
+- CANON_READ=PASS según lectura inicial del commit PingPongLaw fijado por AGENTS; adaptación local SHA-256 `c8c603703be85ac942a7500502c2ea5add9a8b3ff285136051992470f5a61952`. Revisiones independientes pendientes.
+- PUBLICATION=NOT_AUTHORIZED; no commit/push. La autorización D2 se consumió; PR23/PR21 se deben revalidar si el propietario autoriza publicación D3.
+- Los encabezados y NEXT de continuidad anteriores son HISTÓRICOS y no se ejecutan salvo nueva instrucción explícita.
+- **NEXT único:** `CHATGPT_DIRECTOR_VERIFY_D3_LOCAL_AND_PLAN_NEXT_FAMILIES`.
+
+## HISTÓRICO — CARPN-D2-CI-FIX (CANDIDATO PENDIENTE DE SHA NUEVO; 17-nov-2026)
 
 - `B6=PASS_SCOPED`; `D1_DESKTOP=PASS_FUNCTIONAL_SHA_INDIRECT`; `D2_R2=f15bebf82d9be966d2bf81e5aea05cff5244e3b4 CI_FAIL_11`; `D2_CI_FIX=CANDIDATE_PENDING_NEW_SHA`; `PRODUCT_COMPLETE=false`; `FABRICATION=false`.
 - Base de trabajo: PR23 `feat/carpn-ab-v1` desde `f15bebf82d9be966d2bf81e5aea05cff5244e3b4`; PR21 base `e2f20c5231bff3d384430b3a07146ecac93a0eeb`. Consultar PR23 HEAD y checks vivos antes de publicar; ningún resultado CI nuevo se presume.

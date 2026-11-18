@@ -486,6 +486,84 @@ class B6GuidedClosetTests(unittest.TestCase):
         self.assertEqual(second["nominal_draft_engine_status"],
                          "DRAFT_NOT_FOR_CUTTING")
 
+    def test_c1_builtin_closet_conversation_builds_shelves_doors_and_drawers(self):
+        first = guided_session_turn(
+            "Quiero un clóset empotrado contra la pared, de 1800 mm de ancho, "
+            "2100 mm de alto y 550 mm de profundidad de carcasa. El vano mide "
+            "arriba 2035 mm, al medio 2024 mm y abajo 2012 mm. Melamina de "
+            "18 mm, tapa y base entre laterales, sin fondo posterior y "
+            "directamente al piso."
+        )
+        self.assertIsNone(first["nominal_draft_request"])
+        self.assertEqual(first["review_state"]["decisions"]["installation"]["value"],
+                         "built_in")
+        self.assertEqual(first["review_state"]["decisions"]["site_width_mm"]["value"], {
+            "top": 2035, "middle": 2024, "bottom": 2012,
+        })
+        self.assertTrue(all(first[flag] is False for flag in FLAGS))
+
+        second = guided_session_turn(
+            "Dos módulos iguales de 900 mm. Solo el módulo izquierdo lleva una "
+            "repisa horizontal a 700 mm desde la base interior y dos puertas "
+            "abatibles sobrepuestas. El módulo derecho lleva tres cajones con "
+            "frentes sobrepuestos y manijas.",
+            first["review_state"],
+        )
+        self.assertIsNone(second["nominal_draft_request"])
+        self.assertEqual(second["review_state"]["decisions"]["drawers"]["value"][
+            "module_index"], 1)
+        self.assertEqual(second["review_state"]["decisions"]["doors"]["value"][
+            "module_index"], 0)
+        self.assertEqual(second["review_state"]["decisions"]["drawer_layout"][
+            "status"], "proposed")
+        self.assertIn("drawer_layout", [item["field"] for item in second["questions"]])
+
+        third = guided_session_turn(
+            "Sí, confirmo las proporciones iguales y la separación geométrica "
+            "propuestas, las luces nominales de las puertas y cajas ilustrativas "
+            "pendientes de validar con el herraje.",
+            second["review_state"],
+        )
+        spec = third["nominal_draft_request"]["module_spec"]
+        self.assertEqual(spec["installation"], "built_in")
+        self.assertEqual(spec["site_width_mm"], {
+            "top": 2035, "middle": 2024, "bottom": 2012,
+        })
+        self.assertEqual([module["module_id"] for module in spec["modules"]],
+                         ["CLOSET_A", "CLOSET_B"])
+        self.assertEqual(spec["modules"][0]["horizontal_divider"][
+            "position_from_clear_bottom_mm"], 700)
+        self.assertEqual(spec["modules"][0]["fronts"]["leaf_count"], 2)
+        self.assertEqual(spec["modules"][1]["drawers"][0]["drawer_id"], "D1")
+        self.assertEqual(third["nominal_draft_piece_count"], 29)
+        self.assertEqual(third["nominal_draft_blockers"], [])
+        modular = consult_maestro(third["nominal_draft_request"])["modular"]
+        exchange = validate_exchange(cad_exchange(modular))
+        self.assertEqual(exchange["geometry_sha256"],
+                         third["nominal_draft_geometry_sha256"])
+        piece_ids = [piece["piece_id"] for piece in exchange["boxes"]]
+        self.assertEqual(len(piece_ids), 29)
+        self.assertEqual(len(piece_ids), len(set(piece_ids)))
+        self.assertEqual(modular["site"]["minimum_mm"], 2012)
+        self.assertEqual(modular["site"]["nominal_gap_at_narrowest_mm"], 212)
+        self.assertEqual(modular["depth_review"]["carcass_depth_mm"], 550)
+        self.assertEqual(modular["depth_review"]["assembled_external_depth_mm"], 568)
+        self.assertTrue(all(third[flag] is False for flag in FLAGS))
+        self.assertIs(third["can_generate_f7c"], False)
+
+        corrected = guided_session_turn(
+            "Al medio 2023 mm.", third["review_state"],
+        )
+        self.assertEqual(
+            corrected["nominal_draft_request"]["module_spec"]["site_width_mm"],
+            {"top": 2035, "middle": 2023, "bottom": 2012},
+        )
+        self.assertEqual(corrected["review_state"]["decisions"]["drawers"]["value"][
+            "module_index"], 1)
+        self.assertEqual(corrected["review_state"]["decisions"]["internal_layout"][
+            "value"]["shelf_module_index"], 0)
+        self.assertTrue(all(corrected[flag] is False for flag in FLAGS))
+
     def test_t2_site_measurements_accumulate_and_one_value_correction_is_local(self):
         result = guided_session_turn(closet_text(site_widths=None))
         self.assert_review_only(result, 0)
