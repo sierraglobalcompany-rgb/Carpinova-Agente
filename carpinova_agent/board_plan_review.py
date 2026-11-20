@@ -37,16 +37,21 @@ _PHYSICAL_ROLES = frozenset((
     "back_top", "front_single", "front_left", "front_right",
     "drawer_side_left", "drawer_side_right", "drawer_front_wall",
     "drawer_rear_wall", "drawer_bottom", "drawer_facade",
+    # Already produced by canonical F6 and represented by CADExchange.
+    "divider_vertical", "shelf_horizontal", "countertop",
+    "upper_front_tie", "upper_rear_tie", "lower_rear_tie",
 ))
 _CONCEPT_ROLES = frozenset(("support_leg_concept",))
 _ROLE_PLANE = {
-    "left_side": "YZ", "right_side": "YZ",
+    "left_side": "YZ", "right_side": "YZ", "divider_vertical": "YZ",
     "drawer_side_left": "YZ", "drawer_side_right": "YZ",
     "top": "XZ", "bottom": "XZ", "drawer_bottom": "XZ",
+    "shelf_horizontal": "XZ", "countertop": "XZ",
     "back_full": "XY", "back_bottom": "XY", "back_top": "XY",
     "front_single": "XY", "front_left": "XY", "front_right": "XY",
     "drawer_front_wall": "XY", "drawer_rear_wall": "XY",
     "drawer_facade": "XY", "support_leg_concept": "XY",
+    "upper_front_tie": "XY", "upper_rear_tie": "XY", "lower_rear_tie": "XY",
 }
 _FLAGS = {
     "fabrication_ready": False, "cutting_ready": False,
@@ -586,9 +591,22 @@ def build_board_plan_review(request: Any) -> dict[str, Any]:
     except MaestroError:
         raise
     modular = maestro.get("modular") if type(maestro) is dict else None
-    if (type(modular) is not dict
-            or modular.get("status") != "DRAFT_NOT_FOR_CUTTING"):
-        return _blocked("CONCEPT_ONLY", blockers=["UNSUPPORTED_SOURCE: Maestro no devolvió un borrador dimensional."])
+    # A nominal sheet simulation is never permitted to consume any upstream
+    # release signal. The public output remains review-only in all cases.
+    physical_flags = ("fabrication_ready", "cutting_ready", "drilling_ready",
+                      "purchase_ready")
+    if (type(maestro) is not dict or type(modular) is not dict
+            or maestro.get("status") != "DRAFT_NOT_FOR_CUTTING"
+            or modular.get("status") != "DRAFT_NOT_FOR_CUTTING"
+            or any(maestro.get(flag) is not False or modular.get(flag) is not False
+                   for flag in physical_flags)
+            or ("can_generate_f7c" in maestro
+                and maestro["can_generate_f7c"] is not False)
+            or ("can_generate_f7c" in modular
+                and modular["can_generate_f7c"] is not False)):
+        return _blocked("CONCEPT_ONLY", blockers=[
+            "UNSUPPORTED_SOURCE: Maestro no entregó un borrador nominal seguro.",
+        ])
     try:
         cad = cad_exchange(modular)
         physical, concepts = _validate_maestro_cad(modular, cad)

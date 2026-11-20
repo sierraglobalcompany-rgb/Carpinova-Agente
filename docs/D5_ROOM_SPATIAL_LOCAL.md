@@ -23,9 +23,9 @@ if request["review_kind"] == "room_layout_v1":
     return review_room_from_specs(request)
 ```
 
-El `PATCH/BRIDGE_INTEGRATION.patch` es relativo al PR23 D3 `72c877d` y se aplica también sobre D4 R2 con ajuste focal si ya se introdujo `kitchen_linear_v1`. No sobrescribir el despacho D4.
+En el candidato D4+D5 aislado, los dos `review_kind` se despachan en `carpinova_agent/mcp_bridge.py`. El README original mencionaba un parche que no está entre las ocho rutas versionadas de D5; no exigirlo ni sobrescribir el despacho D4.
 
-Ejemplo funcional de estructura de entrada en `fixtures/room-layout-L-example.json`: dos módulos abiertos F6 con orientación a 90°, más reserva de tubería. El archivo es *boceto nominal*, no describe un verdadero mueble de esquina.
+Ejemplo funcional de estructura de entrada en `examples/room-layout-L-concept.json`: dos módulos abiertos F6 con orientación a 90°, más reserva de tubería. El archivo es *boceto nominal*, no describe un verdadero mueble de esquina.
 
 ## Evidencia local
 
@@ -44,6 +44,6 @@ Ejemplo funcional de estructura de entrada en `fixtures/room-layout-L-example.js
 
 ## Próximo paso más corto
 
-Integrar el despacho `room_layout_v1` en el mismo `carpinova_consultar`, publicar con `[skip ci]` y rama sin triggers `push` de Actions, correr una única suite local con el árbol combinado D4+D5 cuando haya checkout; después continuar módulos esquineros reales y baños con lavamanos/tuberías.
+Candidato aislado: verificar ambos despachos y ejecutar pruebas locales reales sobre este árbol. Publicación remota exige autorización separada y verificación previa de triggers de Actions; `[skip ci]` no garantiza cero ejecuciones. No fusionar ni habilitar fabricación.
 
 **Estado:** `PASS_FOCAL_LOCAL` para revisión espacial, `NOT_FULL_REPO_CERTIFIED`, `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`, `FABRICATION=false`.

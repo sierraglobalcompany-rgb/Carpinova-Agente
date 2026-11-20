@@ -1,4 +1,51 @@
-## VIGENTE — CARPN-D3-R2 (17-nov-2026)
+## VIGENTE — CARPN D12 · RAMA DE REVISIÓN CONTROLADA (19-nov-2026)
+- Base D5: `791d4c566d678212fb5b36583e3aed64bd50935b`; rama objetivo: `codex/carpn-d12-integracion-20261119`.
+- Parche acumulativo de código D5→D12: SHA-256 `67fc6bfddaa6dcf22f7f62dd2b9d27148a9963ebe784494c14d2ac4f8229a9cd`; las otras 11 rutas se conservan idénticas al parche; este documento recibe solo el encabezado de continuidad vigente.
+- QA local atribuida al árbol integrado D12: 963 tests ejecutados PASS, 20 skips; smoke Maestro/F6/CAD 14/14 PASS; MCP STDIO protocolo real con seis herramientas PASS_SCOPED_LOCAL (Python 3.12.10 existente). No se repitieron suites para la publicación documental.
+- `GITHUB_BRANCH_STATUS=VERIFY_REMOTE_AFTER_PUBLICATION`; el commit no incorpora un SHA propio circular. Confirmar remotamente rama y padre y actualizar el checkpoint externo del [issue #22](https://github.com/sierraglobalcompany-rgb/Carpinova-Agente/issues/22).
+- `HOST_DESKTOP_UAT=NOT_RUN`; `KNOWLEDGE_HOST=NOT_VERIFIED`; `CAD_NATIVE=NOT_RUN`; `RELEASE=NO_GO`; `PRODUCT_COMPLETE=false`; fabricación/corte/perforación/compra y `can_generate_f7c` permanecen false.
+- No PR nuevo, merge, cambio de main, instalación, configuración del host ni autorización de fabricación. NEXT: `CHATGPT_DIRECTOR_VERIFY_REMOTE_SHA_AND_PLAN_OWNER_DESKTOP_CONSULTAR`.
+
+## HISTÓRICO — CARPN-D4–D12 INTEGRACIÓN LOCAL REANUDADA (19-nov-2026)
+- Base exacta: D5 `791d4c566d678212fb5b36583e3aed64bd50935b`; copia aislada bajo `D:\codex\_REPORTES\Carpinova-Agente\CARPN-D12-CIERRE-REANUDADO-20261119-d150c547`. Worktrees históricos, incluido el WIP D4 inicial, no fueron objetivo de escritura.
+- D4–D10 se reconstruyó desde el ZIP fuente verificado y se aplicó una vez sobre el snapshot D5. D12 añade al `board_plan_nominal` los seis roles F6/CADExchange ya producidos (`divider_vertical`, `shelf_horizontal`, `countertop`, `upper_front_tie`, `upper_rear_tie`, `lower_rear_tie`) y mantiene el veto de seguridad. La prueba real `test_real_f6_shelf_reaches_board_plan_through_cad_exchange` demuestra la ruta de una repisa horizontal sin catálogo confirmado; termina `NEEDS_MATERIAL_CONFIRMATION`, no fabricación.
+- `carpinova_consultar` conserva las rutas `kitchen_linear_v1`, `room_layout_v1`, `kitchen_spatial_v1`, `room_layout_session_v1`, `room_fit_v1` y `board_plan_nominal`. `create_server()` registra exactamente seis herramientas MCP.
+- QA del mismo candidato final: `py -3.12 -m unittest discover -s tests -v`, 983 descubiertas, 20 omitidas, 963 ejecutadas, 0 fallos/errores, exit 0; incluye la prueba D12 anterior. Smoke D11 `VERIFY_REAL_D4_D10.py`: `PASS_UNMOCKED_PUBLIC_MAESTRO_F6_CAD`, 14/14, todos los permisos físicos falsos.
+- El generador D11 original permanece intacto. En Windows, `core.autocrlf=true` y sus escrituras de texto producen CRLF en el parche/snapshot; se reprodujo y se evitó únicamente en una copia temporal externa, preservando LF y el `diff --check` sin borrar historia ni relajar validaciones.
+- `MCP_STDIO=BLOCKED_DEPENDENCY`: `scripts/verify_local_mcp.py --help` funciona, pero `py -3.12` devuelve `mcp_spec=None`; no se instaló paquete ni se ejecutó protocolo STDIO. UAT en Codex Desktop, render de PNG/PDF, Knowledge del host y FreeCAD/Blender: `NOT_RUN`, gates separados.
+- Estado local exclusivamente: `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`, `PUBLISHED=false`, `MERGE=NO`; `can_generate_f7c=false`, `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`. Sin CAD nativo, fabricación, corte, perforación, compra, Actions ni modificaciones remotas. El issue de seguimiento `sierraglobalcompany-rgb/Carpinova-Agente#22` no fue consultado ni editado en este lote.
+- L1: Maestro/F6/CADExchange siguen como única autoridad geométrica; una prueba focal nueva y acotada. L2: sin motor ni servidor duplicado. L3: causa CRLF resuelta solo en el entorno de integración, instalador original intacto. L4: sin UI/render nuevo (`NO_APLICA`). L5: suite y smoke ejecutados sobre este candidato; revisión independiente pendiente. L6: un único parche local; sin publicación/Actions.
+- **NEXT único:** `CHATGPT_DIRECTOR_REVISAR_ZIP`.
+
+## HISTÓRICO — D4+D5+D6+D7+D8+D9+D10 CANDIDATO AISLADO (QA SEGÚN RESULTADO LOCAL)
+- Base remota D5 exacta `791d4c566d678212fb5b36583e3aed64bd50935b`.
+- D4 recuperado del parche firmado en el ZIP original; los despachos `kitchen_linear_v1`, `room_layout_v1`, `kitchen_spatial_v1`, `room_layout_session_v1` y `room_fit_v1` coexisten en `carpinova_consultar` con SEIS tools MCP.
+- D6 conecta revisión de cocina conversacional aprobada a composición espacial sin CADExchange ni geometría suministrados por cliente, y bloquea candidatos pendientes o hashes adulterados.
+- D7 añade revisión espacial multivuelta: mover, girar, insertar/retirar zonas; antes/después, rechazo de interferencias y última distribución nominal válida. Siempre regenera Maestro/F6/CADExchange.
+- D8 comprueba recinto medido, alturas y volúmenes de obstáculos mediante las cajas CAD reales. No inventa medidas, despejes, cinemática de puertas, cálculos resistentes ni despieces.
+- D10 impide aceptar reservas fuera del recinto o atravesadas por columnas/obstáculos.
+- D9 bloquea cualquier bandera opcional `purchase_ready` o `can_generate_f7c` diferente de false en CADExchange; agrega regresión sobre compositor D5 exacto.
+- Estado: `LOCAL_CANDIDATE_ONLY`; consultar `RESULTADO.json` del ZIP de retorno para la QA local real o NOT_RUN. `PUBLICATION=NO`, `RELEASE=NO_GO`, permisos físicos `false`.
+- No confundir este archivo local con rama publicada, CI verde, CAD nativo o aprobación de fabricación.
+
+## HISTÓRICO — CARPN-D4-R2 (17-nov-2026)
+- Base exacta de trabajo: PR23 D3 `72c877d01d292b8bf9554e8a1ecd3b7f14d34d9a`, en worktree aislado `D:\codex\CARPN-WORKTREES\CARPN-D4-R2-20261117`, detached. PR23 `feat/carpn-ab-v1` OPEN/DRAFT y PR21 base `e2f20c5231bff3d384430b3a07146ecac93a0eeb` se comprobaron en G0; no se escribió en GitHub ni se consultó/ejecutó Actions.
+- D4 añade únicamente la revisión `review_kind=kitchen_linear_v1` a `carpinova_consultar`; conserva las seis herramientas y delega cada historial natural por grupo a `prepare_guided_design_v1`, Maestro/F1/F6 y CADExchange. No añade motor geométrico, tool MCP, dependencia ni CAD nativo.
+- Estado D4 local: `carpinova_agent/kitchen_linear.py`, despacho en `carpinova_agent/mcp_bridge.py`, pruebas `tests/test_kitchen_linear.py` y esta cabecera de continuidad. La ubicación exige grupo existente y coordenadas explícitas X/Y/Z enteras; CADExchange externo montado se usa para AABB. Estado del cliente se valida/reconstruye desde texto; piezas y hashes enviados por el cliente no se aceptan como fuente.
+- L1: BAJO K1, ALTO GN5-C4 tras decidir sin fondo y TORRE B3 sin aparato, creados desde conversación separada por grupo; Maestro y `validate_exchange` PASS. Tres paquetes nominales independientes generados y verificados con `verify_pilot_bundle`; advertencias de instalación/anclajes del ALTO preservadas. IDs globales `GRUPO:piece_id` únicos.
+- L2: al mover solo TORRE a X=1050 mm, las tres geometrías CAD conservaron SHA y cambió `layout_sha256`.
+- L3: mover ALTO a Y=650 mm produjo intersección AABB BAJO/ALTO en X/Y/Z con intervalos explícitos; `last_valid` quedó en el hash válido L2 y el intento permaneció `PENDING_COLLISION`.
+- L4: ancho de BAJO cambiado mediante texto natural a 1100 mm; Maestro requirió revisar y confirmar el nuevo reparto 550+550. El candidato chocó con TORRE en X=1050; al mover TORRE a X=1200 quedó válido. Solo cambió el SHA geométrico de BAJO; ALTO y TORRE conservaron sus SHA; `last_valid` promovido atómicamente.
+- L5: fondo pendiente del ALTO no produjo modelo; torre con reserva de horno quedó `CONCEPT_ONLY`; solicitud de corte bloqueada. Coordenadas incompletas, coordenadas antes de declarar grupo, estados manipulados, hash falso de `last_valid`, JSON duplicado y NaN se rechazaron. Sin afirmación de herrajes o geometría de electrodomésticos.
+- L6: canarios exactos K1 (`test_k1_conversation_builds_mixed_modules_without_prebuilt_spec`), C4, torre B3, baño GN5-C2 y profundidad D2-A: 5/5 PASS. Pruebas focales D4 L1–L5: 5/5 PASS; Python 3.12.10, `py_compile` de los tres archivos Python y `git diff --check` PASS.
+- Suite general local única del árbol de código D4: `python -m unittest discover -s tests`; `Ran 907`, `skipped=20`, `executed=887`, `failures=0`, `errors=0`, exit 0. La salida incluye mensajes de error esperados por pruebas negativas; no son fallos de unittest. No se ejecutaron workflows remotos.
+- Matriz de familias D4 (validación local sintética; no equivale a UAT física): BAJO modular K1=`NOMINAL_VERIFIED`; ALTO GN5-C4=`NOMINAL_VERIFIED` con anclajes/carga/instalación pendientes; TORRE B3 sin aparato=`NOMINAL_VERIFIED`; reserva horno o nicho sin ficha=`CONCEPT_ONLY`; esquinas/L, otras familias de producto y geometrías no pedidas=`NOT_IMPLEMENTED`; uso real por propietario/Desktop y montaje físico=`OWNER_UAT_PENDING`. K1/C4/B3 históricos se reutilizan como grupos individuales; D4 verifica su coordinación conversacional, no amplía sus límites de producto.
+- El AABB es una exclusión conservadora, no análisis cinemático, de secuencia de montaje, estabilidad ni cargas. Medidas y paquetes permanecen nominales; exportación FreeCAD/Blender no llamada.
+- `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`; `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`. Sin corte, perforación, compra o fabricación. `ACTIONS=NOT_RUN_NO_QUOTA`; `PUBLICATION=NOT_AUTHORIZED`; sin commit/push/merge/deploy ni cambios de Desktop/configuración/Knowledge.
+- Revisión independiente de ChatGPT Director y UAT del propietario siguen pendientes; la suite local no es autoaprobación. Los encabezados y NEXT bajo HISTÓRICO no se ejecutan.
+- **NEXT único:** `CHATGPT_DIRECTOR_VERIFY_D4`.
+
+## HISTÓRICO — CARPN-D3-R2 (17-nov-2026)
 - Base: `main` integrado en PR23 `93af91abccf844d7cd46e25aa3e1fca70d3006a3`; PR23/PR21 refs fueron comprobadas en G0 (PR23 OPEN/DRAFT, base PR21 `e2f20c5231bff3d384430b3a07146ecac93a0eeb`). No hubo publicación D3.
 - D2: `PASS_LOCAL_SCOPED`, publicado en la base anterior; QA reportada 879 ejecutadas, 20 omitidas, 0 fallos. No repetir D2.
 - D1: MCP/Knowledge y clóset de 14 piezas reportados funcionales con procedencia SHA indirecta; UAT del propietario y CAD nativo continúan pendientes.

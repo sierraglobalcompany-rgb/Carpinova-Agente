@@ -125,6 +125,8 @@ def compose_verified_exchanges(assemblies: list[dict[str, Any]],
         if (type(exchange) is not dict or exchange.get("status") != "DRAFT_NOT_FOR_CUTTING"
                 or any(exchange.get(flag) is not False for flag in (
                     "fabrication_ready", "cutting_ready", "drilling_ready"))
+                or any(exchange.get(flag) is not False for flag in (
+                    "purchase_ready", "can_generate_f7c") if flag in exchange)
                 or exchange.get("hardware_included") is not False
                 or exchange.get("finished_panel_edges_included") is not False
                 or type(exchange.get("geometry_sha256")) is not str
@@ -335,3 +337,401 @@ def render_top_view_svg(review: dict[str, Any]) -> str:
             "stroke-dasharray": "8,6",
         })
     return ET.tostring(svg, encoding="unicode", short_empty_elements=True)
+
+def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
+    """D6: place D4's validated conversational kitchen using D5's CAD boxes.
+
+    This does not trust public exchange/boxes/hash fields: the source review
+    state holds only natural language and positions, rebuilt by Maestro/F6.
+    The output remains an unapproved conceptual room layout.
+    """
+    from .kitchen_linear import _GROUPS, _build, _validate_state
+
+    allowed = {
+        frozenset(("review_kind", "review_state", "service_zones")),
+        frozenset(("review_kind", "review_state", "service_zones", "rotations_deg")),
+    }
+    if (type(request) is not dict or frozenset(request) not in allowed
+            or request.get("review_kind") != "kitchen_spatial_v1"):
+        _error("kitchen_spatial_v1 exige review_kind, review_state y service_zones")
+
+    state = _validate_state(request["review_state"])
+    last = state["last_valid"]
+    if last is None or state["pending_candidate"] is not None:
+        _error("La cocina debe tener tres grupos confirmados sin revisión pendiente")
+    working = state["working"]
+    if working["groups"] != last["groups"] or working["positions"] != last["positions"]:
+        _error("El estado actual debe coincidir con la última disposición válida")
+
+    rotations = request.get("rotations_deg", {g: 0 for g in _GROUPS})
+    if (type(rotations) is not dict or set(rotations) != set(_GROUPS)
+            or any(type(v) is not int or v not in ROTATIONS for v in rotations.values())):
+        _error("rotations_deg requiere BAJO, ALTO, TORRE con 0/90/180/270")
+
+    rebuilt = _build(working)  # Recomputes every group from text via real Maestro/F6.
+    if (rebuilt["assemblage_status"] != "REVIEW_ONLY_VALID"
+            or rebuilt["layout_sha256"] != last["layout_sha256"]):
+        _error("El historial no valida la instantánea; no se aceptan hashes del cliente")
+
+    assemblies = []
+    for group in _GROUPS:
+        reviewed = rebuilt["_reviews"][group]
+        origin = working["positions"][group]
+        if (reviewed["status"] != "REVIEW_ONLY_VALID" or origin is None
+                or type(reviewed.get("exchange")) is not dict):
+            _error("Falta geometría nominal revalidada para " + group)
+        assemblies.append({
+            "group_id": group,
+            "exchange": reviewed["exchange"],
+            "origin_xyz_mm": origin,
+            "rotation_deg": rotations[group],
+        })
+    output = compose_verified_exchanges(assemblies, request["service_zones"])
+    if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
+        _error("La revisión espacial no puede habilitar fabricación")
+    output["top_view_svg"] = render_top_view_svg(output)
+    output["source_review_kind"] = "kitchen_linear_v1"
+    output["source_layout_sha256"] = rebuilt["layout_sha256"]
+    output["warnings"] = list(dict.fromkeys([
+        *output["warnings"],
+        "CONVERSATIONAL_LAYOUT_NOMINAL_ONLY_NO_FABRICATION",
+    ]))
+    return output
+
+def _session_snapshot(assemblies: list[dict[str, Any]],
+                      zones: list[dict[str, Any]],
+                      digest: str) -> dict[str, Any]:
+    """Client-carried *untrusted* inputs, not a privileged approval ticket.
+
+    Layout digest is recomputed from Maestro/F6 on every subsequent turn.
+    This checksum is not an authentication signature and never grants cutting.
+    """
+    from copy import deepcopy
+    data = {
+        "schema_version": "room_layout_session_v1",
+        "assemblies": deepcopy(assemblies), "service_zones": deepcopy(zones),
+        "layout_sha256": digest,
+    }
+    data["snapshot_sha256"] = _hash(data)
+    return data
+
+
+def _session_summary(result: dict[str, Any]) -> dict[str, Any]:
+    """Compact revision evidence, not a manufacturing drawing or full CAD."""
+    return {
+        "status": result["status"], "layout_sha256": result["layout_sha256"],
+        "piece_count": result["piece_count"], "groups": result["groups"],
+        "envelope_collisions": result["envelope_collisions"],
+        "panel_collisions": result["panel_collisions"],
+        "service_zones": result["service_zones"],
+        "warnings": result["warnings"],
+    }
+
+
+def review_room_session(request: dict[str, Any]) -> dict[str, Any]:
+    """D7: one safe, editable multivuelta spatial review over existing F6.
+
+    `start` accepts precisely the same specs as D5 room_layout_v1. Subsequent
+    `move`/`rotate`/`upsert_zone`/`remove_zone` always reconstruct Maestro/F6
+    and CADExchange; there is no retained authority for client-side CAD boxes.
+    Rejected collisions leave the previous verified state unchanged and include
+    a visual candidate comparison for the user's next correction.
+    """
+    from copy import deepcopy
+
+    if (type(request) is not dict or set(request) !=
+            {"review_kind", "review_state", "edit"} or
+            request.get("review_kind") != "room_layout_session_v1" or
+            type(request["edit"]) is not dict):
+        _error("room_layout_session_v1 exige review_kind, review_state y edit")
+    previous = request["review_state"]
+    edit = request["edit"]
+    if type(edit.get("op")) is not str:
+        _error("edit.op inválido")
+
+    if previous is None:
+        if set(edit) != {"op", "assemblies", "service_zones"} or edit["op"] != "start":
+            _error("Primera revisión exige start con assemblies y service_zones")
+        assemblies = deepcopy(edit["assemblies"])
+        zones = deepcopy(edit["service_zones"])
+        before = None
+    else:
+        if (type(previous) is not dict or set(previous) != {
+            "schema_version", "assemblies", "service_zones",
+            "layout_sha256", "snapshot_sha256",
+        } or previous["schema_version"] != "room_layout_session_v1"):
+            _error("review_state espacial inválido")
+        raw = {key: value for key, value in previous.items() if key != "snapshot_sha256"}
+        try:
+            digest = _hash(raw)
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            _error("review_state no es JSON canónico")
+        if (type(previous["snapshot_sha256"]) is not str or
+                previous["snapshot_sha256"] != digest or
+                type(previous["layout_sha256"]) is not str):
+            _error("review_state modificado; checksum no coincide")
+        if edit["op"] == "start":
+            _error("start no puede reemplazar un estado existente")
+        assemblies = deepcopy(previous["assemblies"])
+        zones = deepcopy(previous["service_zones"])
+        # Only the existing public D5 boundary is allowed to issue a review.
+        before = review_room_from_specs({
+            "review_kind": "room_layout_v1", "assemblies": assemblies,
+            "service_zones": zones,
+        })
+        if (before["status"] != "REVIEW_ONLY" or
+                before["layout_sha256"] != previous["layout_sha256"] or
+                any(before.get(flag) is not False for flag in PHYSICAL_FLAGS)):
+            _error("Estado anterior ya no revalida con Maestro/CAD")
+        op = edit["op"]
+        if op in {"move", "rotate"}:
+            needed = ({"op", "group_id", "origin_xyz_mm"} if op == "move" else
+                      {"op", "group_id", "rotation_deg"})
+            if set(edit) != needed or type(edit["group_id"]) is not str:
+                _error("Edición de módulo contiene campos inválidos")
+            matching = [item for item in assemblies if item.get("group_id") == edit["group_id"]]
+            if len(matching) != 1:
+                _error("No existe el módulo especificado")
+            if op == "move":
+                matching[0]["origin_xyz_mm"] = _vec3(edit["origin_xyz_mm"], "origin_xyz_mm")
+            else:
+                if type(edit["rotation_deg"]) is not int or edit["rotation_deg"] not in ROTATIONS:
+                    _error("rotation_deg debe ser 0,90,180 o 270")
+                matching[0]["rotation_deg"] = edit["rotation_deg"]
+        elif op == "upsert_zone":
+            if set(edit) != {"op", "zone"} or type(edit["zone"]) is not dict:
+                _error("upsert_zone exige una zona")
+            zone = deepcopy(edit["zone"])
+            if set(zone) != {"zone_id", "purpose", "origin_xyz_mm", "size_xyz_mm"}:
+                _error("Zona con campos no permitidos")
+            zid = _id(zone["zone_id"], "zone_id")
+            if type(zone["purpose"]) is not str or zone["purpose"] not in PURPOSES:
+                _error("Propósito de zona desconocido")
+            zone["origin_xyz_mm"] = _vec3(zone["origin_xyz_mm"], "zone.origin_xyz_mm")
+            zone["size_xyz_mm"] = _vec3(zone["size_xyz_mm"], "zone.size_xyz_mm", positive=True)
+            zones = [item for item in zones if item.get("zone_id") != zid]
+            zones.append(zone)
+        elif op == "remove_zone":
+            if set(edit) != {"op", "zone_id"}:
+                _error("remove_zone exige zone_id")
+            zid = _id(edit["zone_id"], "zone_id")
+            if not any(item.get("zone_id") == zid for item in zones):
+                _error("La zona a eliminar no existe")
+            zones = [item for item in zones if item["zone_id"] != zid]
+        else:
+            _error("Operación desconocida; usar move, rotate, upsert_zone o remove_zone")
+
+    # All edits, even when blocked, go through real Maestro and CADExchange.
+    candidate = review_room_from_specs({
+        "review_kind": "room_layout_v1", "assemblies": assemblies,
+        "service_zones": zones,
+    })
+    if any(candidate.get(flag) is not False for flag in PHYSICAL_FLAGS):
+        _error("La revisión no puede conceder permisos físicos")
+    accepted = candidate["status"] == "REVIEW_ONLY"
+    current_state = (_session_snapshot(assemblies, zones, candidate["layout_sha256"])
+                     if accepted else deepcopy(previous))
+    # In the first turn a rejected candidate deliberately produces no last_valid.
+    out = {
+        "review_kind": "room_layout_session_v1",
+        "status": "REVIEW_ONLY_STATE_UPDATED" if accepted else "NEEDS_CORRECTION",
+        "review_state": current_state,
+        "before": _session_summary(before) if before is not None else None,
+        "candidate": _session_summary(candidate),
+        "before_svg": render_top_view_svg(before) if before is not None else None,
+        "candidate_svg": render_top_view_svg(candidate),
+        "change_applied": accepted,
+        "warnings": list(dict.fromkeys([
+            *candidate["warnings"],
+            "SPATIAL_EDIT_ONLY_NOT_A_FABRICATION_APPROVAL",
+        ])),
+        **PHYSICAL_FLAGS,
+    }
+    return out
+
+def review_room_fit(request: dict[str, Any]) -> dict[str, Any]:
+    """D8: conservative room/obstacle fit using *only* revalidated D5 CAD.
+
+    It does not infer room measurements, legal clearances, door arcs or cutouts.
+    All room and obstacle dimensions must be provided in millimetres by a human.
+    The same D5 public boundary reconstructs F6/CADExchange from module_specs.
+    """
+    from xml.etree import ElementTree as ET
+
+    if (type(request) is not dict or set(request) != {
+            'review_kind', 'assemblies', 'service_zones', 'room'
+        } or request.get('review_kind') != 'room_fit_v1'):
+        _error('room_fit_v1 requiere review_kind, assemblies, service_zones y room')
+    room = request['room']
+    if type(room) is not dict or set(room) != {'size_xyz_mm', 'obstacles'}:
+        _error('room exige size_xyz_mm y obstacles')
+    room_size = _vec3(room['size_xyz_mm'], 'room.size_xyz_mm', positive=True)
+    raw_obstacles = room['obstacles']
+    if type(raw_obstacles) is not list or len(raw_obstacles) > 12:
+        _error('room.obstacles: máximo 12 obstáculos')
+    kinds = ('column', 'fixed_wall', 'opening_keepout', 'appliance_keepout',
+             'access_keepout', 'other')
+    obstacles = []
+    seen = set()
+    for obstacle in raw_obstacles:
+        if type(obstacle) is not dict or set(obstacle) != {
+            'obstacle_id', 'kind', 'origin_xyz_mm', 'size_xyz_mm'
+        }:
+            _error('obstacle: esquema estricto requerido')
+        oid = _id(obstacle['obstacle_id'], 'obstacle_id')
+        if oid in seen:
+            _error('obstacle_id duplicado')
+        seen.add(oid)
+        if type(obstacle['kind']) is not str or obstacle['kind'] not in kinds:
+            _error('obstacle.kind no admitido')
+        origin = _vec3(obstacle['origin_xyz_mm'], 'obstacle.origin_xyz_mm')
+        size = _vec3(obstacle['size_xyz_mm'], 'obstacle.size_xyz_mm', positive=True)
+        # An obstacle measured outside the room is a *bad survey*, not a safe fit.
+        if any(origin[i] + size[i] > room_size[i] for i in range(3)):
+            _error('obstacle fuera del recinto medido')
+        obstacles.append({'obstacle_id': oid, 'kind': obstacle['kind'],
+                          'origin_xyz_mm': origin, 'size_xyz_mm': size})
+
+    # Do not use client-provided exchange, panel geometry or digest: D5 owns it.
+    layout = review_room_from_specs({
+        'review_kind': 'room_layout_v1',
+        'assemblies': request['assemblies'],
+        'service_zones': request['service_zones'],
+    })
+    if any(layout.get(flag) is not False for flag in PHYSICAL_FLAGS):
+        _error('layout intentó habilitar permisos físicos')
+    if layout.get('review_kind') != 'room_layout_v1':
+        _error('D5 retornó tipo de revisión inesperado')
+    groups = layout['groups']
+    for g in groups:
+        _id(g['group_id'], 'group_id')
+    fit = []
+    for g in groups:
+        inside = all(g['origin_xyz_mm'][i] + g['bounds_xyz_mm'][i] <= room_size[i]
+                     for i in range(3))
+        fit.append({'group_id': g['group_id'], 'inside_room': inside,
+                    'origin_xyz_mm': list(g['origin_xyz_mm']),
+                    'bounds_xyz_mm': list(g['bounds_xyz_mm'])})
+
+    envelope_hits = []
+    piece_hits = []
+    for obstacle in obstacles:
+        for g in groups:
+            intersection = _overlap(obstacle, g)
+            if intersection is not None:
+                envelope_hits.append({'obstacle_id': obstacle['obstacle_id'],
+                                      'group_id': g['group_id'],
+                                      'overlap_xyz_mm': intersection})
+        # Evidence only, not an exemption: a column in a cabinet's void is
+        # still a potential obstruction unless a real designer approves it.
+        for p in layout['world_boxes']:
+            intersection = _overlap(obstacle, p)
+            if intersection is not None:
+                piece_hits.append({'obstacle_id': obstacle['obstacle_id'],
+                                   'piece_id': p['piece_id'],
+                                   'overlap_xyz_mm': intersection})
+    # D10: service reservations are part of the measured room review too.
+    # A reservation outside cabinets is not automatically inside the room;
+    # and an obstacle crossing a service zone needs human review even when
+    # no cabinet panel is intersected. No holes or permits are created.
+    zone_fit = []
+    zone_obstacle_hits = []
+    for zone in layout['service_zones']:
+        zone_origin = _vec3(zone['origin_xyz_mm'], 'service_zone.origin_xyz_mm')
+        zone_size = _vec3(zone['size_xyz_mm'], 'service_zone.size_xyz_mm', positive=True)
+        inside = all(zone_origin[i] + zone_size[i] <= room_size[i]
+                     for i in range(3))
+        zone_fit.append({'zone_id': zone['zone_id'], 'inside_room': inside,
+                         'origin_xyz_mm': zone_origin, 'size_xyz_mm': zone_size})
+        volume = {'origin_xyz_mm': zone_origin, 'size_xyz_mm': zone_size}
+        for obstacle in obstacles:
+            section = _overlap(volume, obstacle)
+            if section is not None:
+                zone_obstacle_hits.append({
+                    'zone_id': zone['zone_id'],
+                    'obstacle_id': obstacle['obstacle_id'],
+                    'overlap_xyz_mm': section,
+                })
+    blocked = (layout['status'] != 'REVIEW_ONLY' or
+               any(not item['inside_room'] for item in fit) or
+               any(not item['inside_room'] for item in zone_fit) or
+               bool(envelope_hits) or bool(zone_obstacle_hits))
+
+    # All drawn elements use the same measured coordinates. 2D is only a
+    # footprint; Y/height checks are done above but not visible in top view.
+    width, _, depth = room_size
+    # Keep the viewport manageable on Windows; the viewBox remains in actual mm.
+    scale = min(1.0, 1200 / max(width, depth))
+    width_px = max(1, round(width * scale))
+    height_px = max(1, round(depth * scale))
+    root = ET.Element('svg', {
+        'xmlns': 'http://www.w3.org/2000/svg',
+        'width': str(width_px), 'height': str(height_px),
+        'viewBox': f'0 0 {width} {depth}',
+        'role': 'img', 'aria-label': 'Revisión nominal de recinto, no fabricable',
+    })
+    ET.SubElement(root, 'title').text = 'Encaje nominal en recinto, no plano de obra'
+    ET.SubElement(root, 'rect', {
+        'x': '0', 'y': '0', 'width': str(width), 'height': str(depth),
+        'fill': '#fff', 'stroke': '#334155', 'stroke-width': '5',
+    })
+    for g in groups:
+        x, _, z = g['origin_xyz_mm']
+        w, _, d = g['bounds_xyz_mm']
+        flagged = any(i['group_id'] == g['group_id'] and not i['inside_room'] for i in fit)
+        ET.SubElement(root, 'rect', {
+            'x': str(x), 'y': str(z), 'width': str(w), 'height': str(d),
+            'fill': '#fecaca' if flagged else '#dbeafe',
+            'stroke': '#9f1239' if flagged else '#1d4ed8', 'stroke-width': '3',
+        })
+        ET.SubElement(root, 'text', {
+            'x': str(x + 5), 'y': str(z + min(24, d)),
+            'font-family': 'sans-serif', 'font-size': '18',
+        }).text = g['group_id']
+    for obstacle in obstacles:
+        x, _, z = obstacle['origin_xyz_mm']
+        w, _, d = obstacle['size_xyz_mm']
+        ET.SubElement(root, 'rect', {
+            'x': str(x), 'y': str(z), 'width': str(w), 'height': str(d),
+            'fill': '#fca5a5', 'fill-opacity': '0.5',
+            'stroke': '#991b1b', 'stroke-width': '2', 'stroke-dasharray': '6,4',
+        })
+    # Show reviewed reservation footprints as dashed rectangles; top view
+    # does not represent depth/height or validate service routing.
+    for zone in zone_fit:
+        x, _, z = zone['origin_xyz_mm']
+        w, _, d = zone['size_xyz_mm']
+        ET.SubElement(root, 'rect', {
+            'x': str(x), 'y': str(z), 'width': str(w), 'height': str(d),
+            'fill': 'none', 'stroke': '#7c3aed', 'stroke-width': '3',
+            'stroke-dasharray': '8,5',
+        })
+    warnings = list(dict.fromkeys([
+        *layout['warnings'],
+        'SERVICE_RESERVATIONS_CANNOT_EXTEND_BEYOND_MEASURED_ROOM',
+        'SERVICE_ZONES_CROSSING_OBSTACLES_REQUIRE_REVIEW',
+        'ROOM_MEASUREMENTS_AND_OBSTACLES_MUST_BE_CONFIRMED_ON_SITE',
+        'OPENING_KEEP_OUT_IS_A_RECTANGLE_NOT_A_VERIFIED_DOOR_SWING',
+        'ROOM_FIT_IS_NOT_A_STRUCTURAL_OR_ACCESSIBILITY_CERTIFICATE',
+    ]))
+    return {
+        'review_kind': 'room_fit_v1',
+        'status': 'ROOM_FIT_REVIEW_REQUIRED' if blocked else 'ROOM_FIT_NOMINAL_ONLY',
+        'layout_status': layout['status'],
+        'layout_sha256': layout['layout_sha256'],
+        'room_fit_sha256': _hash({'layout_sha256': layout['layout_sha256'],
+                                 'size_xyz_mm': room_size,
+                                 'obstacles': sorted(obstacles, key=lambda o: o['obstacle_id'])}),
+        'room_size_xyz_mm': room_size,
+        'groups': fit,
+        'obstacles': obstacles,
+        'obstacle_envelope_interferences': envelope_hits,
+        'obstacle_piece_interferences': piece_hits,
+        'service_zone_room_fit': zone_fit,
+        'service_zone_obstacle_interferences': zone_obstacle_hits,
+        'layout_envelope_collisions': layout['envelope_collisions'],
+        'layout_service_zones': layout['service_zones'],
+        'top_view_svg': ET.tostring(root, encoding='unicode', short_empty_elements=True),
+        'warnings': warnings,
+        **PHYSICAL_FLAGS,
+    }

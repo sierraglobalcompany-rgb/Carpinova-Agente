@@ -26,6 +26,10 @@ from .conversation_flow import (
 )
 from .board_plan_review import build_board_plan_review
 from .room_spatial import review_room_from_specs
+from .room_spatial import review_room_from_kitchen_state
+from .room_spatial import review_room_session
+from .room_spatial import review_room_fit
+from .kitchen_linear import review_linear_kitchen
 
 
 _MAX_REQUEST_BYTES = 65536
@@ -130,6 +134,14 @@ def carpinova_consultar(solicitud_json: str) -> dict[str, Any]:
             return build_board_plan_review(request)
         if request["review_kind"] == "room_layout_v1":
             return review_room_from_specs(request)
+        if request["review_kind"] == "kitchen_linear_v1":
+            return review_linear_kitchen(request)
+        if request["review_kind"] == "kitchen_spatial_v1":
+            return review_room_from_kitchen_state(request)
+        if request["review_kind"] == "room_layout_session_v1":
+            return review_room_session(request)
+        if request["review_kind"] == "room_fit_v1":
+            return review_room_fit(request)
         if set(request) != {"review_kind", "utterance", "corrections"}:
             raise MaestroError(
                 "La revisión P5 exige solo review_kind, utterance y corrections."
