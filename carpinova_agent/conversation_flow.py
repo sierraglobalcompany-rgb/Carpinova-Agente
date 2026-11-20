@@ -53,7 +53,7 @@ _REVIEW_FIELD_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
 _REVIEW_QUESTION_ORDER = (
     "project_type", "dimensions_mm", "installation",
     "site_width_mm", "use", "appliance_reserve",
-    "wall_contact", "countertop",
+    "wall_contact", "countertop", "countertop_overhang",
     "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
     "back", "internal_layout", "drawers", "drawer_layout", "doors", "door_mechanism",
     "front_style", "opening_intent",
@@ -74,6 +74,7 @@ _REVIEW_QUESTIONS = {
     "use": "¿Qué uso tendrá y qué debe guardar o sostener?",
     "wall_contact": "¿El mueble irá contra la pared o separado de ella?",
     "countertop": "¿Lleva mesón o cubierta? Indica sus medidas y espesor si los conoces.",
+    "countertop_overhang": "¿Cuántos mm sobresale el mesón delante y detrás? Indica ambos vuelos, incluido 0 mm si va a ras.",
     "support": "¿Apoyará en el piso, llevará patas o zócalo, o irá suspendido?",
     "countertop_support": "¿Qué apoyará el mesón? Esto es distinto del amarre de la carcasa y del anclaje anti-vuelco.",
     "cabinet_bracing": "¿Cómo se revisará el amarre de la carcasa? La pared no se considera apoyo vertical sin diseño.",
@@ -1370,6 +1371,21 @@ def _guided_text_updates(
     if countertop and not (countertop_match and _guided_negated(text, countertop_match.start())):
         add("countertop", countertop[0], countertop[1])
 
+    # Owner-declared front/rear flights are independent of the top dimensions.
+    # Never silently turn a 50 mm frontal flight into an invented 25/25 split.
+    if re.search(r"\b(?:vuelo|voladizo|sobresale|sobresalga)\b", text):
+        front = re.search(
+            r"\b(?:frontal|delantero|delante)\s*(?:de\s+)?(\d{1,4})\s*mm\b", text,
+        )
+        rear = re.search(
+            r"\b(?:posterior|trasero|detras)\s*(?:de\s+)?(\d{1,4})\s*mm\b", text,
+        )
+        if front or rear:
+            add("countertop_overhang", {
+                "front_mm": int(front.group(1)) if front else None,
+                "rear_mm": int(rear.group(1)) if rear else None,
+            }, "confirmed" if front and rear else "pending")
+
     floor_support = re.search(
         r"\b(?:direct(?:o|amente)?\s+al\s+piso|apoyad[oa]s?\s+en\s+(?:el\s+)?piso|"
         r"al\s+suelo)\b", text,
@@ -1732,7 +1748,7 @@ def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
     else:
         fields.insert(1, "use")
     if coffee:
-        fields.extend(("countertop", "support"))
+        fields.extend(("countertop", "countertop_overhang", "support"))
     fields.extend(("internal_layout", "drawers", "doors", "back", "material",
                    "thickness_mm", "construction"))
     if not coffee:
@@ -2556,6 +2572,35 @@ def _guided_compose_product_spec(
             depth_overhang = top_depth - depth
             front_overhang = depth_overhang // 2
             rear_overhang = top_depth - depth - front_overhang
+            if use == "coffee":
+                # The V4 owner specified 50 mm front / 0 mm rear. For any
+                # coffee cabinet, require the owner's explicit flight values;
+                # the generic 50/50 proposal is unsafe for a wall-side top.
+                overhang_entry = decisions.get("countertop_overhang")
+                if (type(overhang_entry) is not dict
+                        or overhang_entry.get("source") != "OWNER_TEXT"
+                        or overhang_entry.get("status") != "confirmed"):
+                    blockers.append(
+                        "countertop_overhang:confirm_front_and_rear_mm_required"
+                    )
+                else:
+                    overhang_value = overhang_entry.get("value")
+                    if (type(overhang_value) is not dict
+                            or set(overhang_value) != {"front_mm", "rear_mm"}
+                            or any(type(v) is not int or v < 0
+                                   for v in overhang_value.values())):
+                        blockers.append(
+                            "countertop_overhang:nonnegative_front_and_rear_mm_required"
+                        )
+                    elif sum(overhang_value.values()) != depth_overhang:
+                        blockers.append(
+                            "countertop_overhang:front_rear_do_not_match_depth"
+                        )
+                    else:
+                        front_overhang = overhang_value["front_mm"]
+                        rear_overhang = overhang_value["rear_mm"]
+                if any(item.startswith("countertop_overhang:") for item in blockers):
+                    return None, assumptions, list(dict.fromkeys(blockers))
             if min(left_overhang, right_overhang, front_overhang, rear_overhang) < 0:
                 blockers.append("countertop:dimensions_smaller_than_carcass")
             total = height + support_height + countertop["thickness_mm"]
@@ -3925,7 +3970,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         if project_type == "closet":
             required.append("installation")
         if is_coffee:
-            required.append("countertop")
+            required.extend(("countertop", "countertop_overhang"))
     readiness_blockers: list[str] = []
     for field in required:
         entry = decisions.get(field)
