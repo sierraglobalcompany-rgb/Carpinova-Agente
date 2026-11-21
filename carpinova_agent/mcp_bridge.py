@@ -163,13 +163,65 @@ def carpinova_generar_borrador(
     solicitud_json: str, proyecto: str, incluir_planos: bool = False,
     flow_review_json: str = "",
     opening_review_json: str = "",
+    seccion_y_mm: int | None = None,
 ) -> dict[str, Any]:
-    """One-call optional nominal review + PDF; existing two-step flow unchanged.
+    """Generate an existing modular pilot or one nominal room-review ZIP.
 
     Requires explicit structured Maestro JSON. Never interprets prose as
     cutting instructions, runs native CAD, purchases or overwrites a project.
     """
     request = _request(solicitud_json)
+    if request.get("review_kind") == "room_layout_v1":
+        if type(incluir_planos) is not bool:
+            raise PilotError("incluir_planos debe ser booleano.")
+        if type(seccion_y_mm) is not int or not 0 <= seccion_y_mm <= 20000:
+            raise PilotError(
+                "seccion_y_mm debe ser un entero explícito entre 0 y 20000 mm."
+            )
+        if flow_review_json != "" or opening_review_json != "":
+            raise PilotError(
+                "flow_review_json y opening_review_json no se admiten en room_layout_v1."
+            )
+        if incluir_planos:
+            raise PilotError("incluir_planos no se admite en room_layout_v1.")
+
+        name = _project_id(proyecto)
+        root = _output_root()
+        destination = root / f"{name}-room-review.zip"
+        pilot_directory = root / name
+        if (destination.exists() or destination.is_symlink()
+                or pilot_directory.exists() or pilot_directory.is_symlink()):
+            raise PilotError(
+                "Salida existente o colisión entre proyecto y ZIP; no sobrescribir."
+            )
+
+        from .room_review_package import write_room_review_package
+
+        package = write_room_review_package(
+            request, destination, y_mm=seccion_y_mm,
+        )
+        return {
+            "status": "REVIEW_ONLY",
+            "proyecto": name,
+            "room_package_path": package["path"],
+            "zip_sha256": package["zip_sha256"],
+            "layout_sha256": package["layout_sha256"],
+            "piece_count": package["piece_count"],
+            "section_y_mm": seccion_y_mm,
+            "files": sorted(package["files"]),
+            "release": "NO_GO",
+            **_FABRICATION,
+            "can_generate_f7c": False,
+            "warnings": [
+                "NO_FABRICAR: revisión nominal sin autorización de corte, perforación o compra.",
+                "LOCAL_PATH_NOT_BINARY_MCP: abra o adjunte la ruta local; MCP no devuelve bytes ZIP.",
+            ],
+        }
+    if seccion_y_mm is not None:
+        raise PilotError(
+            "seccion_y_mm solo se admite con review_kind=room_layout_v1."
+        )
+
     name = _project_id(proyecto)
     bundle_dir = _resolve_knowledge_bundle_dir()
     if "query" in request and flow_review_json:
@@ -180,6 +232,9 @@ def carpinova_generar_borrador(
         raise PilotError("incluir_planos debe ser booleano.")
     root = _output_root()
     destination = root / name
+    room_destination = root / f"{name}-room-review.zip"
+    if room_destination.exists() or room_destination.is_symlink():
+        raise PilotError("ZIP espacial existente para este proyecto; no sobrescribir.")
     if destination.exists() or destination.is_symlink():
         raise PilotError("Salida existente: no sobrescribir proyecto.")
     if incluir_planos:
