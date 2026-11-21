@@ -101,6 +101,8 @@ def render_room_panel_section_svg(review: dict[str, Any], *, y_mm: int) -> str:
     })
     _sub(svg, "title", {}, f"CarpiNova · sección horizontal a Y={y_mm} mm · NO FABRICAR")
     _sub(svg, "style", {}, _CSS)
+    _sub(svg, "rect", {"x": "0", "y": "0", "width": "100%",
+                       "height": "100%", "fill": "#ffffff"})
     _sub(svg, "text", {"x": "30", "y": "35", "class": "alert"},
          "BORRADOR NOMINAL · NO CORTAR NI FABRICAR")
     _sub(svg, "text", {"x": "30", "y": "62", "class": "meta"},
