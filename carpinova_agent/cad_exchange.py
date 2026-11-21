@@ -58,6 +58,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
             grain_world={"face_x":"X","face_y":"Y","none":"none"}
         elif role in ("back_full", "back_bottom", "back_top",
                       "front_single", "front_left", "front_right",
+                      "front_corner_blind",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             size=[fx,fy,t]  # back/door planes XY, thickness Z
             grain_world={"face_x":"X","face_y":"Y","none":"none"}
@@ -218,6 +219,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
         if item["role"] not in ("left_side","right_side","top","bottom",
                                 "back_full","back_bottom","back_top",
                                 "front_single","front_left","front_right",
+                                "front_corner_blind",
                                 "drawer_side_left","drawer_side_right",
                                 "drawer_front_wall","drawer_rear_wall",
                                 "drawer_bottom","drawer_facade",
