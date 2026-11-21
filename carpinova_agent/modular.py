@@ -28,7 +28,8 @@ MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "support", "finish", "drawers",
                            "drawer_layout_reference", "support_concept",
                            "horizontal_divider", "countertop",
-                           "upper_support", "vertical_divider"))
+                           "upper_support", "vertical_divider",
+                           "corner_blind"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -55,6 +56,40 @@ def _choice(value: Any, choices: frozenset[str], name: str) -> str:
     if not isinstance(value, str) or value not in choices:
         raise DesignError(f"{name}: elegir uno de {', '.join(sorted(choices))}.")
     return value
+
+
+def _corner_blind(value: Any, *, application: str, installation: str,
+                  module: dict[str, Any], module_id: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    name = f"{module_id}.corner_blind"
+    blind = _object(value, name)
+    _exact(blind, frozenset(("side", "blind_width_mm")), name)
+    if (application != "kitchen" or installation != "freestanding"
+            or module.get("construction") != "sides_full"
+            or module.get("fronts") != "none"
+            or module.get("back") != "none"
+            or module.get("drawers", "none") != "none"
+            or module.get("support") != "floor"
+            or any(module.get(field) is not None for field in (
+                "countertop", "upper_support", "vertical_divider",
+                "horizontal_divider", "support_concept",
+            ))):
+        raise DesignError(
+            f"{name} requiere kitchen/sides_full/freestanding/floor, "
+            "fronts/back/drawers=none y ausencia de otros elementos físicos."
+        )
+    side = _choice(blind.get("side"), frozenset(("left", "right")),
+                   f"{name}.side")
+    blind_width = _positive(blind.get("blind_width_mm"),
+                            f"{name}.blind_width_mm")
+    thickness, width = module["panel_thickness_mm"], module["width_mm"]
+    if not thickness < blind_width < width - thickness:
+        raise DesignError(
+            f"{name}.blind_width_mm debe ser mayor que el espesor y menor "
+            "que width_mm - panel_thickness_mm."
+        )
+    return {"side": side, "blind_width_mm": blind_width}
 
 
 def _finish(value: Any, module_id: str) -> dict[str, Any] | None:
@@ -370,7 +405,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     widths: list[int] = []
     prepared: list[tuple[dict[str, Any], dict[str, Any] | None,
                          dict[str, Any] | None, dict[str, Any] | None,
-                         dict[str, Any] | None]] = []
+                         dict[str, Any] | None, dict[str, Any] | None]] = []
     support_concepts: dict[str, dict[str, Any]] = {}
     upper_support_specs: dict[str, dict[str, Any]] = {}
     upper_support_reviews: list[dict[str, Any]] = []
@@ -397,6 +432,10 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             raise DesignError(f"{module_id}: back requiere none, pending u objeto documentado.")
         if module.get("support") not in ("floor", "wall", "pending"):
             raise DesignError(f"{module_id}: indicar support=floor, wall o pending.")
+        corner_blind = _corner_blind(
+            module.get("corner_blind"), application=d["application"],
+            installation=installation, module=module, module_id=module_id,
+        )
         countertop = _countertop(
             module.get("countertop"), module_id=module_id,
             module_width_mm=w, module_depth_mm=depth,
@@ -445,10 +484,10 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                                          if countertop else 0),
             )
         prepared.append((module, _finish(module.get("finish"), module_id),
-                         divider, countertop, vertical_divider))
+                         divider, countertop, vertical_divider, corner_blind))
         widths.append(w)
 
-    if any(countertop is not None for _, _, _, countertop, _ in prepared):
+    if any(countertop is not None for _, _, _, countertop, _, _ in prepared):
         if len(modules) != 1:
             raise DesignError(
                 "La cubierta exterior P0 solo admite una carcasa; "
@@ -503,7 +542,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     out_modules: list[dict[str, Any]] = []
     x_offset = 0
     assembly_review: dict[str, Any] | None = None
-    for module, finish, divider, countertop, vertical_divider in prepared:
+    for module, finish, divider, countertop, vertical_divider, corner_blind in prepared:
         w, t = module["width_mm"], module["panel_thickness_mm"]
         support = support_concepts.get(module["module_id"])
         upper_support = upper_support_specs.get(module["module_id"])
@@ -562,6 +601,55 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "source_engine": "F1_CORE_CABINET",
                 "source_formula": part["calculation"],
             })
+        corner_blind_parts: list[dict[str, Any]] = []
+        corner_blind_review: dict[str, Any] | None = None
+        if corner_blind is not None:
+            blind_width = corner_blind["blind_width_mm"]
+            blind_x = origin_x + (
+                w - blind_width if corner_blind["side"] == "right" else 0
+            )
+            panel = {
+                "piece_id": module["module_id"] + "-FRONT_CORNER_BLIND",
+                "module_id": module["module_id"],
+                "role": "front_corner_blind",
+                "material_id": module["material_id"],
+                "nominal_face_x_mm": blind_width,
+                "nominal_face_y_mm": height,
+                "thickness_mm": t,
+                "grain_axis": "UNCONFIRMED",
+                "face_plane": "XY",
+                "nominal_origin_xyz_mm": [blind_x, origin_y, origin_z - t],
+                "edgebanding_edges": "UNCONFIRMED",
+                "edgebanding_thickness_mm": None,
+                "edgebanding_nominal_total_mm": None,
+                "finished_cut_dimensions_mm": None,
+                "source_engine": "F6_CORNER_BLIND_REVIEW",
+                "source_formula": (
+                    f"front_corner_blind: W={w} mm, B={blind_width} mm, "
+                    f"t={t} mm, side={corner_blind['side']}; "
+                    "panel B x external H x t, overlay at the front plane."
+                ),
+            }
+            corner_blind_parts.append(panel)
+            all_parts.append(panel)
+            clear_start = origin_x + (
+                t if corner_blind["side"] == "right" else blind_width
+            )
+            clear_end = origin_x + (
+                w - blind_width if corner_blind["side"] == "right" else w - t
+            )
+            corner_blind_review = {
+                "status": "REVIEW_ONLY_UNDOORED",
+                "side": corner_blind["side"],
+                "blind_width_mm": blind_width,
+                "nominal_opening_width_mm": w - t - blind_width,
+                "nominal_opening_height_mm": geometry["dimensions"]["clear_height_mm"],
+                "nominal_opening_x_mm": [clear_start, clear_end],
+            }
+            blockers.append(
+                f"{module['module_id']}: vano de acceso nominal sin puerta; "
+                "accesibilidad y unión de esquina no diseñadas."
+            )
         upper_tie_parts: list[dict[str, Any]] = []
         upper_support_review: dict[str, Any] | None = None
         if upper_support is not None:
@@ -829,9 +917,12 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 [piece["piece_id"] for piece in drawer_parts] +
                 [piece["piece_id"] for piece in divider_parts] +
                 [piece["piece_id"] for piece in vertical_divider_parts] +
+                [piece["piece_id"] for piece in corner_blind_parts] +
                 [piece["piece_id"] for piece in countertop_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],
+            **({"corner_blind_review": corner_blind_review}
+               if corner_blind_review is not None else {}),
             **({"support_review": concept} if concept is not None else {}),
             **({"upper_support_review": upper_support_review}
                if upper_support_review is not None else {}),
@@ -946,7 +1037,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         },
     }
     if (status == "DRAFT_NOT_FOR_CUTTING"
-            and any(vertical is not None for _, _, _, _, vertical in prepared)):
+            and any(vertical is not None
+                    for _, _, _, _, vertical, _ in prepared)):
         try:
             from .cad_exchange import cad_exchange
             cad_exchange(result)
