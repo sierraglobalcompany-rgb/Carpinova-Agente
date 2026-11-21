@@ -58,13 +58,53 @@ def _choice(value: Any, choices: frozenset[str], name: str) -> str:
     return value
 
 
+def _corner_access_door(value: Any, *, module: dict[str, Any],
+                        module_id: str) -> dict[str, Any]:
+    name = f"{module_id}.corner_blind.access_door"
+    data = _object(value, name)
+    fields = frozenset((
+        "material_id", "thickness_mm", "gap_left_mm", "gap_right_mm",
+        "gap_top_mm", "gap_bottom_mm", "hinge_side",
+    ))
+    _exact(data, fields, name)
+    missing = fields - data.keys()
+    if missing:
+        raise DesignError(f"{name}: faltan campos requeridos: {', '.join(sorted(missing))}.")
+    material = data["material_id"]
+    if not isinstance(material, str) or not NAME_RE.fullmatch(material):
+        raise DesignError(f"{name}.material_id inválido.")
+    thickness = data["thickness_mm"]
+    if type(thickness) is not int or thickness <= 0:
+        raise DesignError(f"{name}.thickness_mm debe ser entero positivo en milímetros.")
+    if thickness != module["panel_thickness_mm"]:
+        raise DesignError(
+            f"{name}.thickness_mm debe ser igual al espesor de carcasa "
+            f"({module['panel_thickness_mm']} mm) para conservar el plano frontal."
+        )
+    for field in ("gap_left_mm", "gap_right_mm",
+                  "gap_top_mm", "gap_bottom_mm"):
+        gap = data[field]
+        if type(gap) is not int or gap < 0:
+            raise DesignError(f"{name}.{field} debe ser entero no negativo en milímetros.")
+    hinge_side = _choice(data["hinge_side"], frozenset(("left", "right")),
+                         f"{name}.hinge_side")
+    return {
+        "material_id": material, "thickness_mm": thickness,
+        "gap_left_mm": data["gap_left_mm"],
+        "gap_right_mm": data["gap_right_mm"],
+        "gap_top_mm": data["gap_top_mm"],
+        "gap_bottom_mm": data["gap_bottom_mm"],
+        "hinge_side": hinge_side,
+    }
+
+
 def _corner_blind(value: Any, *, application: str, installation: str,
                   module: dict[str, Any], module_id: str) -> dict[str, Any] | None:
     if value is None:
         return None
     name = f"{module_id}.corner_blind"
     blind = _object(value, name)
-    _exact(blind, frozenset(("side", "blind_width_mm")), name)
+    _exact(blind, frozenset(("side", "blind_width_mm", "access_door")), name)
     if (application != "kitchen" or installation != "freestanding"
             or module.get("construction") != "sides_full"
             or module.get("fronts") != "none"
@@ -89,7 +129,12 @@ def _corner_blind(value: Any, *, application: str, installation: str,
             f"{name}.blind_width_mm debe ser mayor que el espesor y menor "
             "que width_mm - panel_thickness_mm."
         )
-    return {"side": side, "blind_width_mm": blind_width}
+    result = {"side": side, "blind_width_mm": blind_width}
+    if "access_door" in blind:
+        result["access_door"] = _corner_access_door(
+            blind["access_door"], module=module, module_id=module_id
+        )
+    return result
 
 
 def _finish(value: Any, module_id: str) -> dict[str, Any] | None:
@@ -602,6 +647,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "source_formula": part["calculation"],
             })
         corner_blind_parts: list[dict[str, Any]] = []
+        corner_access_parts: list[dict[str, Any]] = []
         corner_blind_review: dict[str, Any] | None = None
         if corner_blind is not None:
             blind_width = corner_blind["blind_width_mm"]
@@ -646,10 +692,82 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 "nominal_opening_height_mm": geometry["dimensions"]["clear_height_mm"],
                 "nominal_opening_x_mm": [clear_start, clear_end],
             }
-            blockers.append(
-                f"{module['module_id']}: vano de acceso nominal sin puerta; "
-                "accesibilidad y unión de esquina no diseñadas."
-            )
+            access_door = corner_blind.get("access_door")
+            if access_door is None:
+                blockers.append(
+                    f"{module['module_id']}: vano de acceso nominal sin puerta; "
+                    "accesibilidad y unión de esquina no diseñadas."
+                )
+            else:
+                left, right = corner_blind_review["nominal_opening_x_mm"]
+                clear_height = geometry["dimensions"]["clear_height_mm"]
+                door_width = (
+                    (right - left) - access_door["gap_left_mm"]
+                    - access_door["gap_right_mm"]
+                )
+                door_height = (
+                    clear_height - access_door["gap_top_mm"]
+                    - access_door["gap_bottom_mm"]
+                )
+                if door_width <= 0 or door_height <= 0:
+                    raise DesignError(
+                        f"{module['module_id']}.corner_blind.access_door: "
+                        "las holguras deben dejar ancho y alto de puerta positivos."
+                    )
+                door_origin = [
+                    left + access_door["gap_left_mm"],
+                    origin_y + t + access_door["gap_bottom_mm"],
+                    origin_z - t,
+                ]
+                access_panel = {
+                    "piece_id": module["module_id"] + "-FRONT_CORNER_ACCESS",
+                    "module_id": module["module_id"],
+                    "role": "front_corner_access",
+                    "material_id": access_door["material_id"],
+                    "nominal_face_x_mm": door_width,
+                    "nominal_face_y_mm": door_height,
+                    "thickness_mm": t,
+                    "grain_axis": "UNCONFIRMED",
+                    "face_plane": "XY",
+                    "nominal_origin_xyz_mm": door_origin,
+                    "edgebanding_edges": "UNCONFIRMED",
+                    "edgebanding_thickness_mm": None,
+                    "edgebanding_nominal_total_mm": None,
+                    "finished_cut_dimensions_mm": None,
+                    "source_engine": "F9B_EXPLICIT_CORNER_ACCESS_REVIEW",
+                    "source_formula": (
+                        "front_corner_access: Wdoor=(R-L)-gap_left_mm-"
+                        "gap_right_mm="
+                        f"({right}-{left})-{access_door['gap_left_mm']}-"
+                        f"{access_door['gap_right_mm']}={door_width} mm; "
+                        "Hdoor=clear_height_mm-gap_top_mm-gap_bottom_mm="
+                        f"{clear_height}-{access_door['gap_top_mm']}-"
+                        f"{access_door['gap_bottom_mm']}={door_height} mm; "
+                        f"origin=[L+gap_left,t+gap_bottom,-t]={door_origin} mm; "
+                        "hinge_side_requested="
+                        f"{access_door['hinge_side']} (preference only; "
+                        "swing and hardware NOT_VERIFIED)."
+                    ),
+                    "hinge_side_requested": access_door["hinge_side"],
+                }
+                corner_access_parts.append(access_panel)
+                all_parts.append(access_panel)
+                corner_blind_review["status"] = (
+                    "DOOR_NOMINAL_ONLY_HARDWARE_PENDING"
+                )
+                corner_blind_review["access_door_review"] = {
+                    "status": "DOOR_NOMINAL_ONLY_HARDWARE_PENDING",
+                    "nominal_face_x_mm": door_width,
+                    "nominal_face_y_mm": door_height,
+                    "nominal_origin_xyz_mm": door_origin,
+                    "thickness_mm": t,
+                    "hinge_side_requested": access_door["hinge_side"],
+                    "hardware_status": "NOT_VERIFIED",
+                }
+                blockers.append(
+                    f"{module['module_id']}: puerta nominal; "
+                    "giro/bisagra/clearance dinámico y uniones no verificados."
+                )
         upper_tie_parts: list[dict[str, Any]] = []
         upper_support_review: dict[str, Any] | None = None
         if upper_support is not None:
@@ -918,6 +1036,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 [piece["piece_id"] for piece in divider_parts] +
                 [piece["piece_id"] for piece in vertical_divider_parts] +
                 [piece["piece_id"] for piece in corner_blind_parts] +
+                [piece["piece_id"] for piece in corner_access_parts] +
                 [piece["piece_id"] for piece in countertop_parts],
             "panel_thickness_mm": t, "fronts": module["fronts"],
             "back": module["back"], "support": module["support"],

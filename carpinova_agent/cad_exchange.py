@@ -47,6 +47,12 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         x,y,z=p["nominal_origin_xyz_mm"]
         if type(t) is not int or type(fx) is not int or type(fy) is not int:
             raise DesignError("Paneles sin cotas físicas enteras.")
+        if (role in ("front_corner_blind", "front_corner_access")
+                and z + t != 0):
+            raise DesignError(
+                "Frente de esquinero fuera del plano frontal F6; "
+                "revisar origen para evitar penetración hacia la carcasa."
+            )
         if role in ("left_side","right_side","divider_vertical"):
             size=[t,fy,fx]  # panel in YZ plane: thickness X; face_x -> depth Z
             grain_world={"face_x":"Z","face_y":"Y","none":"none"}
@@ -59,6 +65,7 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         elif role in ("back_full", "back_bottom", "back_top",
                       "front_single", "front_left", "front_right",
                       "front_corner_blind",
+                      "front_corner_access",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             size=[fx,fy,t]  # back/door planes XY, thickness Z
             grain_world={"face_x":"X","face_y":"Y","none":"none"}
@@ -220,6 +227,7 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                                 "back_full","back_bottom","back_top",
                                 "front_single","front_left","front_right",
                                 "front_corner_blind",
+                                "front_corner_access",
                                 "drawer_side_left","drawer_side_right",
                                 "drawer_front_wall","drawer_rear_wall",
                                 "drawer_bottom","drawer_facade",
