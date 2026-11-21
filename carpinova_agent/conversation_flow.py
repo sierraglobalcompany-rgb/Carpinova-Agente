@@ -857,16 +857,28 @@ def _guided_dimension_value(
     normalized_depth_text = _guided_normalize_carcass_depth_text(dimension_text)
     has_normalized_carcass_depth = normalized_depth_text != dimension_text
     dimension_text = normalized_depth_text
+    tie_clause = re.search(
+        r"\b(?:tres|3)\s+correas?\b[^.;\n]{0,220}",
+        dimension_text, re.IGNORECASE,
+    )
+    if tie_clause:
+        dimension_text = (
+            dimension_text[:tie_clause.start()]
+            + (" " * (tie_clause.end() - tie_clause.start()))
+            + dimension_text[tie_clause.end():]
+        )
     normalized = _fold(dimension_text)
     component = _guided_component_measurement_start(
         normalized, include_legs=True,
     )
-    evidence = extract_explicit_dimensions(dimension_text[:component.start()]) if component else None
+    cabinet_text = dimension_text[:component.start()] if component else dimension_text
+    evidence = (extract_explicit_dimensions(cabinet_text)
+                if component and cabinet_text.strip() else None)
     if component:
         measurements = (evidence.get("dimensions_mm")
                         if evidence is not None else None)
         ambiguous = set(evidence.get("ambiguous_fields", [])) if evidence else set()
-    elif max_depth is not None or has_normalized_carcass_depth:
+    elif max_depth is not None or has_normalized_carcass_depth or tie_clause:
         evidence = extract_explicit_dimensions(dimension_text)
         measurements = evidence.get("dimensions_mm")
         ambiguous = set(evidence.get("ambiguous_fields", []))
@@ -1076,6 +1088,8 @@ def _guided_countertop_value(utterance: str) -> tuple[dict[str, Any], str] | Non
     if not match:
         return None
     segment = re.split(r"[.;\n]", match.group(2), maxsplit=1)[0][:400]
+    if not segment.strip():
+        return None
     value: dict[str, Any] = {"present": True}
     explicit = extract_explicit_dimensions(segment)
     dimensions = dict(explicit.get("dimensions_mm", {}))
@@ -1373,7 +1387,24 @@ def _guided_text_updates(
 
     # Owner-declared front/rear flights are independent of the top dimensions.
     # Never silently turn a 50 mm frontal flight into an invented 25/25 split.
-    if re.search(r"\b(?:vuelo|voladizo|sobresale|sobresalga)\b", text):
+    prior_overhang = ((previous_state or {}).get("decisions", {})
+                      .get("countertop_overhang", {}))
+    prior_overhang_value = (
+        prior_overhang.get("value") if type(prior_overhang) is dict else None
+    )
+    prior_partial_overhang = (
+        type(prior_overhang) is dict
+        and prior_overhang.get("source") == "OWNER_TEXT"
+        and prior_overhang.get("status") == "pending"
+        and type(prior_overhang_value) is dict
+    )
+    directional_flight = re.search(
+        r"\b(?:frontal|delantero|delante|posterior|trasero|detras)\b"
+        r"[^.;\n]{0,30}\b\d{1,4}\s*mm\b",
+        text,
+    )
+    if (re.search(r"\b(?:vuelo|voladizo|sobresale|sobresalga)\b", text)
+            or (prior_partial_overhang and directional_flight)):
         front = re.search(
             r"\b(?:frontal|delantero|delante)\s*(?:de\s+)?(\d{1,4})\s*mm\b", text,
         )
@@ -1381,10 +1412,140 @@ def _guided_text_updates(
             r"\b(?:posterior|trasero|detras)\s*(?:de\s+)?(\d{1,4})\s*mm\b", text,
         )
         if front or rear:
+            prior_is_owner = (
+                type(prior_overhang) is dict
+                and prior_overhang.get("source") == "OWNER_TEXT"
+                and prior_overhang.get("status") in ("confirmed", "pending")
+                and type(prior_overhang_value) is dict
+            )
+            front_value = int(front.group(1)) if front else (
+                prior_overhang_value.get("front_mm") if prior_is_owner else None
+            )
+            rear_value = int(rear.group(1)) if rear else (
+                prior_overhang_value.get("rear_mm") if prior_is_owner else None
+            )
             add("countertop_overhang", {
-                "front_mm": int(front.group(1)) if front else None,
-                "rear_mm": int(rear.group(1)) if rear else None,
-            }, "confirmed" if front and rear else "pending")
+                "front_mm": front_value,
+                "rear_mm": rear_value,
+            }, "confirmed" if type(front_value) is int and type(rear_value) is int
+               else "pending")
+
+    # Only the explicitly named F6 tie arrangement is promoted to a review decision.
+    tie_match = re.search(r"\b(?:(?:tres|3)\s+)?correas?\b([^.;\n]{0,220})", text)
+    prior_bracing = ((previous_state or {}).get("decisions", {})
+                     .get("cabinet_bracing", {}))
+    prior_bracing_value = (
+        prior_bracing.get("value") if type(prior_bracing) is dict else None
+    )
+    coffee_context = (
+        "coffee" in text
+        or any(item.get("field") == "use" and item.get("value") == "coffee"
+               for item in updates)
+        or _fold(str(((previous_state or {}).get("decisions", {})
+                      .get("use", {}).get("value", "")))) == "coffee"
+    )
+    prior_is_owner = (
+        type(prior_bracing) is dict
+        and prior_bracing.get("source") == "OWNER_TEXT"
+        and prior_bracing.get("status") in ("confirmed", "pending")
+        and type(prior_bracing_value) is dict
+    )
+    tie_height_pattern = (
+        r"\b(?:(?:altura(?:\s+de(?:\s+las?)?\s+correas?)?\s*|de\s+))?"
+        r"(\d{1,4})\s*mm(?:\s+(?:de\s+)?(?:alto|altura))?\b"
+    )
+    height_only_answer = re.search(tie_height_pattern, text)
+    if coffee_context and (tie_match or (prior_is_owner and height_only_answer)):
+        segment = tie_match.group(0) if tie_match else text
+        positions = list(prior_bracing_value.get("positions", [])) if prior_is_owner else []
+        for pattern, role in (
+            (r"\bfrontal(?:es)?\s+superior(?:es)?\b|\bsuperior(?:es)?\s+frontal(?:es)?\b",
+             "upper_front_tie"),
+            (r"\bposterior(?:es)?\s+superior(?:es)?\b|\bsuperior(?:es)?\s+posterior(?:es)?\b",
+             "upper_rear_tie"),
+            (r"\bposterior(?:es)?\s+inferior(?:es)?\b|\binferior(?:es)?\s+posterior(?:es)?\b",
+             "lower_rear_tie"),
+        ):
+            if re.search(pattern, segment):
+                positions = [item for item in positions if item != role]
+                positions.append(role)
+        height = re.search(tie_height_pattern, segment)
+        tie_height = int(height.group(1)) if height else (
+            prior_bracing_value.get("tie_height_mm") if prior_is_owner else None
+        )
+        tie_count = bool(re.match(r"\b(?:tres|3)\s+correas\b", segment)) or (
+            prior_is_owner and prior_bracing_value.get("count") == 3
+        )
+        vertical = bool(re.search(r"\bvertical(?:es)?\b", segment)) or (
+            prior_is_owner and prior_bracing_value.get("orientation") == "vertical"
+        )
+        value = {
+            "style": "coffee_three_upright_ties",
+            "count": 3 if tie_count else None,
+            "orientation": "vertical" if vertical else None,
+            "positions": list(dict.fromkeys(positions)),
+            "tie_height_mm": tie_height,
+        }
+        complete_ties = (
+            value["count"] == 3 and value["orientation"] == "vertical"
+            and set(value["positions"]) == {
+                "upper_front_tie", "upper_rear_tie", "lower_rear_tie",
+            }
+            and type(tie_height) is int and tie_height > 0
+        )
+        add("cabinet_bracing", value,
+            "confirmed" if complete_ties else "pending")
+
+    wall_vertical_support = re.search(
+        r"\b(?:pared|muro)\b[^.;\n]{0,100}\b(?:soport\w*|sost\w*|recib\w*)\b"
+        r"[^.;\n]{0,80}\b(?:vertical\w*|mes[oó]n|cubierta|carga|peso)\b",
+        text,
+    )
+    wall_vertical_excluded = re.search(
+        r"\b(?:pared|muro)\b[^.;\n]{0,100}\b(?:no|nunca)\s+"
+        r"(?:es\s+)?(?:apoy\w*|soport\w*|sost\w*|recib\w*)\b"
+        r"[^.;\n]{0,60}\b(?:vertical\w*|mes[oó]n|cubierta|carga|peso)\b",
+        text,
+    )
+    countertop_rest = re.search(
+        r"\b(?:mes[oó]n|cubierta)\b[^.;\n]{0,90}\b(?:descans\w*|apoy\w*)\b"
+        r"[^.;\n]{0,50}\b(?:carcasa|mueble|patas?)\b",
+        text,
+    )
+    if coffee_context and (wall_vertical_support or wall_vertical_excluded or countertop_rest):
+        wall_load = bool(wall_vertical_support and not wall_vertical_excluded)
+        previous_support = ((previous_state or {}).get("decisions", {})
+                            .get("countertop_support", {}))
+        previous_support_value = (
+            previous_support.get("value") if type(previous_support) is dict else None
+        )
+        preserve_cabinet_support = (
+            not wall_load and not countertop_rest and wall_vertical_excluded
+            and type(previous_support) is dict
+            and previous_support.get("source") == "OWNER_TEXT"
+            and previous_support.get("status") == "confirmed"
+            and type(previous_support_value) is dict
+            and previous_support_value.get("support_source") == "cabinet_floor"
+        )
+        add("countertop_support", {
+            "support_source": (
+                "wall" if wall_load else
+                "cabinet_floor" if countertop_rest or preserve_cabinet_support else None
+            ),
+            "wall_vertical_support": wall_load,
+        }, "confirmed" if wall_load or countertop_rest or preserve_cabinet_support
+           else "pending")
+    anti_tip = re.search(r"\banti[ -]?vuelco\b|\bestabilidad\b", text)
+    installer_review = re.search(
+        r"\binstalador\b[^.;\n]{0,80}\b(?:revis\w*|verific\w*|evalu\w*)\b",
+        text,
+    )
+    if anti_tip and coffee_context:
+        add("anti_tip_anchor", {
+            "role": "stability_only",
+            "installer_review_required": bool(installer_review),
+            "wall_vertical_support": bool(wall_vertical_support and not wall_vertical_excluded),
+        }, "confirmed" if installer_review and wall_vertical_excluded else "pending")
 
     floor_support = re.search(
         r"\b(?:direct(?:o|amente)?\s+al\s+piso|apoyad[oa]s?\s+en\s+(?:el\s+)?piso|"
@@ -1522,7 +1683,14 @@ def _guided_text_updates(
     if re.search(r"\binterior\s+(?:abierto|libre)\b|\babierto\b", text):
         layout.append("open")
     if layout and not (shelf_per_module or scoped_shelf or equal_width_modules):
-        add("internal_layout", layout)
+        if "horizontal" in layout and coffee_context:
+            shelf_mm = int(shelf_position.group("mm")) if shelf_position else None
+            add("internal_layout", {
+                "elements": layout,
+                "shelf_position_from_clear_bottom_mm": shelf_mm,
+            }, "confirmed" if shelf_mm is not None else "pending")
+        else:
+            add("internal_layout", layout)
 
     if re.search(r"\b(?:sin\s+(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
                  r"ni\s+(?:ning[uú]n(?:a)?\s+)?(?:caj[oó]n(?:es)?|gaveta(?:s)?)|"
@@ -1657,6 +1825,11 @@ def _guided_text_updates(
             )
             add("back", thickness_value)
 
+    if (coffee_context
+            and not any(item["field"] == "back" for item in updates)
+            and "back" not in (previous_state or {}).get("decisions", {})):
+        add("back", "pending", "pending", "ENGINE_CALCULATED")
+
     depth_reference = _guided_depth_reference_update(
         utterance, previous_state, updates,
     )
@@ -1748,7 +1921,10 @@ def _guided_question_fields(decisions: dict[str, dict[str, Any]]) -> list[str]:
     else:
         fields.insert(1, "use")
     if coffee:
-        fields.extend(("countertop", "countertop_overhang", "support"))
+        fields.extend((
+            "countertop", "countertop_overhang", "cabinet_bracing",
+            "countertop_support", "anti_tip_anchor", "back", "support",
+        ))
     fields.extend(("internal_layout", "drawers", "doors", "back", "material",
                    "thickness_mm", "construction"))
     if not coffee:
@@ -2489,6 +2665,15 @@ def _guided_compose_product_spec(
             blockers.append(f"{field}:confirmed_owner_text_required")
             continue
         values[field] = entry["value"]
+    is_coffee = _fold(str(decisions.get("use", {}).get("value", ""))) == "coffee"
+    if is_coffee:
+        for field in ("countertop_support", "cabinet_bracing", "anti_tip_anchor"):
+            entry = decisions.get(field)
+            if (type(entry) is not dict or entry.get("source") != "OWNER_TEXT"
+                    or entry.get("status") != "confirmed"):
+                blockers.append(f"{field}:confirmed_owner_text_required")
+            else:
+                values[field] = entry["value"]
     if blockers:
         return None, assumptions, blockers
 
@@ -2533,6 +2718,48 @@ def _guided_compose_product_spec(
         blockers.append("wall_contact:boolean_required")
     if support_style == "wall_mounted" and wall_contact is not True:
         blockers.append("wall_mounted:owner_wall_contact_required")
+    upper_support: dict[str, Any] | None = None
+    if is_coffee:
+        countertop_support = values["countertop_support"]
+        if (type(countertop_support) is not dict
+                or countertop_support.get("support_source") != "cabinet_floor"
+                or countertop_support.get("wall_vertical_support") is not False):
+            blockers.append("countertop_support:wall_vertical_load_or_support_unconfirmed")
+        anti_tip = values["anti_tip_anchor"]
+        if (type(anti_tip) is not dict
+                or anti_tip.get("role") != "stability_only"
+                or anti_tip.get("installer_review_required") is not True
+                or anti_tip.get("wall_vertical_support") is not False):
+            blockers.append("anti_tip_anchor:installer_stability_review_required")
+        bracing = values["cabinet_bracing"]
+        expected_ties = {
+            "upper_front_tie", "upper_rear_tie", "lower_rear_tie",
+        }
+        if (type(bracing) is not dict
+                or bracing.get("style") != "coffee_three_upright_ties"
+                or bracing.get("count") != 3
+                or bracing.get("orientation") != "vertical"
+                or type(bracing.get("positions")) is not list
+                or any(type(item) is not str for item in bracing["positions"])
+                or set(bracing["positions"]) != expected_ties
+                or len(bracing["positions"]) != 3
+                or type(bracing.get("tie_height_mm")) is not int
+                or bracing["tie_height_mm"] <= 0):
+            blockers.append("cabinet_bracing:three_vertical_ties_and_explicit_height_required")
+        elif (values["construction"] != "sides_full"
+              or type(values["countertop"]) is not dict
+              or values["countertop"].get("present") is not True):
+            blockers.append("cabinet_bracing:F6_requires_countertop_and_sides_full")
+        elif (type(values["doors"]) is not dict
+              or values["doors"].get("count") != 2
+              or decisions.get("front_style", {}).get("value") != "overlay"):
+            blockers.append("cabinet_bracing:requires_two_overlay_doors")
+        else:
+            upper_support = {
+                "style": "coffee_three_upright_ties",
+                "tie_height_mm": bracing["tie_height_mm"],
+                "tie_height_status": "REVIEW_HEIGHT_HYPOTHESIS_ONLY",
+            }
     if blockers:
         return None, assumptions, list(dict.fromkeys(blockers))
 
@@ -2546,7 +2773,12 @@ def _guided_compose_product_spec(
         blockers.append("front_style:confirmed_overlay_or_inset_required")
     back = values["back"]
     if back != "none":
-        blockers.append("back:only_explicit_absence_supported_by_this_review")
+        if is_coffee and upper_support is not None and back in {
+            "thin_3mm", "same_board_15mm",
+        }:
+            blockers.append("BLOCKED_UNSUPPORTED_BACK_GEOMETRY")
+        else:
+            blockers.append("back:only_explicit_absence_supported_by_this_review")
     layout = values["internal_layout"]
     layout_elements = layout.get("elements", []) if type(layout) is dict else layout
     if type(layout_elements) is not list:
@@ -2676,6 +2908,8 @@ def _guided_compose_product_spec(
     }
     if countertop_module:
         module.update(countertop_module)
+    if upper_support is not None:
+        module["upper_support"] = upper_support
 
     if type(door_count) is int and door_count > 0:
         hinges = ["left", "right"] if door_count == 2 else ["left"]
@@ -2710,19 +2944,29 @@ def _guided_compose_product_spec(
             "construction": values["construction"],
         })
         clear_height = geometry["dimensions"]["clear_height_mm"]
-        position = clear_height // 2
+        proposed_position = layout.get("shelf_position_from_clear_bottom_mm") \
+            if type(layout) is dict else None
+        layout_entry = decisions.get("internal_layout", {})
+        owner_position = (
+            type(layout_entry) is dict
+            and layout_entry.get("source") == "OWNER_TEXT"
+            and layout_entry.get("status") == "confirmed"
+            and type(proposed_position) is int
+        )
+        position = proposed_position if owner_position else clear_height // 2
         module["horizontal_divider"] = {
             "material_id": body_material_id, "thickness_mm": thickness,
             "position_from_clear_bottom_mm": position,
             "depth_mm": depth, "depth_from_front_mm": 0,
         }
-        assumptions.append({
-            "field": f"{module['module_id']}.horizontal_divider",
-            "value": {"position_from_clear_bottom_mm": position,
-                      "depth_mm": depth, "depth_from_front_mm": 0},
-            "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
-            "reason": "El texto pide una repisa horizontal, pero no fija altura ni retiro.",
-        })
+        if not owner_position:
+            assumptions.append({
+                "field": f"{module['module_id']}.horizontal_divider",
+                "value": {"position_from_clear_bottom_mm": position,
+                          "depth_mm": depth, "depth_from_front_mm": 0},
+                "source": "ENGINE_PROPOSED_NOT_OWNER_APPROVED",
+                "reason": "Posición central ilustrativa; el texto no fija altura.",
+            })
     elif layout_elements not in ([], ["open"]):
         blockers.append("internal_layout:unsupported_for_single_module_composer")
 
@@ -3497,10 +3741,27 @@ def _guided_multicomponent_handoff(
                         "module_spec:countertop_material_specific_unconfirmed"
                     )
                 warnings.append("COUNTERTOP_MATERIAL_NOT_OWNER_APPROVED")
-            warnings.extend((
-                "COUNTERTOP_OVERHANG_SPLIT_IS_PROPOSED_NOT_OWNER_APPROVED",
-                "COUNTERTOP_SUPPORT_NOT_STRUCTURALLY_VERIFIED",
-            ))
+            owner_overhang = decisions.get("countertop_overhang", {})
+            owner_flights = (
+                owner_overhang.get("value") if type(owner_overhang) is dict else None
+            )
+            reviewed_top = countertop_modules[0]["countertop"]
+            owner_flights_match = (
+                _fold(str(decisions.get("use", {}).get("value", ""))) == "coffee"
+                and type(owner_overhang) is dict
+                and owner_overhang.get("source") == "OWNER_TEXT"
+                and owner_overhang.get("status") == "confirmed"
+                and type(owner_flights) is dict
+                and type(owner_flights.get("front_mm")) is int
+                and type(owner_flights.get("rear_mm")) is int
+                and reviewed_top.get("front_overhang_mm") == owner_flights["front_mm"]
+                and reviewed_top.get("rear_overhang_mm") == owner_flights["rear_mm"]
+            )
+            if not owner_flights_match:
+                warnings.append("COUNTERTOP_OVERHANG_SPLIT_IS_PROPOSED_NOT_OWNER_APPROVED")
+            warnings.append("COUNTERTOP_SUPPORT_NOT_STRUCTURALLY_VERIFIED")
+            if _fold(str(decisions.get("use", {}).get("value", ""))) == "coffee":
+                warnings.append("STRUCTURAL_ENGINEERING_UNVERIFIED")
             if support_style in {"legs", "plinth"}:
                 support_concept = countertop_modules[0].get("support_concept")
                 overall = (dimensions["height_mm"] + support_height
@@ -3515,6 +3776,11 @@ def _guided_multicomponent_handoff(
                     "OVERALL_HEIGHT_DERIVED_NOT_OWNER_DECLARED",
                     "LEGS_ARE_CONCEPT_ONLY_NOT_PHYSICAL_PIECES",
                 ))
+                if (_fold(str(decisions.get("use", {}).get("value", ""))) == "coffee"
+                        and support_height == 100):
+                    warnings.append(
+                        "SUPPORT_CONCEPT_100MM_DOES_NOT_RESOLVE_HISTORICAL_40MM_LEG_REFERENCE"
+                    )
 
     result["nominal_draft_warnings"] = list(dict.fromkeys(warnings))
     if blockers:
@@ -3872,6 +4138,30 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
             pending_fields=[],
         )["review_state"]
     decisions = accumulated["decisions"]
+    coffee = decisions.get("use", {}).get("value") == "coffee"
+    coffee_owner_fields = {
+        "dimensions_mm", "wall_contact", "countertop", "countertop_overhang",
+        "support", "countertop_support", "cabinet_bracing", "anti_tip_anchor",
+        "back", "internal_layout", "drawers", "doors", "front_style",
+        "opening_intent", "material", "thickness_mm", "construction",
+    }
+
+    def confirmed_owner_field(field: str) -> bool:
+        entry = decisions.get(field)
+        return (type(entry) is dict and entry.get("status") == "confirmed"
+                and entry.get("source") == "OWNER_TEXT"
+                and entry.get("value") not in (None, "pending"))
+
+    layout_value = decisions.get("internal_layout", {}).get("value")
+    layout_elements_for_question = (
+        layout_value.get("elements", []) if type(layout_value) is dict
+        else layout_value if type(layout_value) is list else []
+    )
+    coffee_shelf_location_missing = (
+        coffee and "horizontal" in layout_elements_for_question
+        and (type(layout_value) is not dict
+             or type(layout_value.get("shelf_position_from_clear_bottom_mm")) is not int)
+    )
     missing = [
         field for field in _guided_question_fields(decisions)
         if field not in decisions or (
@@ -3880,6 +4170,11 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
         ) or (
             field == "drawer_layout"
             and decisions[field].get("status") != "confirmed"
+        ) or (
+            coffee and field in coffee_owner_fields
+            and not confirmed_owner_field(field)
+        ) or (
+            field == "internal_layout" and coffee_shelf_location_missing
         )
     ]
     guided = update_review_state(
@@ -4040,6 +4335,41 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
     natural_summary = {key: copy.deepcopy(natural_preview[key])
                        for key in preview_keys if key in natural_preview}
     questions = [dict(item) for item in guided["questions"]]
+    if coffee:
+        coffee_question_text = {
+            "countertop_overhang": (
+                "¿Qué vuelos confirmas en el frente y atrás, en mm? Deben sumar "
+                "la diferencia entre la profundidad del mesón y la carcasa."
+            ),
+            "cabinet_bracing": (
+                "¿Confirmas tres correas verticales (frontal superior, posterior superior "
+                "y posterior inferior)? Indica la altura explícita en mm; no se presume 80 mm."
+            ),
+            "countertop_support": (
+                "¿El mesón descansa sobre la carcasa y los apoyos al piso? La pared no se "
+                "considerará soporte vertical."
+            ),
+            "anti_tip_anchor": (
+                "¿La pared se usará solo para estabilidad anti-vuelco, sujeta a revisión "
+                "del instalador?"
+            ),
+            "support": (
+                "¿Qué apoyo conceptual completa la altura total? La altura no define un "
+                "modelo de pata física."
+            ),
+            "back": (
+                "¿Dejamos el mueble sin fondo o quieres revisar un panel de 3 mm? Son opciones "
+                "distintas y el panel puede interferir con las correas posteriores."
+            ),
+        }
+        if coffee_shelf_location_missing:
+            coffee_question_text["internal_layout"] = (
+                "¿A qué altura desde la base interior quieres ubicar la repisa horizontal? "
+                "Indica mm; la posición central no se dará por aprobada."
+            )
+        for question in questions:
+            if question.get("field") in coffee_question_text:
+                question["question"] = coffee_question_text[question["field"]]
     drawer_layout_entry = decisions.get("drawer_layout")
     if (type(drawer_layout_entry) is dict
             and type(drawer_layout_entry.get("value")) is dict):
@@ -4247,7 +4577,7 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
                         ][:2]]
                         nominal_handoff["nominal_draft_next_question"] = question
             elif _fold(str(decisions.get("use", {}).get("value", ""))) in {
-                "kitchen", "bathroom", "bedroom",
+                "kitchen", "bathroom", "bedroom", "coffee",
             }:
                 composed_spec, assumptions, compose_blockers = (
                     _guided_compose_product_spec(decisions, utterance, natural_preview)
@@ -4278,6 +4608,16 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
                         [*nominal_handoff.get("nominal_draft_blockers", []),
                          *compose_blockers]
                     ))[:32]
+                    if (decisions.get("use", {}).get("value") == "coffee"
+                            and "BLOCKED_UNSUPPORTED_BACK_GEOMETRY" in compose_blockers):
+                        nominal_handoff.update({
+                            "nominal_draft_scope": "CONCEPT_ONLY",
+                            "nominal_draft_engine_status": "CONCEPT_ONLY",
+                            "nominal_draft_next_question": (
+                                "El fondo posterior de 3 mm interferiría con las correas traseras. "
+                                "¿Quieres dejarlo abierto o revisar otro sistema de fondo con un instalador?"
+                            ),
+                        })
             else:
                 nominal_handoff = _guided_open_cabinet_handoff(
                     decisions, photo_attached=photo_attached,
@@ -4445,6 +4785,11 @@ def prepare_guided_design_v1(request: dict[str, Any]) -> dict[str, Any]:
            if sliding_review is not None else {}),
         **nominal_handoff,
     }
+    if coffee and previous_state is None and photo is None:
+        result["next_step"] += (
+            " Si tienes una foto de referencia, puedes compartirla; quedará como "
+            "observación no confirmada y no se usará para deducir medidas."
+        )
     return result
 
 
