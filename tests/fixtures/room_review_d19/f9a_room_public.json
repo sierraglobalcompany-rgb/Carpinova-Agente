@@ -1,0 +1,274 @@
+{
+  "public_response": {
+    "can_generate_f7c": false,
+    "cutting_ready": false,
+    "drilling_ready": false,
+    "envelope_collisions": [],
+    "fabrication_ready": false,
+    "global_piece_ids": [
+      "CIEGO:CIEGO-LEFT_SIDE",
+      "CIEGO:CIEGO-RIGHT_SIDE",
+      "CIEGO:CIEGO-TOP",
+      "CIEGO:CIEGO-BOTTOM",
+      "CIEGO:CIEGO-FRONT_CORNER_BLIND",
+      "RECTO:RECTO-LEFT_SIDE",
+      "RECTO:RECTO-RIGHT_SIDE",
+      "RECTO:RECTO-TOP",
+      "RECTO:RECTO-BOTTOM"
+    ],
+    "groups": [
+      {
+        "bounds_xyz_mm": [
+          900,
+          720,
+          578
+        ],
+        "geometry_sha256": "ecf24fd539ba508c20b8badbede93cf50794227f4d45df44c45d0121fb2de8b4",
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          0,
+          0,
+          0
+        ],
+        "piece_count": 5,
+        "rotation_deg": 0
+      },
+      {
+        "bounds_xyz_mm": [
+          560,
+          720,
+          600
+        ],
+        "geometry_sha256": "61d2b7486009f088c2368a3e2075ec4cf29d06c8b449e2be7d5c1b85dcabc949",
+        "group_id": "RECTO",
+        "origin_xyz_mm": [
+          900,
+          0,
+          0
+        ],
+        "piece_count": 4,
+        "rotation_deg": 90
+      }
+    ],
+    "layout_sha256": "b80c971e0a3e7c88d7f3dcaa28747d250e01256faca9c86a0bd",
+    "panel_collisions": [],
+    "piece_count": 9,
+    "purchase_ready": false,
+    "review_kind": "room_layout_v1",
+    "service_zones": [],
+    "status": "REVIEW_ONLY",
+    "warnings": [
+      "ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY",
+      "ROOM_LAYOUT_DOES_NOT_VERIFY_WALLS_LOADS_ANCHORS_OR_HARDWARE",
+      "SERVICE_RESERVATIONS_ARE_NOT_HOLES_OR_PLUMBING_INSTALLATION",
+      "CORNER_JOINT_AND_FILLER_NOT_DESIGNED"
+    ],
+    "world_boxes": [
+      {
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          0,
+          0,
+          18
+        ],
+        "piece_id": "CIEGO:CIEGO-LEFT_SIDE",
+        "role": "left_side",
+        "size_xyz_mm": [
+          18,
+          720,
+          560
+        ]
+      },
+      {
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          882,
+          0,
+          18
+        ],
+        "piece_id": "CIEGO:CIEGO-RIGHT_SIDE",
+        "role": "right_side",
+        "size_xyz_mm": [
+          18,
+          720,
+          560
+        ]
+      },
+      {
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          18,
+          702,
+          18
+        ],
+        "piece_id": "CIEGO:CIEGO-TOP",
+        "role": "top",
+        "size_xyz_mm": [
+          864,
+          18,
+          560
+        ]
+      },
+      {
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          18,
+          0,
+          18
+        ],
+        "piece_id": "CIEGO:CIEGO-BOTTOM",
+        "role": "bottom",
+        "size_xyz_mm": [
+          864,
+          18,
+          560
+        ]
+      },
+      {
+        "group_id": "CIEGO",
+        "origin_xyz_mm": [
+          480,
+          0,
+          0
+        ],
+        "piece_id": "CIEGO:CIEGO-FRONT_CORNER_BLIND",
+        "role": "front_corner_blind",
+        "size_xyz_mm": [
+          420,
+          720,
+          18
+        ]
+      },
+      {
+        "group_id": "RECTO",
+        "origin_xyz_mm": [
+          900,
+          0,
+          0
+        ],
+        "piece_id": "RECTO:RECTO-LEFT_SIDE",
+        "role": "left_side",
+        "size_xyz_mm": [
+          560,
+          720,
+          18
+        ]
+      },
+      {
+        "group_id": "RECTO",
+        "origin_xyz_mm": [
+          900,
+          0,
+          582
+        ],
+        "piece_id": "RECTO:RECTO-RIGHT_SIDE",
+        "role": "right_side",
+        "size_xyz_mm": [
+          560,
+          720,
+          18
+        ]
+      },
+      {
+        "group_id": "RECTO",
+        "origin_xyz_mm": [
+          900,
+          702,
+          18
+        ],
+        "piece_id": "RECTO:RECTO-TOP",
+        "role": "top",
+        "size_xyz_mm": [
+          560,
+          18,
+          564
+        ]
+      },
+      {
+        "group_id": "RECTO",
+        "origin_xyz_mm": [
+          900,
+          0,
+          18
+        ],
+        "piece_id": "RECTO:RECTO-BOTTOM",
+        "role": "bottom",
+        "size_xyz_mm": [
+          560,
+          18,
+          564
+        ]
+      }
+    ]
+  },
+  "request": {
+    "assemblies": [
+      {
+        "group_id": "CIEGO",
+        "module_spec": {
+          "application": "kitchen",
+          "depth_mm": 560,
+          "height_mm": 720,
+          "installation": "freestanding",
+          "modules": [
+            {
+              "back": "none",
+              "construction": "sides_full",
+              "corner_blind": {
+                "blind_width_mm": 420,
+                "side": "right"
+              },
+              "drawers": "none",
+              "fronts": "none",
+              "material_id": "MELAMINA_18",
+              "module_id": "CIEGO",
+              "panel_thickness_mm": 18,
+              "support": "floor",
+              "width_mm": 900
+            }
+          ],
+          "type": "modular_run",
+          "width_mm": 900
+        },
+        "origin_xyz_mm": [
+          0,
+          0,
+          0
+        ],
+        "rotation_deg": 0
+      },
+      {
+        "group_id": "RECTO",
+        "module_spec": {
+          "application": "kitchen",
+          "depth_mm": 560,
+          "height_mm": 720,
+          "installation": "freestanding",
+          "modules": [
+            {
+              "back": "none",
+              "construction": "sides_full",
+              "drawers": "none",
+              "fronts": "none",
+              "material_id": "MELAMINA_18",
+              "module_id": "RECTO",
+              "panel_thickness_mm": 18,
+              "support": "floor",
+              "width_mm": 600
+            }
+          ],
+          "type": "modular_run",
+          "width_mm": 600
+        },
+        "origin_xyz_mm": [
+          900,
+          0,
+          0
+        ],
+        "rotation_deg": 90
+      }
+    ],
+    "review_kind": "room_layout_v1",
+    "service_zones": []
+  }
+}
