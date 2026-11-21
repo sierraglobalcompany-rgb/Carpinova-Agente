@@ -123,6 +123,7 @@ def modular_front_svg(model: dict[str, Any]) -> str:
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         elif role in ("back_full", "back_top", "back_bottom",
                       "front_single", "front_left", "front_right",
+                      "front_corner_blind",
                       "drawer_front_wall", "drawer_rear_wall", "drawer_facade"):
             pw, ph = piece["nominal_face_x_mm"], piece["nominal_face_y_mm"]
         elif role == "support_leg_concept":
