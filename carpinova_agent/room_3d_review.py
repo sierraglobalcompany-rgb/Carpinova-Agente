@@ -130,7 +130,8 @@ h1{font-size:clamp(20px,2.4vw,28px);line-height:1.2;margin:0 0 8px}.sub{font-siz
 .summary-card{min-width:0;border-left:3px solid #21758a;padding:7px 10px;background:#f5f8f8;overflow-wrap:anywhere}.summary-card strong{display:block;font-size:12px;color:#375464}.summary-card span{font-size:14px;font-variant-numeric:tabular-nums}
 main{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);min-height:calc(100vh - 180px)}
 .stage-wrap{min-width:0;padding:14px}.stage{min-height:500px;background:radial-gradient(circle at 42% 20%,#315469,#102530 82%);border-radius:10px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-#scene{display:block;width:100%;height:min(72vh,820px);min-height:460px;touch-action:pan-y}
+#scene{display:block;width:100%;height:min(72vh,820px);min-height:460px;touch-action:pan-y;cursor:grab;user-select:none}
+.stage.dragging #scene{cursor:grabbing}
 .stage-caption{font-size:12px;color:#526774;margin:9px 3px}.sidebar{background:#f6f8f8;border-left:1px solid #cad5d9;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
 fieldset{margin:0;min-width:0;border:1px solid #c4d1d5;border-radius:8px;padding:11px;background:#fff}legend{font-weight:700;font-size:14px;padding:0 4px}
 button{background:#e6eef0;color:#183745;border:1px solid #91a9b1;border-radius:6px;padding:8px 10px;cursor:pointer;margin:3px 4px 3px 0;font:inherit;font-size:13px}
@@ -157,8 +158,9 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <div class="summary-card"><strong>Grupos</strong><span id="groupSummary"></span></div>
 </section>
 <main><section class="stage-wrap"><div class="stage"><svg id="scene" role="img" aria-label="Vista nominal simplificada 2.5D; no valida ensamble" viewBox="0 0 900 640"></svg></div>
-<p class="stage-caption">La proyección puede simplificar oclusiones y uniones. Cambiar la vista solo mueve la cámara; no modifica piezas ni valida el ensamble.</p></section>
+<p class="stage-caption"><strong>Arrastra sobre el mueble para girar · rueda para ampliar.</strong> La proyección puede simplificar oclusiones y uniones. Cambiar la vista solo mueve la cámara; no modifica piezas ni valida el ensamble.</p></section>
 <aside class="sidebar"><fieldset><legend>Vista y controles visuales</legend><span class="control-note">Orientación — solo cámara</span><div id="views" class="views"></div>
+<span id="cameraReadout" class="control-note" aria-live="polite">Giro 0° · Elevación 35°</span>
 <label class="control-line"><input type="checkbox" id="interior"><span>Inspeccionar interior (ocultar frentes y tapa SOLO visualmente)</span></label>
 <fieldset id="openingGroup" class="open-controls"><legend>Abrir puertas nominales</legend>
 <div id="doorSliders"></div><div id="noDoors" class="empty-note" hidden>Esta escena no tiene puertas abatibles con lados identificables.</div>
@@ -183,18 +185,34 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 const data=JSON.parse(document.getElementById('scene-data').textContent);
 const NS='http://www.w3.org/2000/svg'; const svg=document.getElementById('scene');
 const cutEnabled=document.getElementById('cutEnabled'),cutHeight=document.getElementById('cutHeight'),zoom=document.getElementById('zoom');
-let heading=0,selected='',shown=new Set(data.groups.map(g=>g.id));
+const INITIAL_ELEVATION=35;
+let yaw=0,elevation=INITIAL_ELEVATION,activePreset=0,selected='',shown=new Set(data.groups.map(g=>g.id));
 const doorAngles=new Map();
 const E=(tag,attrs,text)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs||{}))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n};
 const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:['#467b91','#6ca6bc','#a8d4df'];
-const sw=(x,z)=>heading===0?[x,-z]:heading===90?[-z,-x]:heading===180?[-x,z]:[z,x];
-const P=(x,y,z)=>{const [u,v]=sw(x,z);return [(u-v)*.83,(u+v)*.42-y*.97]};
+const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
+const normalizeYaw=value=>((value%360)+360)%360;
+const cameraState=()=>{const az=(45-yaw)*Math.PI/180,el=elevation*Math.PI/180,ce=Math.cos(el),se=Math.sin(el);return {position:[Math.sin(az)*ce,se,-Math.cos(az)*ce],right:[Math.cos(az),0,Math.sin(az)],up:[-Math.sin(az)*se,ce,Math.cos(az)*se]}};
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const P=(x,y,z)=>{const c=cameraState(),d=[x-pivot[0],y-pivot[1],z-pivot[2]];return [dot(c.right,d),-dot(c.up,d)]};
+const faceDepth=(points,camera)=>points.reduce((sum,p)=>sum+dot([p[0]-pivot[0],p[1]-pivot[1],p[2]-pivot[2]],camera.position),0)/points.length;
 const ROLE_LABEL={front_left:'puerta izquierda nominal',front_right:'puerta derecha nominal',front_corner_blind:'panel ciego NO puerta',front_corner_access:'puerta nominal sin bisagra validada',shelf_horizontal:'repisa',top:'tapa',bottom:'base',left_side:'lateral izquierdo',right_side:'lateral derecho',back_full:'fondo completo'};
 const labelRole=role=>ROLE_LABEL[role]||role;
 const maxHeight=Math.max(...data.groups.map(g=>g.origin[1]+g.size[1]));
 cutHeight.max=String(maxHeight);cutHeight.value=String(maxHeight);
 const mins=[0,1,2].map(i=>Math.min(...data.groups.map(g=>g.origin[i])));
 const maxs=[0,1,2].map(i=>Math.max(...data.groups.map(g=>g.origin[i]+g.size[i])));
+const pivot=mins.map((value,i)=>(value+maxs[i])/2);
+// Keep a fixed camera frame that includes the complete, illustrative 0–90° door sweep.
+const frameMin=mins.slice(),frameMax=maxs.slice();
+const includeFramePoint=point=>{for(let i=0;i<3;i++){frameMin[i]=Math.min(frameMin[i],point[i]);frameMax[i]=Math.max(frameMax[i],point[i])}};
+for(const box of data.boxes.filter(item=>item.role==='front_left'||item.role==='front_right')){
+ const [x,y,z]=box.origin,[w,h,d]=box.size,isLeft=box.role==='front_left',hx=isLeft?x:x+w,hz=z+d/2,turn=isLeft?1:-1;
+ for(const xx of [x,x+w])for(const yy of [y,y+h])for(const zz of [z,z+d])for(let deg=0;deg<=90;deg++){
+  const a=turn*deg*Math.PI/180,c=Math.cos(a),s=Math.sin(a),dx=xx-hx,dz=zz-hz;
+  includeFramePoint([hx+dx*c+dz*s,yy,hz-dx*s+dz*c]);
+ }
+}
 const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];
 document.getElementById('globalBounds').textContent=axes.map((axis,i)=>`${axis}: ${mins[i]}–${maxs[i]} (${maxs[i]-mins[i]} mm)`).join(' · ');
 document.getElementById('sceneName').textContent=data.groups.map(g=>g.id).join(' · ');
@@ -208,9 +226,10 @@ const faces=[[[x,top,z],[x+w,top,z],[x+w,top,z+d],[x,top,z+d]],
 [[x+w,y,z],[x+w,y,z+d],[x+w,top,z+d],[x+w,top,z]],
 [[x,y,z+d],[x+w,y,z+d],[x+w,top,z+d],[x,top,z+d]],
 [[x,y,z],[x,y,z+d],[x,top,z+d],[x,top,z]],
-[[x,y,z],[x+w,y,z],[x+w,top,z],[x,top,z]]];
-const visible=heading===0?[0,1,4]:heading===90?[0,3,4]:heading===180?[0,3,2]:[0,1,2];
-return visible.map(index=>{const points=faces[index];const depth=points.reduce((sum,[xx,,zz])=>{const [u,v]=sw(xx,zz);return sum+u+v},0)/points.length;return {pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}})};
+[[x,y,z],[x+w,y,z],[x+w,top,z],[x,top,z]],
+[[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d]]];
+const normals=[[0,1,0],[1,0,0],[0,0,1],[-1,0,0],[0,0,-1],[0,-1,0]],camera=cameraState();
+return faces.flatMap((points,index)=>{if(dot(normals[index],camera.position)<=0.00001)return [];return [{pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),depth:faceDepth(points,camera),faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}]})};
 // Orthographic rigid-body display ONLY: no hinge SKU, motion-clearance or load validation.
 // A front-left leaf pivots around its left x-edge; a front-right leaf around its right.
 const hingeFaces=(box, angleDeg)=>{
@@ -231,18 +250,18 @@ const hingeFaces=(box, angleDeg)=>{
  [[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d]]
  ];
  const normals=[[0,1,0],[1,0,0],[0,0,1],[-1,0,0],[0,0,-1],[0,-1,0]];
- const cam=heading===0?[1,1,-1]:heading===90?[-1,1,-1]:heading===180?[-1,1,1]:[1,1,1];
- const fills=palette(box.role);
+  const camera=cameraState(),fills=palette(box.role);
  return original.flatMap((face,index)=>{
   const [nx,ny,nz]=normals[index];
   const rx=nx*c+nz*si,rz=-nx*si+nz*c;
-  if(rx*cam[0]+ny*cam[1]+rz*cam[2]<=0.00001)return [];
+   if(dot([rx,ny,rz],camera.position)<=0.00001)return [];
   const world=face.map(R);
-  const depth=world.reduce((sum,[xx,yy,zz])=>sum+xx*cam[0]+zz*cam[2]+yy*.85,0)/world.length;
+   const depth=faceDepth(world,camera);
   return [{pts:world.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,
    fill:index===0?fills[2]:index===4?fills[0]:index===2?fills[1]:fills[1]}];
  });
 };
+const updateViewBox=()=>{const corners=[];for(const x of [frameMin[0],frameMax[0]])for(const y of [frameMin[1],frameMax[1]])for(const z of [frameMin[2],frameMax[2]])corners.push(P(x,y,z));const halfW=(Math.max(...corners.map(p=>Math.abs(p[0])))+30)*100/Number(zoom.value),halfH=(Math.max(...corners.map(p=>Math.abs(p[1])))+30)*100/Number(zoom.value);svg.setAttribute('viewBox',[-halfW,-halfH,halfW*2,halfH*2].join(' '))};
 
 function render(){while(svg.firstChild)svg.removeChild(svg.firstChild);let all=[];const layer=E('g',{'id':'panels'});svg.appendChild(layer);
 for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
@@ -251,21 +270,24 @@ const angle=doorAngles.get(box.id)||0;const parts=angle>0?hingeFaces(box,angle):
 for(const face of parts)all.push({depth:face.depth,order:boxIndex*parts.length+face.faceIndex,box,face})}
 // Render interior before the roof: an interior shelf may NEVER be painted onto the top.
 // Order is visual only; verified CAD world_boxes never change.
-const paintLayer=role=>{
- if(role.startsWith('front_'))return heading===0||heading===90?4:0;
- if(role==='top')return 3;
- if(role==='left_side'||role==='right_side'||role==='divider_vertical')return 2;
- if(role.startsWith('back_'))return heading===180||heading===270?2:1;
- return 1;
-};
-all.sort((a,b)=>paintLayer(a.box.role)-paintLayer(b.box.role)||a.depth-b.depth||a.order-b.order);
+// A closed front is a full occluder for the cabinet interior from its front half-space.
+const fromFront=cameraState().position[2]<-0.00001,frontOcclusion=entry=>fromFront&&entry.box.role.startsWith('front_')&&(doorAngles.get(entry.box.id)||0)===0?1:0;
+all.sort((a,b)=>frontOcclusion(a)-frontOcclusion(b)||a.depth-b.depth||a.order-b.order);
 const pts=[];
-for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('click',()=>pick(entry.box));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
+for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
 if(data.zones.length&&document.getElementById('zones').checked){for(const zone of data.zones){if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.42','data-zone-id':zone.id});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
-if(!pts.length){svg.setAttribute('viewBox','0 0 900 640');svg.appendChild(E('text',{x:30,y:50},'Sin paneles a esta altura o con filtros actuales.'));return}
-const minx=Math.min(...pts.map(p=>p[0])),maxx=Math.max(...pts.map(p=>p[0])),miny=Math.min(...pts.map(p=>p[1])),maxy=Math.max(...pts.map(p=>p[1]));const sc=Number(zoom.value)/100;const w=Math.max(100,(maxx-minx)/sc),h=Math.max(100,(maxy-miny)/sc);const cx=(minx+maxx)/2,cy=(miny+maxy)/2;svg.setAttribute('viewBox',[cx-w/2-30,cy-h/2-30,w+60,h+60].join(' '));}
+if(!pts.length){updateViewBox();svg.appendChild(E('text',{x:-120,y:0},'Sin paneles a esta altura o con filtros actuales.'));return}updateViewBox()}
 function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=`${box.id}\nGrupo: ${box.group}\nRol: ${labelRole(box.role)} (${box.role})\nOrigen XYZ: ${box.origin.join(', ')} mm\nTamaño XYZ: ${box.size.join(' × ')} mm`;render()}
-for(const angle of [0,90,180,270]){const button=document.createElement('button');button.textContent=angle+'°';button.type='button';button.setAttribute('aria-label',`Solo cámara: orientación ${angle} grados`);button.setAttribute('aria-pressed',String(angle===0));button.addEventListener('click',()=>{heading=angle;for(const b of document.querySelectorAll('#views button'))b.setAttribute('aria-pressed',String(Number.parseInt(b.textContent,10)===angle));render()});document.getElementById('views').appendChild(button)}
+const updateCameraReadout=()=>{document.getElementById('cameraReadout').textContent=`Giro ${Math.round(yaw)}° · Elevación ${Math.round(elevation)}°`;for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(activePreset!==null&&Number(button.dataset.yaw)===activePreset&&elevation===INITIAL_ELEVATION))};
+for(const angle of [0,90,180,270]){const button=document.createElement('button');button.textContent=angle+'°';button.dataset.yaw=String(angle);button.type='button';button.setAttribute('aria-label',`Solo cámara: orientación ${angle} grados`);button.addEventListener('click',()=>{yaw=angle;elevation=INITIAL_ELEVATION;activePreset=angle;updateCameraReadout();render()});document.getElementById('views').appendChild(button)}updateCameraReadout();
+const stage=document.querySelector('.stage');let pointerDrag=null,suppressClickUntil=0;
+const panelAt=(x,y)=>{const node=document.elementFromPoint(x,y)?.closest?.('[data-piece-id]');return node&&svg.contains(node)?node.getAttribute('data-piece-id'):null};
+const finishPointer=(event,allowSelection)=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const drag=pointerDrag;pointerDrag=null;stage.classList.remove('dragging');if(drag.moved){suppressClickUntil=performance.now()+250;setTimeout(()=>{suppressClickUntil=0},0)}else if(allowSelection&&drag.pieceId&&panelAt(event.clientX,event.clientY)===drag.pieceId){const box=data.boxes.find(item=>item.id===drag.pieceId);if(box)pick(box)}};
+svg.addEventListener('pointerdown',event=>{if(event.button!==0||!event.isPrimary)return;pointerDrag={id:event.pointerId,x:event.clientX,y:event.clientY,yaw,elevation,pieceId:panelAt(event.clientX,event.clientY),moved:false};svg.setPointerCapture(event.pointerId)});
+svg.addEventListener('pointermove',event=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const dx=event.clientX-pointerDrag.x,dy=event.clientY-pointerDrag.y;if(!pointerDrag.moved&&Math.hypot(dx,dy)<5)return;pointerDrag.moved=true;event.preventDefault();yaw=normalizeYaw(pointerDrag.yaw+dx*.5);elevation=clamp(pointerDrag.elevation-dy*.35,15,75);activePreset=null;stage.classList.add('dragging');updateCameraReadout();render()});
+svg.addEventListener('pointerup',event=>finishPointer(event,true));svg.addEventListener('pointercancel',event=>finishPointer(event,false));svg.addEventListener('lostpointercapture',event=>finishPointer(event,false));
+svg.addEventListener('click',event=>{if(performance.now()<=suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();suppressClickUntil=0}},true);
+svg.addEventListener('wheel',event=>{if(event.deltaY===0)return;event.preventDefault();const value=clamp(Number(zoom.value)+(event.deltaY<0?10:-10),60,160);if(value===Number(zoom.value))return;zoom.value=String(value);document.getElementById('zoomLabel').textContent=value+' %';render()},{passive:false});
 for(const group of data.groups){const row=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=true;box.addEventListener('change',()=>{box.checked?shown.add(group.id):shown.delete(group.id);render()});row.append(box,document.createTextNode(` ${group.id} (${data.boxes.filter(b=>b.group===group.id).length} paneles)`));document.getElementById('groups').appendChild(row)}
 const warningText={'ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY':'Geometría nominal, sin autorización de corte','ROOM_LAYOUT_DOES_NOT_VERIFY_WALLS_LOADS_ANCHORS_OR_HARDWARE':'Muros, cargas, anclajes y herrajes sin verificar','SERVICE_RESERVATIONS_ARE_NOT_HOLES_OR_PLUMBING_INSTALLATION':'Reservas sin perforaciones ni instalación','CORNER_JOINT_AND_FILLER_NOT_DESIGNED':'Uniones y rellenos de esquina sin diseñar','OVERLAPPING_CABINET_ENVELOPES_BLOCK_APPROVAL':'Interferencias entre muebles: aprobación bloqueada'};
 document.getElementById('warnings').textContent=data.warnings.map(w=>warningText[w]||w).join(' · ');
@@ -299,7 +321,7 @@ cutEnabled.addEventListener('change',()=>{updateCut();render()});cutHeight.addEv
 zoom.addEventListener('input',()=>{document.getElementById('zoomLabel').textContent=zoom.value+' %';render()});
 document.getElementById('interior').addEventListener('change',event=>{const enabled=event.target.checked;document.getElementById('interiorBanner').hidden=!enabled;document.getElementById('noShelf').hidden=!(enabled&&!data.boxes.some(box=>box.role==='shelf_horizontal'));render()});
 if(data.zones.length){document.getElementById('zoneControl').hidden=false;document.getElementById('zones').addEventListener('change',render)}
-document.getElementById('resetView').addEventListener('click',()=>{heading=0;zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(button.textContent==='0°'));doorAngles.clear();for(const input of document.querySelectorAll('#doorSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0° (cerrada)')}updateCut();render()});
+document.getElementById('resetView').addEventListener('click',()=>{yaw=0;elevation=INITIAL_ELEVATION;activePreset=0;updateCameraReadout();zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));for(const input of document.querySelectorAll('#groups input[type=checkbox]'))input.checked=true;document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';doorAngles.clear();for(const input of document.querySelectorAll('#doorSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0° (cerrada)')}updateCut();render()});
 updateCut();render();
 </script></body></html>
 '''
