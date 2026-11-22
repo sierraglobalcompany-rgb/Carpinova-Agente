@@ -142,6 +142,7 @@ label{display:block;font-size:13px;margin:8px 0}.control-line{display:flex;align
 svg polygon:focus-visible,svg polygon.selected{stroke:#f5bc3d;stroke-width:3;outline:none}
 svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-order:stroke;stroke:#102530;stroke-width:3}
 .warn{border-left:3px solid #bd7c15;padding:7px 9px;background:#fff7e5;color:#624719;font-size:12px;overflow-wrap:anywhere}
+.open-controls{margin:10px 0;background:#f5fafb}.door-control{margin:8px 0;padding:6px 0;border-bottom:1px solid #d9e4e8}.door-control input[type=range]{width:100%}.door-control output{font-variant-numeric:tabular-nums;color:#0e6978;font-weight:700}
 .interior-banner{padding:9px;border-radius:6px;background:#fff2cc;color:#624719;font-size:12px;font-weight:700}.empty-note{font-size:12px;color:#526974}
 @media(max-width:850px){main{grid-template-columns:minmax(0,1fr)}.sidebar{border-left:0;border-top:1px solid #cad5d9}.stage-wrap{padding:10px}.stage{min-height:390px}#scene{min-height:370px;height:58vh}}
 @media(max-width:420px){.summary{grid-template-columns:minmax(0,1fr)}.stage{min-height:340px}#scene{min-height:320px;height:48vh}.sidebar{padding:10px}.views{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.views button{padding:7px 3px;margin:2px 2px 2px 0}}
@@ -159,6 +160,11 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <p class="stage-caption">La proyección puede simplificar oclusiones y uniones. Cambiar la vista solo mueve la cámara; no modifica piezas ni valida el ensamble.</p></section>
 <aside class="sidebar"><fieldset><legend>Vista y controles visuales</legend><span class="control-note">Orientación — solo cámara</span><div id="views" class="views"></div>
 <label class="control-line"><input type="checkbox" id="interior"><span>Inspeccionar interior (ocultar frentes y tapa SOLO visualmente)</span></label>
+<fieldset id="openingGroup" class="open-controls"><legend>Abrir puertas nominales</legend>
+<div id="doorSliders"></div><div id="noDoors" class="empty-note" hidden>Esta escena no tiene puertas abatibles con lados identificables.</div>
+<div id="noDrawers" class="empty-note">Este ejemplo no contiene cajones. Para simularlos se necesitan sus frentes y cajas reales; no se inventarán.</div>
+<div class="control-note">Movimiento visual ilustrativo (0–90°). Sin bisagras, holguras de giro ni cargas verificadas. No altera las piezas CAD.</div>
+</fieldset>
 <div id="interiorBanner" class="interior-banner" hidden>VISTA INTERIOR: frentes y tapa ocultos SOLO EN PANTALLA — el mueble conserva esas piezas. Si la repisa o el fondo quedan ocluidos, cambia la orientación; no se quita ningún tablero de los datos.</div>
 <div id="noShelf" class="empty-note" hidden>Este modelo no contiene repisa.</div>
 <label for="cutEnabled" class="control-line"><input type="checkbox" id="cutEnabled"><span id="cutState">Corte OFF</span></label>
@@ -169,7 +175,7 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <button type="button" id="resetView">Restablecer vista completa</button></fieldset>
 <fieldset><legend>Grupos visibles</legend><div id="groups"></div></fieldset>
 <fieldset><legend>Panel seleccionado</legend><label for="piecePicker">Elegir tablero (incluye los ocultos)</label><select id="piecePicker"></select><div id="details" aria-live="polite">Selecciona un tablero para ver sus medidas nominales.</div></fieldset>
-<div class="warn"><strong>NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR.</strong> La proyección no es CAD sólido ni plano de fabricación; no valida cargas, anclajes, herrajes, tolerancias dinámicas, instalación ni accesibilidad física. Las reservas no crean agujeros.</div>
+<div class="warn"><strong>NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR.</strong> La proyección y aperturas son ILUSTRATIVAS, no CAD sólido ni plano de fabricación. No validan bisagras, correderas, cargas, anclajes, holguras dinámicas, instalación ni accesibilidad física. Las reservas no crean agujeros.</div>
 <div id="warnings" class="warn"></div></aside></main>
 <script id="scene-data" type="application/json">__SCENE_DATA__</script>
 <script>
@@ -178,6 +184,7 @@ const data=JSON.parse(document.getElementById('scene-data').textContent);
 const NS='http://www.w3.org/2000/svg'; const svg=document.getElementById('scene');
 const cutEnabled=document.getElementById('cutEnabled'),cutHeight=document.getElementById('cutHeight'),zoom=document.getElementById('zoom');
 let heading=0,selected='',shown=new Set(data.groups.map(g=>g.id));
+const doorAngles=new Map();
 const E=(tag,attrs,text)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs||{}))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n};
 const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:['#467b91','#6ca6bc','#a8d4df'];
 const sw=(x,z)=>heading===0?[x,-z]:heading===90?[-z,-x]:heading===180?[-x,z]:[z,x];
@@ -204,12 +211,54 @@ const faces=[[[x,top,z],[x+w,top,z],[x+w,top,z+d],[x,top,z+d]],
 [[x,y,z],[x+w,y,z],[x+w,top,z],[x,top,z]]];
 const visible=heading===0?[0,1,4]:heading===90?[0,3,4]:heading===180?[0,3,2]:[0,1,2];
 return visible.map(index=>{const points=faces[index];const depth=points.reduce((sum,[xx,,zz])=>{const [u,v]=sw(xx,zz);return sum+u+v},0)/points.length;return {pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}})};
+// Orthographic rigid-body display ONLY: no hinge SKU, motion-clearance or load validation.
+// A front-left leaf pivots around its left x-edge; a front-right leaf around its right.
+const hingeFaces=(box, angleDeg)=>{
+ const [x,y,z]=box.origin,[w,h,d]=box.size;
+ const isLeft=box.role==='front_left';
+ const hingeX=isLeft?x:x+w, hingeZ=z+d/2;
+ const theta=(isLeft?1:-1)*angleDeg*Math.PI/180;
+ const c=Math.cos(theta),si=Math.sin(theta);
+ const R=([xx,yy,zz])=>{const dx=xx-hingeX,dz=zz-hingeZ;
+  return [hingeX+dx*c+dz*si,yy,hingeZ-dx*si+dz*c];};
+ const original=[
+ // top, right, back, left, front, bottom: plane indices stable
+ [[x,y+h,z],[x+w,y+h,z],[x+w,y+h,z+d],[x,y+h,z+d]],
+ [[x+w,y,z],[x+w,y,z+d],[x+w,y+h,z+d],[x+w,y+h,z]],
+ [[x,y,z+d],[x+w,y,z+d],[x+w,y+h,z+d],[x,y+h,z+d]],
+ [[x,y,z],[x,y,z+d],[x,y+h,z+d],[x,y+h,z]],
+ [[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z]],
+ [[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d]]
+ ];
+ const normals=[[0,1,0],[1,0,0],[0,0,1],[-1,0,0],[0,0,-1],[0,-1,0]];
+ const cam=heading===0?[1,1,-1]:heading===90?[-1,1,-1]:heading===180?[-1,1,1]:[1,1,1];
+ const fills=palette(box.role);
+ return original.flatMap((face,index)=>{
+  const [nx,ny,nz]=normals[index];
+  const rx=nx*c+nz*si,rz=-nx*si+nz*c;
+  if(rx*cam[0]+ny*cam[1]+rz*cam[2]<=0.00001)return [];
+  const world=face.map(R);
+  const depth=world.reduce((sum,[xx,yy,zz])=>sum+xx*cam[0]+zz*cam[2]+yy*.85,0)/world.length;
+  return [{pts:world.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,
+   fill:index===0?fills[2]:index===4?fills[0]:index===2?fills[1]:fills[1]}];
+ });
+};
+
 function render(){while(svg.firstChild)svg.removeChild(svg.firstChild);let all=[];const layer=E('g',{'id':'panels'});svg.appendChild(layer);
 for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
 if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
-const parts=square(box,box.role);if(!parts)continue;
+const angle=doorAngles.get(box.id)||0;const parts=angle>0?hingeFaces(box,angle):square(box,box.role);if(!parts)continue;
 for(const face of parts)all.push({depth:face.depth,order:boxIndex*parts.length+face.faceIndex,box,face})}
-all.sort((a,b)=>{const frontVisible=heading===0||heading===90;const af=frontVisible&&a.box.role.startsWith('front_'),bf=frontVisible&&b.box.role.startsWith('front_');return af!==bf?(af?1:-1):a.depth-b.depth||a.order-b.order});
+// Render interior before the roof: an interior shelf may NEVER be painted onto the top.
+// Order is visual only; verified CAD world_boxes never change.
+const paintLayer=role=>{
+ if(role.startsWith('front_'))return heading===0||heading===90?4:0;
+ if(role==='top')return 3;
+ if(role==='left_side'||role==='right_side'||role==='divider_vertical')return 2;
+ if(role.startsWith('back_'))return heading===180||heading===270?2:1;
+ return 1;
+};
+all.sort((a,b)=>paintLayer(a.box.role)-paintLayer(b.box.role)||a.depth-b.depth||a.order-b.order);
 const pts=[];
 for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('click',()=>pick(entry.box));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
 if(data.zones.length&&document.getElementById('zones').checked){for(const zone of data.zones){if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.42','data-zone-id':zone.id});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
@@ -222,11 +271,35 @@ const warningText={'ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY':'Geometría nominal, 
 document.getElementById('warnings').textContent=data.warnings.map(w=>warningText[w]||w).join(' · ');
 const picker=document.getElementById('piecePicker');for(const box of data.boxes){const option=document.createElement('option');option.value=box.id;option.textContent=`${box.id} — ${labelRole(box.role)} (${box.role})`;picker.appendChild(option)}picker.selectedIndex=-1;
 picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));
+// Only actual front-left/right panels get movement controls. Fixed blind panels
+// and missing drawers are never invented or animated.
+const movable=data.boxes.filter(box=>box.role==='front_left'||box.role==='front_right');
+document.getElementById('noDoors').hidden=movable.length>0;
+const drawerPresent=data.boxes.some(box=>box.role.startsWith('drawer_'));
+document.getElementById('noDrawers').textContent=drawerPresent?'Esta escena contiene cajones nominales: no se abren aquí sin verificar el conjunto de piezas y su recorrido.':'Este ejemplo no contiene cajones. Para simularlos se necesitan sus frentes y cajas reales; no se inventarán.';
+for(const box of movable){
+ const row=document.createElement('div');row.className='door-control';
+ const label=document.createElement('label');
+ const title=document.createElement('strong');title.textContent=labelRole(box.role)+' · '+box.group;
+ const output=document.createElement('output');output.textContent='0° (cerrada)';
+ const slider=document.createElement('input');slider.type='range';slider.min='0';slider.max='90';slider.step='10';slider.value='0';
+ slider.setAttribute('aria-label','Apertura visual de '+labelRole(box.role)+' de '+box.group);
+ slider.addEventListener('input',()=>{
+  const a=Number(slider.value);doorAngles.set(box.id,a);
+  output.textContent=a+'° '+(a===0?'(cerrada)':'(solo ilustración)');
+  document.getElementById('interior').checked=false;
+  document.getElementById('interiorBanner').hidden=true;
+  render();
+ });
+ label.append(title,document.createTextNode(' '),output);row.append(label,slider);
+ document.getElementById('doorSliders').appendChild(row);
+}
+
 cutEnabled.addEventListener('change',()=>{updateCut();render()});cutHeight.addEventListener('input',()=>{const valid=cutHeight.value!==''&&Number(cutHeight.value)>=0&&Number(cutHeight.value)<=maxHeight;if(valid){updateCut();render()}});
 zoom.addEventListener('input',()=>{document.getElementById('zoomLabel').textContent=zoom.value+' %';render()});
 document.getElementById('interior').addEventListener('change',event=>{const enabled=event.target.checked;document.getElementById('interiorBanner').hidden=!enabled;document.getElementById('noShelf').hidden=!(enabled&&!data.boxes.some(box=>box.role==='shelf_horizontal'));render()});
 if(data.zones.length){document.getElementById('zoneControl').hidden=false;document.getElementById('zones').addEventListener('change',render)}
-document.getElementById('resetView').addEventListener('click',()=>{heading=0;zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(button.textContent==='0°'));updateCut();render()});
+document.getElementById('resetView').addEventListener('click',()=>{heading=0;zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(button.textContent==='0°'));doorAngles.clear();for(const input of document.querySelectorAll('#doorSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0° (cerrada)')}updateCut();render()});
 updateCut();render();
 </script></body></html>
 '''
