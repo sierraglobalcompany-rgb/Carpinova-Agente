@@ -59,7 +59,6 @@ class D18R4ManualOrbitFocal(unittest.TestCase):
         self.assertIn("const cameraState=", js)
         self.assertIn("dot(normals[index],camera.position)", js)
         self.assertIn('id="cameraReadout"', html)
-        self.assertIn("const fromFront=cameraState().position[2]<-0.00001", js)
         self.assertNotRegex(js, r"\bheading\s*={2,3}")
         self.assertNotIn("paintLayer", js)
 

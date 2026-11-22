@@ -195,7 +195,6 @@ const normalizeYaw=value=>((value%360)+360)%360;
 const cameraState=()=>{const az=(45-yaw)*Math.PI/180,el=elevation*Math.PI/180,ce=Math.cos(el),se=Math.sin(el);return {position:[Math.sin(az)*ce,se,-Math.cos(az)*ce],right:[Math.cos(az),0,Math.sin(az)],up:[-Math.sin(az)*se,ce,Math.cos(az)*se]}};
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const P=(x,y,z)=>{const c=cameraState(),d=[x-pivot[0],y-pivot[1],z-pivot[2]];return [dot(c.right,d),-dot(c.up,d)]};
-const faceDepth=(points,camera)=>points.reduce((sum,p)=>sum+dot([p[0]-pivot[0],p[1]-pivot[1],p[2]-pivot[2]],camera.position),0)/points.length;
 const ROLE_LABEL={front_left:'puerta izquierda nominal',front_right:'puerta derecha nominal',front_corner_blind:'panel ciego NO puerta',front_corner_access:'puerta nominal sin bisagra validada',shelf_horizontal:'repisa',top:'tapa',bottom:'base',left_side:'lateral izquierdo',right_side:'lateral derecho',back_full:'fondo completo'};
 const labelRole=role=>ROLE_LABEL[role]||role;
 const maxHeight=Math.max(...data.groups.map(g=>g.origin[1]+g.size[1]));
@@ -229,7 +228,7 @@ const faces=[[[x,top,z],[x+w,top,z],[x+w,top,z+d],[x,top,z+d]],
 [[x,y,z],[x+w,y,z],[x+w,top,z],[x,top,z]],
 [[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d]]];
 const normals=[[0,1,0],[1,0,0],[0,0,1],[-1,0,0],[0,0,-1],[0,-1,0]],camera=cameraState();
-return faces.flatMap((points,index)=>{if(dot(normals[index],camera.position)<=0.00001)return [];return [{pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),depth:faceDepth(points,camera),faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}]})};
+return faces.flatMap((points,index)=>{if(dot(normals[index],camera.position)<=0.00001)return [];return [{pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),world:points,faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}]})};
 // Orthographic rigid-body display ONLY: no hinge SKU, motion-clearance or load validation.
 // A front-left leaf pivots around its left x-edge; a front-right leaf around its right.
 const hingeFaces=(box, angleDeg)=>{
@@ -256,34 +255,125 @@ const hingeFaces=(box, angleDeg)=>{
   const rx=nx*c+nz*si,rz=-nx*si+nz*c;
    if(dot([rx,ny,rz],camera.position)<=0.00001)return [];
   const world=face.map(R);
-   const depth=faceDepth(world,camera);
-  return [{pts:world.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,
+  return [{pts:world.map(([xx,yy,zz])=>P(xx,yy,zz)),world,faceIndex:index,
    fill:index===0?fills[2]:index===4?fills[0]:index===2?fills[1]:fills[1]}];
  });
 };
 const updateViewBox=()=>{const corners=[];for(const x of [frameMin[0],frameMax[0]])for(const y of [frameMin[1],frameMax[1]])for(const z of [frameMin[2],frameMax[2]])corners.push(P(x,y,z));const halfW=(Math.max(...corners.map(p=>Math.abs(p[0])))+30)*100/Number(zoom.value),halfH=(Math.max(...corners.map(p=>Math.abs(p[1])))+30)*100/Number(zoom.value);svg.setAttribute('viewBox',[-halfW,-halfH,halfW*2,halfH*2].join(' '))};
 
-function render(){while(svg.firstChild)svg.removeChild(svg.firstChild);let all=[];const layer=E('g',{'id':'panels'});svg.appendChild(layer);
-for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
-if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
-const angle=doorAngles.get(box.id)||0;const parts=angle>0?hingeFaces(box,angle):square(box,box.role);if(!parts)continue;
-for(const face of parts)all.push({depth:face.depth,order:boxIndex*6+face.faceIndex,box,face})}
-// Render interior before the roof: an interior shelf may NEVER be painted onto the top.
-// Order is visual only; verified CAD world_boxes never change.
-// From the front, keep the back/shelf behind the carcass; all outer faces share a fixed layer.
-// Every face then sorts by the same lexicographic key, so sibling doors cannot form comparator cycles.
-const fromFront=cameraState().position[2]<-0.00001;
-const painterKey=entry=>[fromFront&&(entry.box.role==='back_full'||entry.box.role==='shelf_horizontal')?0:1,entry.depth,entry.order];
-all.sort((a,b)=>{const ka=painterKey(a),kb=painterKey(b);return ka[0]-kb[0]||ka[1]-kb[1]||ka[2]-kb[2]});
-const pts=[];
-for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
-if(data.zones.length&&document.getElementById('zones').checked){for(const zone of data.zones){if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.42','data-zone-id':zone.id});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
-if(!pts.length){updateViewBox();svg.appendChild(E('text',{x:-120,y:0},'Sin paneles a esta altura o con filtros actuales.'));return}updateViewBox()}
+const MAX_RASTER_PIXELS=1000000;
+let pickBuffer=null,baseWarnings=null;
+const viewerUnavailable=reason=>{
+ pickBuffer=null;
+ document.getElementById('status').textContent='VISOR_NO_DISPONIBLE';
+ const warnings=document.getElementById('warnings');
+ warnings.textContent=[baseWarnings,'VISOR_NO_DISPONIBLE: '+reason].filter(Boolean).join(' · ');
+ svg.appendChild(E('text',{x:-120,y:0,'role':'alert'},'VISOR_NO_DISPONIBLE · '+reason));
+};
+function render(){
+ while(svg.firstChild)svg.removeChild(svg.firstChild);
+ const warnings=document.getElementById('warnings');
+ if(baseWarnings===null)baseWarnings=warnings.textContent;
+ warnings.textContent=baseWarnings;
+ document.getElementById('status').textContent=data.status;
+ const all=[],layer=E('g',{'id':'panels'});svg.appendChild(layer);
+ for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){
+  const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
+  if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
+  const angle=doorAngles.get(box.id)||0,parts=angle>0?hingeFaces(box,angle):square(box,box.role);
+  if(!parts)continue;
+  for(const face of parts)all.push({boxIndex,faceId:boxIndex*6+face.faceIndex,box,face});
+ }
+ updateViewBox();
+ if(!all.length){pickBuffer=null;svg.appendChild(E('text',{x:-120,y:0},'Sin paneles a esta altura o con filtros actuales.'));return;}
+ const vb=svg.viewBox.baseVal,width=720;
+ if(!Number.isFinite(vb.width)||!Number.isFinite(vb.height)||vb.width<=0||vb.height<=0){viewerUnavailable('encuadre inválido');return;}
+ const height=Math.max(100,Math.round(width*vb.height/vb.width)),pixelCount=width*height;
+ if(!Number.isSafeInteger(pixelCount)||pixelCount>MAX_RASTER_PIXELS){viewerUnavailable('límite de imagen superado');return;}
+ let depth,owners,faceIds,canvas,ctx,imageData;
+ try{
+  depth=new Float32Array(pixelCount);depth.fill(-Infinity);
+  owners=new Int16Array(pixelCount);owners.fill(-1);
+  faceIds=new Int16Array(pixelCount);faceIds.fill(-1);
+  canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+  ctx=canvas.getContext('2d',{alpha:true});
+  if(!ctx)throw new Error('Canvas 2D unavailable');
+  imageData=ctx.createImageData(width,height);
+ }catch(error){viewerUnavailable('memoria o Canvas 2D no disponible');return;}
+ const faceColors=[],camera=cameraState();
+ for(const entry of all){
+  const vertices=entry.face.pts.map(([x,y])=>[(x-vb.x)/vb.width*width,(y-vb.y)/vb.height*height]);
+  const distances=entry.face.world.map(point=>dot([point[0]-pivot[0],point[1]-pivot[1],point[2]-pivot[2]],camera.position));
+  faceColors[entry.faceId]=paintFaceHex(entry.face.fill);
+  for(const triangle of [[0,1,2],[0,2,3]]){
+   const [a,b,c]=triangle.map(index=>vertices[index]);
+   const [da,db,dc]=triangle.map(index=>distances[index]);
+   const area=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+   if(Math.abs(area)<1e-8)continue;
+   const x0=Math.max(0,Math.floor(Math.min(a[0],b[0],c[0]))),x1=Math.min(width-1,Math.ceil(Math.max(a[0],b[0],c[0])));
+   const y0=Math.max(0,Math.floor(Math.min(a[1],b[1],c[1]))),y1=Math.min(height-1,Math.ceil(Math.max(a[1],b[1],c[1])));
+   for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+    const px=x+.5,py=y+.5;
+    const wa=((b[0]-px)*(c[1]-py)-(b[1]-py)*(c[0]-px))/area;
+    if(wa < -1e-8)continue;
+    const wb=((c[0]-px)*(a[1]-py)-(c[1]-py)*(a[0]-px))/area;
+    if(wb < -1e-8)continue;
+    const wc=1-wa-wb;if(wc < -1e-8)continue;
+    const index=y*width+x,value=wa*da+wb*db+wc*dc;
+    if(value>depth[index]+1e-5){depth[index]=value;owners[index]=entry.boxIndex;faceIds[index]=entry.faceId;}
+   }
+  }
+ }
+ const rgba=imageData.data;
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const index=y*width+x,face=faceIds[index];if(face<0)continue;
+  const base=faceColors[face],offset=index*4;
+  const edge=(x>0&&faceIds[index-1]!==face)||(x+1<width&&faceIds[index+1]!==face)
+   ||(y>0&&faceIds[index-width]!==face)||(y+1<height&&faceIds[index+width]!==face);
+  const color=edge?[15,46,60]:base,selectedPiece=data.boxes[owners[index]].id;
+  if(selected===selectedPiece&&edge){rgba[offset]=249;rgba[offset+1]=209;rgba[offset+2]=84;}
+  else{rgba[offset]=color[0];rgba[offset+1]=color[1];rgba[offset+2]=color[2];}
+  rgba[offset+3]=255;
+ }
+ try{
+  ctx.putImageData(imageData,0,0);
+  const dataUrl=canvas.toDataURL('image/png');
+  if(dataUrl==='data:,')throw new Error('Canvas PNG unavailable');
+  const image=E('image',{x:vb.x,y:vb.y,width:vb.width,height:vb.height,
+   href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length});
+  layer.appendChild(image);
+ }catch(error){viewerUnavailable('falló el dibujo Canvas 2D');return;}
+ pickBuffer={width,height,ids:owners,x:vb.x,y:vb.y,w:vb.width,h:vb.height};
+ if(data.zones.length&&document.getElementById('zones').checked){
+  for(const zone of data.zones){
+   if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;
+   const faces=square({origin:zone.origin,size:zone.size},'zone');if(!faces)continue;
+   const group=E('g',{'opacity':'.42','data-zone-id':zone.id});
+   for(const face of faces)group.appendChild(E('polygon',{'points':face.pts.map(point=>point.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));
+   layer.appendChild(group);
+  }
+ }
+}
+const paintFaceHex=hex=>[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)];
+const panelAt=(x,y)=>{
+ if(!pickBuffer)return null;
+ const matrix=svg.getScreenCTM();if(!matrix)return null;
+ const determinant=matrix.a*matrix.d-matrix.b*matrix.c;
+ if(!Number.isFinite(determinant)||Math.abs(determinant)<1e-12)return null;
+ try{
+  const point=svg.createSVGPoint();point.x=x;point.y=y;
+  const hit=point.matrixTransform(matrix.inverse());
+  const ix=Math.floor((hit.x-pickBuffer.x)/pickBuffer.w*pickBuffer.width);
+  const iy=Math.floor((hit.y-pickBuffer.y)/pickBuffer.h*pickBuffer.height);
+  if(ix<0||iy<0||ix>=pickBuffer.width||iy>=pickBuffer.height)return null;
+  const owner=pickBuffer.ids[iy*pickBuffer.width+ix];
+  return owner>=0&&owner<data.boxes.length?data.boxes[owner].id:null;
+ }catch(error){return null;}
+};
 function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=`${box.id}\nGrupo: ${box.group}\nRol: ${labelRole(box.role)} (${box.role})\nOrigen XYZ: ${box.origin.join(', ')} mm\nTamaño XYZ: ${box.size.join(' × ')} mm`;render()}
 const updateCameraReadout=()=>{document.getElementById('cameraReadout').textContent=`Giro ${Math.round(yaw)}° · Elevación ${Math.round(elevation)}°`;for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(activePreset!==null&&Number(button.dataset.yaw)===activePreset&&elevation===INITIAL_ELEVATION))};
 for(const angle of [0,90,180,270]){const button=document.createElement('button');button.textContent=angle+'°';button.dataset.yaw=String(angle);button.type='button';button.setAttribute('aria-label',`Solo cámara: orientación ${angle} grados`);button.addEventListener('click',()=>{yaw=angle;elevation=INITIAL_ELEVATION;activePreset=angle;updateCameraReadout();render()});document.getElementById('views').appendChild(button)}updateCameraReadout();
 const stage=document.querySelector('.stage');let pointerDrag=null,suppressClickUntil=0;
-const panelAt=(x,y)=>{const node=document.elementFromPoint(x,y)?.closest?.('[data-piece-id]');return node&&svg.contains(node)?node.getAttribute('data-piece-id'):null};
 const finishPointer=(event,allowSelection)=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const drag=pointerDrag;pointerDrag=null;stage.classList.remove('dragging');if(drag.moved){suppressClickUntil=performance.now()+250;setTimeout(()=>{suppressClickUntil=0},0)}else if(allowSelection&&drag.pieceId&&panelAt(event.clientX,event.clientY)===drag.pieceId){const box=data.boxes.find(item=>item.id===drag.pieceId);if(box)pick(box)}};
 svg.addEventListener('pointerdown',event=>{if(event.button!==0||!event.isPrimary)return;pointerDrag={id:event.pointerId,x:event.clientX,y:event.clientY,yaw,elevation,pieceId:panelAt(event.clientX,event.clientY),moved:false};svg.setPointerCapture(event.pointerId)});
 svg.addEventListener('pointermove',event=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const dx=event.clientX-pointerDrag.x,dy=event.clientY-pointerDrag.y;if(!pointerDrag.moved&&Math.hypot(dx,dy)<5)return;pointerDrag.moved=true;event.preventDefault();yaw=normalizeYaw(pointerDrag.yaw+dx*.5);elevation=clamp(pointerDrag.elevation-dy*.35,15,75);activePreset=null;stage.classList.add('dragging');updateCameraReadout();render()});

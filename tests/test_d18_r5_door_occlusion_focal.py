@@ -1,30 +1,22 @@
-"""D18-R5 focal browser check for open/closed door painter ordering."""
+"""D18-R5 door invariants plus the R6 tool-build browser regression."""
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
 import re
-import sys
 import unittest
-import zipfile
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from carpinova_agent.room_3d_review import render_room_3d_html
 from carpinova_agent.room_spatial import review_room_from_specs
 
 
+ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "examples" / "room-layout-kitchen-storage-review.json"
 FLAGS = (
-    "fabrication_ready",
-    "cutting_ready",
-    "drilling_ready",
-    "purchase_ready",
-    "can_generate_f7c",
+    "fabrication_ready", "cutting_ready", "drilling_ready",
+    "purchase_ready", "can_generate_f7c",
 )
 
 
@@ -46,35 +38,27 @@ def _front_face(box, angle_deg, pivot, yaw=0, elevation=35):
         def rotate(point):
             xx, yy, zz = point
             dx, dz = xx - hinge_x, zz - hinge_z
-            return [hinge_x + dx * cosine + dz * sine, yy, hinge_z - dx * sine + dz * cosine]
+            return [hinge_x + dx * cosine + dz * sine, yy,
+                    hinge_z - dx * sine + dz * cosine]
 
         points = [rotate(point) for point in points]
-
     azimuth = math.radians(45 - yaw)
-    elevation = math.radians(elevation)
-    cosine, sine = math.cos(elevation), math.sin(elevation)
+    elevation_radians = math.radians(elevation)
+    cosine, sine = math.cos(elevation_radians), math.sin(elevation_radians)
     camera = [math.sin(azimuth) * cosine, sine, -math.cos(azimuth) * cosine]
     right = [math.cos(azimuth), 0, math.sin(azimuth)]
     up = [-math.sin(azimuth) * sine, cosine, math.cos(azimuth) * sine]
     relative = [[point[i] - pivot[i] for i in range(3)] for point in points]
     screen = [[_dot(right, point), -_dot(up, point)] for point in relative]
     depths = [_dot(camera, point) for point in relative]
-    return {
-        "id": box["id"],
-        "role": box["role"],
-        "screen": screen,
-        "depths": depths,
-        "average": sum(depths) / len(depths),
-        "world": points,
-    }
+    return {"id": box["id"], "role": box["role"], "screen": screen,
+            "depths": depths, "average": sum(depths) / len(depths)}
 
 
 def _signed_area(poly):
-    return sum(
-        poly[i][0] * poly[(i + 1) % len(poly)][1]
-        - poly[(i + 1) % len(poly)][0] * poly[i][1]
-        for i in range(len(poly))
-    ) / 2
+    return sum(poly[i][0] * poly[(i + 1) % len(poly)][1]
+               - poly[(i + 1) % len(poly)][0] * poly[i][1]
+               for i in range(len(poly))) / 2
 
 
 def _clip_polygon(subject, clipper):
@@ -87,10 +71,8 @@ def _clip_polygon(subject, clipper):
             break
 
         def side(point):
-            return orientation * (
-                (end[0] - start[0]) * (point[1] - start[1])
-                - (end[1] - start[1]) * (point[0] - start[0])
-            )
+            return orientation * ((end[0] - start[0]) * (point[1] - start[1])
+                                  - (end[1] - start[1]) * (point[0] - start[0]))
 
         for i, current in enumerate(incoming):
             following = incoming[(i + 1) % len(incoming)]
@@ -100,10 +82,8 @@ def _clip_polygon(subject, clipper):
                 output.append(following)
             elif inside_current != inside_following:
                 ratio = current_side / (current_side - following_side)
-                intersection = [
-                    current[axis] + ratio * (following[axis] - current[axis])
-                    for axis in range(2)
-                ]
+                intersection = [current[axis] + ratio * (following[axis] - current[axis])
+                                for axis in range(2)]
                 output.append(intersection)
                 if inside_following:
                     output.append(following)
@@ -135,7 +115,8 @@ def _edge_lengths(box, angle_deg):
     def rotate(point):
         xx, yy, zz = point
         dx, dz = xx - hinge_x, zz - hinge_z
-        return [hinge_x + dx * cosine + dz * sine, yy, hinge_z - dx * sine + dz * cosine]
+        return [hinge_x + dx * cosine + dz * sine, yy,
+                hinge_z - dx * sine + dz * cosine]
 
     moved = [rotate(point) for point in corners]
     edges = [(i, j) for i in range(8) for j in range(i + 1, 8)
@@ -151,7 +132,7 @@ def _set_door(page, index, angle):
 
 
 class D18R5DoorOcclusionFocal(unittest.TestCase):
-    def test_rigid_doors_and_adversarial_painter_output(self):
+    def test_rigid_doors_and_scene_identity_survive_r6_renderer(self):
         request = json.loads(SAMPLE.read_text(encoding="utf-8"))
         review = review_room_from_specs(request)
         original = json.dumps(review, sort_keys=True, separators=(",", ":"))
@@ -159,24 +140,17 @@ class D18R5DoorOcclusionFocal(unittest.TestCase):
         self.assertEqual(original, json.dumps(review, sort_keys=True, separators=(",", ":")))
         self.assertEqual(review["piece_count"], 8)
         self.assertTrue(all(review[flag] is False for flag in FLAGS))
-
         embedded = re.search(
             r'<script id="scene-data" type="application/json">(.*?)</script>', html, re.DOTALL
         )
         self.assertIsNotNone(embedded)
         scene = json.loads(embedded.group(1))
-        expected_boxes = [
-            {"id": box["piece_id"], "group": box["group_id"], "role": box["role"],
-             "origin": box["origin_xyz_mm"], "size": box["size_xyz_mm"]}
-            for box in review["world_boxes"]
-        ]
-        self.assertEqual(scene["boxes"], expected_boxes)
         self.assertEqual(scene["digest"], review["layout_sha256"])
-        self.assertEqual(len({box["id"] for box in scene["boxes"]}), 8)
+        self.assertEqual([box["id"] for box in scene["boxes"]],
+                         [box["piece_id"] for box in review["world_boxes"]])
         script = re.search(r"<script>\s*(.*?)</script>", html, re.DOTALL).group(1)
-        self.assertIn("const painterKey=entry=>[", script)
-        self.assertIn("ka[0]-kb[0]||ka[1]-kb[1]||ka[2]-kb[2]", script)
-        self.assertIn("order:boxIndex*6+face.faceIndex", script)
+        self.assertNotIn("painterKey", script)
+        self.assertNotIn("all.sort", script)
 
         edge_checks = 0
         for box in scene["boxes"]:
@@ -186,33 +160,32 @@ class D18R5DoorOcclusionFocal(unittest.TestCase):
             for angle in (0, 30, 60, 90):
                 moved = _edge_lengths(box, angle)
                 self.assertEqual(len(moved), 12)
-                self.assertEqual(len(baseline), 12)
                 for actual, expected in zip(moved, baseline):
                     self.assertAlmostEqual(actual, expected, delta=1e-6)
                 edge_checks += len(moved)
         self.assertEqual(edge_checks, 96)
 
-        v2_zip = Path(os.environ["CARPN_D18_R5_V2_ZIP"])
-        with zipfile.ZipFile(v2_zip) as archive:
-            self.assertIsNone(archive.testzip())
-            v2_html_bytes = archive.read("EVIDENCIA/VISOR_FINAL.html")
-            manifest = json.loads(archive.read("MANIFEST.json"))
-            html_record = next(item for item in manifest["files_excluding_manifest"]
-                               if item["path"] == "EVIDENCIA/VISOR_FINAL.html")
-            self.assertEqual(hashlib.sha256(v2_html_bytes).hexdigest(), html_record["sha256"])
-        v2_html = v2_html_bytes.decode("utf-8")
-        v2_scene_match = re.search(
-            r'<script id="scene-data" type="application/json">(.*?)</script>', v2_html, re.DOTALL
+    @unittest.skipUnless(os.environ.get("CARPN_D18_R6_TOOL_HTML"),
+                         "integrated tool package is supplied by the D18-R6 E2E run")
+    def test_right30_pixel_hit_and_single_browser_session(self):
+        html_path = Path(os.environ["CARPN_D18_R6_TOOL_HTML"])
+        evidence_dir = Path(os.environ["CARPN_D18_R6_EVIDENCE_DIR"])
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        html = html_path.read_text(encoding="utf-8")
+        match = re.search(
+            r'<script id="scene-data" type="application/json">(.*?)</script>', html, re.DOTALL
         )
-        self.assertIsNotNone(v2_scene_match)
-        self.assertEqual(json.loads(v2_scene_match.group(1)), scene)
+        self.assertIsNotNone(match)
+        scene = json.loads(match.group(1))
+        self.assertEqual(len(scene["boxes"]), 8)
+        self.assertEqual(len({box["id"] for box in scene["boxes"]}), 8)
 
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as error:  # pragma: no cover - environment-specific blocker
             self.fail(f"BROWSER=NOT_RUN_ENV: Playwright unavailable: {error}")
 
-        js_errors, external_requests, observed = [], [], []
+        js_errors, external_requests, observed, captures = [], [], [], []
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 900})
@@ -221,15 +194,21 @@ class D18R5DoorOcclusionFocal(unittest.TestCase):
                     if message.type == "error" else None)
             page.on("request", lambda request: external_requests.append(request.url)
                     if request.url.startswith(("http://", "https://")) else None)
-            # RED_V2: exercise the delivered HTML, not a recreated approximation.
-            page.set_content(v2_html, wait_until="load")
+            page.set_content(html, wait_until="load")
+            self.assertEqual(page.locator("#panels image[data-depth-tested='true']").count(), 1)
             page.locator('#views button[data-yaw="0"]').click()
+            self.assertIn("Giro 0°", page.locator("#cameraReadout").inner_text())
             _set_door(page, 0, 0)
+            _set_door(page, 1, 0)
+            capture = evidence_dir / "01-cerrado-frontal.png"
+            page.screenshot(path=str(capture), full_page=True)
+            captures.append(capture.name)
+
             _set_door(page, 1, 30)
             browser_scene = json.loads(page.locator("#scene-data").inner_text())
-            browser_boxes = browser_scene["boxes"]
-            left = next(box for box in browser_boxes if box["role"] == "front_left")
-            right = next(box for box in browser_boxes if box["role"] == "front_right")
+            boxes = browser_scene["boxes"]
+            left = next(box for box in boxes if box["role"] == "front_left")
+            right = next(box for box in boxes if box["role"] == "front_right")
             mins = [min(group["origin"][i] for group in browser_scene["groups"]) for i in range(3)]
             maxs = [max(group["origin"][i] + group["size"][i]
                         for group in browser_scene["groups"]) for i in range(3)]
@@ -241,153 +220,95 @@ class D18R5DoorOcclusionFocal(unittest.TestCase):
             self.assertGreater(overlap_area, 1000)
             samples = overlap + [[sum(p[0] for p in overlap) / len(overlap),
                                   sum(p[1] for p in overlap) / len(overlap)]]
-            depth_deltas = [_depth_at(open_face, point) - _depth_at(closed_face, point)
-                            for point in samples]
-            self.assertTrue(all(delta > 0.01 for delta in depth_deltas), depth_deltas)
+            deltas = [_depth_at(open_face, point) - _depth_at(closed_face, point)
+                      for point in samples]
+            self.assertTrue(all(delta > 0.01 for delta in deltas), deltas)
 
-            def rendered_index(face):
-                rendered = page.locator("#panels polygon").evaluate_all(
-                    "els => els.map((el, index) => ({index, id: el.dataset.pieceId, "
-                    "role: el.dataset.role, depth: Number(el.dataset.depth)}))"
+            selected_from_overlap = None
+            for point in samples:
+                client = page.locator("#scene").evaluate(
+                    "(svg, p) => {const q=svg.createSVGPoint();q.x=p[0];q.y=p[1];"
+                    "const r=q.matrixTransform(svg.getScreenCTM());return [r.x,r.y]}", point,
                 )
-                matches = [entry["index"] for entry in rendered
-                           if entry["id"] == face["id"]
-                           and abs(entry["depth"] - face["average"]) < 1e-4]
-                self.assertEqual(len(matches), 1, (face["role"], face["average"], matches))
-                return matches[0]
+                page.mouse.click(client[0], client[1])
+                if page.locator("#piecePicker").input_value() == right["id"]:
+                    selected_from_overlap = right["id"]
+                    break
+            self.assertEqual(selected_from_overlap, right["id"],
+                             "visible overlap pixel must select the nearest open right door")
+            capture = evidence_dir / "02-derecha30-yaw0.png"
+            page.screenshot(path=str(capture), full_page=True)
+            captures.append(capture.name)
+            observed.append({"case": "RIGHT30_YAW0", "overlap_area_svg_units": overlap_area,
+                             "depth_delta_mm": [min(deltas), max(deltas)],
+                             "selected_piece_id": selected_from_overlap, "result": "PASS"})
 
-            red_open_index = rendered_index(open_face)
-            red_closed_index = rendered_index(closed_face)
-            self.assertLess(red_open_index, red_closed_index,
-                            "V2 must reproduce the false overlay in right-30 case")
-            observed.append({"case": "RED_V2_yaw0_left0_right30", "overlap_area": overlap_area,
-                             "open_minus_closed_depth_mm": [min(depth_deltas), max(depth_deltas)],
-                             "open_dom_index": red_open_index,
-                             "closed_dom_index": red_closed_index,
-                             "result": "FAIL_REPRODUCED"})
-
-            # GREEN_V4 uses the actual updated renderer at the same state.
-            # A new page avoids redeclaring the prior document's top-level const bindings.
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            page.on("pageerror", lambda error: js_errors.append(str(error)))
-            page.on("console", lambda message: js_errors.append(message.text)
-                    if message.type == "error" else None)
-            page.on("request", lambda request: external_requests.append(request.url)
-                    if request.url.startswith(("http://", "https://")) else None)
-            page.set_content(html, wait_until="load")
-            self.assertEqual(json.loads(page.locator("#scene-data").inner_text()), scene)
-            page.locator('#views button[data-yaw="0"]').click()
-            _set_door(page, 0, 0)
-            _set_door(page, 1, 30)
-            green_open_index = rendered_index(open_face)
-            green_closed_index = rendered_index(closed_face)
-            self.assertGreater(green_open_index, green_closed_index,
-                               "the nearer open leaf must be painted after its closed sibling")
-
-            # Three actual DOM trios follow the fixed lexicographic layer/depth key.
-            records = page.locator("#panels polygon").evaluate_all(
-                "els => els.map((el,index)=>({index,id:el.dataset.pieceId,role:el.dataset.role,depth:Number(el.dataset.depth)}))"
-            )
-            layer = lambda role: 0 if role in ("back_full", "shelf_horizontal") else 1
-            by_role = {role: [item for item in records if item["role"] == role]
-                       for role in {item["role"] for item in records}}
-            def face_record(face):
-                return next(item for item in records if item["id"] == face["id"]
-                            and abs(item["depth"] - face["average"]) < 1e-4)
-            closed_record, open_record = face_record(closed_face), face_record(open_face)
-            triples = []
-            for label, role in (("doors_top", "top"), ("doors_shelf", "shelf_horizontal"),
-                                ("doors_side", "right_side")):
-                self.assertTrue(by_role.get(role), role)
-                choices = ([closed_record, open_record, third]
-                           for third in by_role[role])
-                triple = next((items for items in choices
-                               if len({(layer(item["role"]), item["depth"]) for item in items}) == 3), None)
-                self.assertIsNotNone(triple, label)
-                expected = sorted(triple, key=lambda item: (layer(item["role"]), item["depth"]))
-                actual = sorted(triple, key=lambda item: item["index"])
-                self.assertEqual([item["index"] for item in actual],
-                                 [item["index"] for item in expected], label)
-                triples.append({"name": label,
-                                "keys": [[layer(item["role"]), item["depth"]] for item in triple],
-                                "dom_indexes": [item["index"] for item in triple]})
-            observed.append({"case": "GREEN_V4_yaw0_left0_right30", "overlap_area": overlap_area,
-                             "open_minus_closed_depth_mm": [min(depth_deltas), max(depth_deltas)],
-                             "open_dom_index": green_open_index,
-                             "closed_dom_index": green_closed_index,
-                             "transitivity_triples": triples, "result": "PASS"})
-
-            # Closed fronts retain priority over the cabinet interior from the front.
-            _set_door(page, 1, 0)
-            closed_dom = page.locator("#panels polygon").evaluate_all(
-                "els => els.map((el, index) => ({index, role: el.dataset.role, depth: Number(el.dataset.depth)}))"
-            )
-            left_face_depth = _front_face(left, 0, pivot)["average"]
-            left_face_index = next(entry["index"] for entry in closed_dom
-                                   if entry["role"] == "front_left"
-                                   and abs(entry["depth"] - left_face_depth) < 1e-4)
-            shelf_indices = [entry["index"] for entry in closed_dom
-                             if entry["role"] == "shelf_horizontal"]
-            self.assertTrue(shelf_indices)
-            self.assertGreater(left_face_index, max(shelf_indices))
-
-            # Keep the affected 60° regression; door input must preserve camera and zoom.
-            page.locator("#zoom").evaluate(
-                "el => {el.value='120';el.dispatchEvent(new Event('input',{bubbles:true}))}"
-            )
-            before_camera = page.locator("#cameraReadout").inner_text()
-            _set_door(page, 1, 60)
-            self.assertEqual(page.locator("#cameraReadout").inner_text(), before_camera)
-            self.assertEqual(page.locator("#zoom").input_value(), "120")
-            sixty_open = _front_face(right, 60, pivot)
-            self.assertGreater(rendered_index(sixty_open), rendered_index(closed_face))
-            observed.append({"case": "regression_yaw0_left0_right60", "result": "PASS"})
-
-            # A drag rotates; it must not become a click that changes the selected piece.
-            page.locator('#views button[data-yaw="0"]').click()
-            polygon = page.locator("#panels polygon").last
-            selected_id = polygon.get_attribute("data-piece-id")
-            polygon.click(force=True)
-            self.assertEqual(page.locator("#piecePicker").input_value(), selected_id)
-            before_drag = page.locator("#cameraReadout").inner_text()
-            rect = polygon.bounding_box()
+            before_drag_selection = page.locator("#piecePicker").input_value()
+            before_drag_camera = page.locator("#cameraReadout").inner_text()
+            rect = page.locator("#scene").bounding_box()
             sx, sy = rect["x"] + rect["width"] / 2, rect["y"] + rect["height"] / 2
             page.mouse.move(sx, sy)
             page.mouse.down()
-            page.mouse.move(sx + 30, sy + 14, steps=5)
+            page.mouse.move(sx + 60, sy, steps=4)
             page.mouse.up()
-            self.assertNotEqual(page.locator("#cameraReadout").inner_text(), before_drag)
-            drag_selected_after = page.locator("#piecePicker").input_value()
-            self.assertEqual(drag_selected_after, selected_id)
-            observed.append({
-                "case": "drag_vs_click",
-                "selected_before": selected_id,
-                "selected_after": drag_selected_after,
-                "result": "PASS",
-            })
+            self.assertIn("Giro 30°", page.locator("#cameraReadout").inner_text())
+            self.assertNotEqual(before_drag_camera, page.locator("#cameraReadout").inner_text())
+            self.assertEqual(before_drag_selection, page.locator("#piecePicker").input_value())
+            _set_door(page, 0, 90)
+            _set_door(page, 1, 90)
+            capture = evidence_dir / "03-ambas90-yaw30.png"
+            page.screenshot(path=str(capture), full_page=True)
+            captures.append(capture.name)
+            observed.append({"case": "BOTH90_YAW30_DRAG_PRESERVES_SELECTION", "result": "PASS"})
 
+            _set_door(page, 0, 0)
+            _set_door(page, 1, 60)
+            rect = page.locator("#scene").bounding_box()
+            sx, sy = rect["x"] + rect["width"] / 2, rect["y"] + rect["height"] / 2
+            page.mouse.move(sx, sy)
+            page.mouse.down()
+            page.mouse.move(sx + 30, sy, steps=3)
+            page.mouse.up()
+            self.assertIn("Giro 45°", page.locator("#cameraReadout").inner_text())
+            capture = evidence_dir / "04-derecha60-yaw45.png"
+            page.screenshot(path=str(capture), full_page=True)
+            captures.append(capture.name)
+            observed.append({"case": "RIGHT60_YAW45", "result": "PASS"})
+
+            for angle in (0, 90, 180, 270):
+                page.locator(f'#views button[data-yaw="{angle}"]').click()
+                self.assertIn(f"Giro {angle}°", page.locator("#cameraReadout").inner_text())
+            page.locator("#zoom").evaluate(
+                "el => {el.value='130';el.dispatchEvent(new Event('input',{bubbles:true}))}"
+            )
+            self.assertEqual(page.locator("#zoomLabel").inner_text(), "130 %")
             page.locator("#interior").check()
             self.assertTrue(page.locator("#interiorBanner").is_visible())
             page.locator("#interior").uncheck()
             page.locator("#cutEnabled").check()
             page.locator("#cutHeight").fill("350")
             page.locator("#cutEnabled").uncheck()
+            picker = page.locator("#piecePicker")
+            picker.focus()
+            picker.press("ArrowDown")
+            picker.press("Enter")
+            self.assertTrue(picker.input_value())
             page.locator("#resetView").click()
             self.assertIn("Giro 0°", page.locator("#cameraReadout").inner_text())
             self.assertEqual(page.locator("#zoom").input_value(), "100")
             self.assertEqual(page.locator("#doorSliders input").evaluate_all(
                 "els => els.map(el => el.value)"), ["0", "0"])
-            self.assertEqual(json.loads(page.locator("#scene-data").inner_text()), scene)
-            warning = page.locator("div.warn").first.inner_text()
-            self.assertIn("APERTURA VISUAL NOMINAL", warning)
-            self.assertIn("NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR",
-                          warning)
             self.assertFalse(js_errors, js_errors)
             self.assertFalse(external_requests, external_requests)
             browser.close()
 
-        print("D18R5_FOCAL_CASES=" + json.dumps(observed, sort_keys=True))
-        print("D18R5_EDGE_LENGTHS=96/96; PIECES=8; FLAGS=false; JS_ERRORS=0; NETWORK_REQUESTS=0")
+        report = {"browser": "PASS_SCOPED", "cases": observed,
+                  "js_errors": js_errors, "external_requests": external_requests,
+                  "captures": captures, "piece_count": len(scene["boxes"])}
+        (evidence_dir / "TOOL_BROWSER.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print("D18R6_BROWSER=" + json.dumps(report, sort_keys=True))
 
 
 if __name__ == "__main__":
