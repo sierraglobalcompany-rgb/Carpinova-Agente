@@ -1,4 +1,16 @@
-## VIGENTE — D18-R2 V2: REPARACIÓN VISOR 2.5D + DEMO COCINA · 22-NOV-2026
+## CURRENT — D18-R5 V4: VISOR + MODALIDAD MCP `room_layout_v1` · 22-NOV-2026
+
+- **Rama aislada de revisión:** `chatgpt/carpn-d18-r5-v4-room-tool-20261122`, descendiente directo de R4 `7cb1edafd9d5c386a23425d625e38392ea333a6c`. Cambios de código solo en `carpinova_agent/room_3d_review.py`, `tests/test_d18_r4_manual_orbit_focal.py` y nuevo `tests/test_d18_r5_door_occlusion_focal.py`. Este bloque de continuidad no cambia geometría.
+- **ZIP Codex V4:** `CARPN_D18_R5_V4_RETORNO_UNICO.zip`, SHA-256 `227cf68730f832eacd98f8f568ade13782dad141994fa3468f5d22c76b5543a7`; 16/16 miembros del manifiesto externo con SHA/tamaño/CRC PASS. El código Git publicado coincide exactamente con los blobs del parche.
+- **Verificación independiente Director:** HTML de consumidor realmente extraído de `carpinova_generar_borrador(review_kind=room_layout_v1)`; 8/8 IDs JSON/CSV/visor, `layout_sha256=133170d1e2da7613a317db16328d0c564262d5e1e38572f882b40979b1753ba9`, manifiesto producto 7/7 SHA/tamaño PASS, cinco permisos físicos false, JS errors 0 y peticiones externas 0 en Chromium; yaw 0° / derecha 30° orden de pintura PASS. Tres capturas Codex inspeccionadas. **Solo PASS_SCOPED, no UAT de propietario ni todas las cámaras/familias.**
+- **Tool:** `carpinova_generar_borrador` ya existía. `TOOL_MODE_CLOSED_SCOPED=YES` solo para el fixture nominal `BAJO_COCINA_2P` de `room_layout_v1` y su ZIP D19. La prueba focal nueva incluye un comparador RED sobre el ZIP histórico V2; para correr ese caso en un host limpio hace falta disponer del ZIP V2 exacto y configurar `CARPN_D18_R5_V2_ZIP`. **No afirmar suite independiente portátil sin esta dependencia.**
+- **No reabrir** F9, F10–F12, D16, D18 R2/R3/R4 ni las 384 combinaciones históricas. `main` y PR21/23 Draft quedan intactos; no Actions, no merge automático.
+- **Administrativo:** 7/10 hitos reportados cerrados; quedan 3/10 = **30% de hitos**, no 30% de esfuerzo. `EFFORT_REMAINING=UNMEASURED`, `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`. `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`.
+- **NEXT único:** `PROPIETARIO_UAT_VISUAL_D18_R5_V4` → H8 café (diferencia de 60 mm por definir, patas 40 mm y altura total 900 mm), H9 familias reales, H10 CAD nativo/Windows e integración candidata. En la revisión nominal no habilitar taller; registrar feedback puntual, no iniciar otro ciclo de tests históricos.
+
+---
+
+## HISTÓRICO — D18-R2 V2: REPARACIÓN VISOR 2.5D + DEMO COCINA · 22-NOV-2026
 
 - **Código realmente publicado en rama aislada** `chatgpt/carpn-d18-r2-v2-ux-repair-20261122`: commit **`152b030f598711bb5fd9c8d25f80209282940ca6`** (base `7ce773ab6aba9299f82e7266adb747c2f45f5d9a`), 3 rutas: `carpinova_agent/room_3d_review.py`, `examples/room-layout-kitchen-storage-review.json`, `tests/test_d18_kitchen_demo_r2_focal.py`. Git blobs verificados respectivamente `24b84b739a0e368443d93d38f816cb21497dbdcf`, `5f9c5e1611babd56165e9f7f7a27003749645013`, `431bbf88fafe3fbcb10d95c4e901cca123c40c4d`. No se tocó `main`, PR #21/#23 ni GitHub Actions.
 - **Evidencia original Codex:** `CARPN_D18_R2_V2_RETORNO_UNICO.zip`, SHA-256 `727cf2968355901dc1c738358872748b6bee451be9fa44fb02f06ae6e66140c4`, CRC y manifiesto externo **5/5 PASS**. Codex reportó test focal nuevo **1/1 PASS**, pero navegador final `NOT_VERIFIED` por interrupción de Computer Use (Escape); no elevar ese reporte a UAT visual.

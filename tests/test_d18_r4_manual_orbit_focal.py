@@ -58,16 +58,13 @@ class D18R4ManualOrbitFocal(unittest.TestCase):
         self.assertIn("let yaw=0,elevation=INITIAL_ELEVATION", js)
         self.assertIn("const cameraState=", js)
         self.assertIn("dot(normals[index],camera.position)", js)
-        self.assertIn(
-            "all.sort((a,b)=>frontOcclusion(a)-frontOcclusion(b)||a.depth-b.depth||a.order-b.order)",
-            js,
-        )
+        self.assertIn('id="cameraReadout"', html)
         self.assertIn("const fromFront=cameraState().position[2]<-0.00001", js)
         self.assertNotRegex(js, r"\bheading\s*={2,3}")
         self.assertNotIn("paintLayer", js)
 
         for control in (
-            'id="scene"', 'id="cameraReadout"', 'id="zoom"',
+            'id="scene"', 'id="zoom"',
             'id="resetView"', 'id="interior"', 'id="cutEnabled"',
             'id="piecePicker"', 'id="doorSliders"',
             "pointerdown", "pointermove", "pointerup", "pointercancel",

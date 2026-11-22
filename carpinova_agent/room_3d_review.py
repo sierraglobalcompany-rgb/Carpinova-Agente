@@ -177,7 +177,7 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <button type="button" id="resetView">Restablecer vista completa</button></fieldset>
 <fieldset><legend>Grupos visibles</legend><div id="groups"></div></fieldset>
 <fieldset><legend>Panel seleccionado</legend><label for="piecePicker">Elegir tablero (incluye los ocultos)</label><select id="piecePicker"></select><div id="details" aria-live="polite">Selecciona un tablero para ver sus medidas nominales.</div></fieldset>
-<div class="warn"><strong>NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR.</strong> La proyección y aperturas son ILUSTRATIVAS, no CAD sólido ni plano de fabricación. No validan bisagras, correderas, cargas, anclajes, holguras dinámicas, instalación ni accesibilidad física. Las reservas no crean agujeros.</div>
+<div class="warn"><strong>APERTURA VISUAL NOMINAL · NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR.</strong> La proyección y aperturas son ILUSTRATIVAS, no CAD sólido ni plano de fabricación. No validan bisagras, correderas, cargas, anclajes, holguras dinámicas, instalación ni accesibilidad física. Las reservas no crean agujeros.</div>
 <div id="warnings" class="warn"></div></aside></main>
 <script id="scene-data" type="application/json">__SCENE_DATA__</script>
 <script>
@@ -267,12 +267,14 @@ function render(){while(svg.firstChild)svg.removeChild(svg.firstChild);let all=[
 for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
 if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
 const angle=doorAngles.get(box.id)||0;const parts=angle>0?hingeFaces(box,angle):square(box,box.role);if(!parts)continue;
-for(const face of parts)all.push({depth:face.depth,order:boxIndex*parts.length+face.faceIndex,box,face})}
+for(const face of parts)all.push({depth:face.depth,order:boxIndex*6+face.faceIndex,box,face})}
 // Render interior before the roof: an interior shelf may NEVER be painted onto the top.
 // Order is visual only; verified CAD world_boxes never change.
-// A closed front is a full occluder for the cabinet interior from its front half-space.
-const fromFront=cameraState().position[2]<-0.00001,frontOcclusion=entry=>fromFront&&entry.box.role.startsWith('front_')&&(doorAngles.get(entry.box.id)||0)===0?1:0;
-all.sort((a,b)=>frontOcclusion(a)-frontOcclusion(b)||a.depth-b.depth||a.order-b.order);
+// From the front, keep the back/shelf behind the carcass; all outer faces share a fixed layer.
+// Every face then sorts by the same lexicographic key, so sibling doors cannot form comparator cycles.
+const fromFront=cameraState().position[2]<-0.00001;
+const painterKey=entry=>[fromFront&&(entry.box.role==='back_full'||entry.box.role==='shelf_horizontal')?0:1,entry.depth,entry.order];
+all.sort((a,b)=>{const ka=painterKey(a),kb=painterKey(b);return ka[0]-kb[0]||ka[1]-kb[1]||ka[2]-kb[2]});
 const pts=[];
 for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
 if(data.zones.length&&document.getElementById('zones').checked){for(const zone of data.zones){if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.42','data-zone-id':zone.id});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
