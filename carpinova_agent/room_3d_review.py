@@ -62,7 +62,13 @@ def _payload(review: Any) -> dict[str, Any]:
         if any(origin[i] + size[i] > 20000 for i in range(3)):
             raise RoomViewerError("Grupo fuera de límites")
         group_bounds[gid] = (origin, size)
-        clean_groups.append({"id": gid, "origin": origin, "size": size})
+        clean_group = {"id": gid, "origin": origin, "size": size}
+        if "rotation_deg" in item:
+            rotation = item["rotation_deg"]
+            if type(rotation) is not int or rotation not in {0, 90, 180, 270}:
+                raise RoomViewerError("Rotación de grupo inválida")
+            clean_group["rotation"] = rotation
+        clean_groups.append(clean_group)
     seen: set[str] = set()
     clean_boxes = []
     by_group = {gid: 0 for gid in group_ids}
@@ -117,71 +123,111 @@ _HTML = r'''<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CarpiNova · Inspector nominal 3D sin conexión</title>
 <style>
-:root{font-family:system-ui,Segoe UI,sans-serif;color:#e2e8f0;background:#0d1624}
-*{box-sizing:border-box}body{margin:0}.top{padding:18px 24px;background:#152439;border-bottom:1px solid #314761}
-h1{font-size:24px;margin:0 0 6px}.sub{font-size:13px;color:#a8bcd0;margin:0}.notice{color:#ffe3a0}
-main{display:grid;grid-template-columns:minmax(0,1fr) 260px;min-height:calc(100vh - 90px)}
-.stage{min-height:520px;background:radial-gradient(circle at 40% 20%,#1c3751,#09131f 80%);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-#scene{width:100%;height:min(78vh,900px);min-height:480px;touch-action:pan-y}
-.sidebar{background:#142236;border-left:1px solid #324358;padding:16px;display:flex;flex-direction:column;gap:15px}
-fieldset{margin:0;border:1px solid #3a526a;border-radius:8px;padding:12px}legend{font-weight:650;font-size:14px}
-button{background:#203f5d;color:white;border:1px solid #65829b;border-radius:6px;padding:8px 12px;cursor:pointer;margin:3px 3px 3px 0}
-button[aria-pressed=true]{background:#126b87;border-color:#80d8e9}select{max-width:100%;width:100%;padding:8px;background:#203f5d;color:#fff;border:1px solid #65829b;border-radius:6px}button:focus-visible,input:focus-visible{outline:3px solid #ffd666;outline-offset:2px}
-label{display:block;font-size:14px;margin:8px 0}input[type=range]{width:100%;accent-color:#30b0cf}
-#details{background:#0e1b2b;border-radius:7px;padding:10px;min-height:90px;overflow-wrap:anywhere;font-size:13px}
-.tag{font-family:monospace;font-size:11px;color:#89b2c5}svg polygon{cursor:pointer;stroke:#18283a;stroke-width:1.1;vector-effect:non-scaling-stroke}
-svg polygon:focus-visible,svg polygon.selected{stroke:#fcd34d;stroke-width:3;outline:none}
-svg text{font-family:system-ui,sans-serif;fill:#ccd9e5;font-size:11px;paint-order:stroke;stroke:#0d1624;stroke-width:3}
-.warn{border-left:3px solid #eeb84e;padding-left:9px;color:#edcf89;font-size:12px;overflow-wrap:anywhere}
-@media(max-width:800px){main{grid-template-columns:1fr}.sidebar{border-left:0;border-top:1px solid #324358}.stage{min-height:430px}#scene{min-height:410px;height:60vh}}
+:root{font-family:system-ui,"Segoe UI",sans-serif;color:#172b3a;background:#edf2f4;line-height:1.45}
+*{box-sizing:border-box}body{margin:0;min-width:0}.top{padding:20px clamp(16px,3vw,36px);background:#163746;color:#f3f7f8;border-bottom:4px solid #d9a441}
+h1{font-size:clamp(20px,2.4vw,28px);line-height:1.2;margin:0 0 8px}.sub{font-size:13px;color:#d1e0e4;margin:4px 0}.notice{color:#ffdc91}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px;padding:14px clamp(12px,2vw,24px);background:#fff;border-bottom:1px solid #cad5d9}
+.summary-card{min-width:0;border-left:3px solid #21758a;padding:7px 10px;background:#f5f8f8;overflow-wrap:anywhere}.summary-card strong{display:block;font-size:12px;color:#375464}.summary-card span{font-size:14px;font-variant-numeric:tabular-nums}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,360px);min-height:calc(100vh - 180px)}
+.stage-wrap{min-width:0;padding:14px}.stage{min-height:500px;background:radial-gradient(circle at 42% 20%,#315469,#102530 82%);border-radius:10px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+#scene{display:block;width:100%;height:min(72vh,820px);min-height:460px;touch-action:pan-y}
+.stage-caption{font-size:12px;color:#526774;margin:9px 3px}.sidebar{background:#f6f8f8;border-left:1px solid #cad5d9;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+fieldset{margin:0;min-width:0;border:1px solid #c4d1d5;border-radius:8px;padding:11px;background:#fff}legend{font-weight:700;font-size:14px;padding:0 4px}
+button{background:#e6eef0;color:#183745;border:1px solid #91a9b1;border-radius:6px;padding:8px 10px;cursor:pointer;margin:3px 4px 3px 0;font:inherit;font-size:13px}
+button[aria-pressed=true]{background:#176b7d;border-color:#176b7d;color:#fff}button:hover{background:#d5e4e7}button[aria-pressed=true]:hover{background:#12596a}
+select,input[type=number]{max-width:100%;width:100%;padding:8px;background:#fff;color:#17333f;border:1px solid #829aa2;border-radius:6px;font:inherit}button:focus-visible,input:focus-visible,select:focus-visible,svg polygon:focus-visible{outline:3px solid #c17c00;outline-offset:2px}
+label{display:block;font-size:13px;margin:8px 0}.control-line{display:flex;align-items:flex-start;gap:8px}.control-line input{margin-top:4px;flex:0 0 auto}.control-note{display:block;color:#526974;font-size:12px;margin:4px 0}
+#details{background:#f1f5f6;border:1px solid #d8e0e2;border-radius:7px;padding:10px;min-height:90px;overflow-wrap:anywhere;font-size:13px;white-space:pre-line}
+.tag{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#9ed1dc}svg polygon{cursor:pointer;stroke:#15313c;stroke-width:1.1;vector-effect:non-scaling-stroke}
+svg polygon:focus-visible,svg polygon.selected{stroke:#f5bc3d;stroke-width:3;outline:none}
+svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-order:stroke;stroke:#102530;stroke-width:3}
+.warn{border-left:3px solid #bd7c15;padding:7px 9px;background:#fff7e5;color:#624719;font-size:12px;overflow-wrap:anywhere}
+.interior-banner{padding:9px;border-radius:6px;background:#fff2cc;color:#624719;font-size:12px;font-weight:700}.empty-note{font-size:12px;color:#526974}
+@media(max-width:850px){main{grid-template-columns:minmax(0,1fr)}.sidebar{border-left:0;border-top:1px solid #cad5d9}.stage-wrap{padding:10px}.stage{min-height:390px}#scene{min-height:370px;height:58vh}}
+@media(max-width:420px){.summary{grid-template-columns:minmax(0,1fr)}.stage{min-height:340px}#scene{min-height:320px;height:48vh}.sidebar{padding:10px}.views{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.views button{padding:7px 3px;margin:2px 2px 2px 0}}
 </style></head><body>
-<header class="top"><h1>CarpiNova · Inspector 3D de revisión</h1>
-<p class="sub"><strong class="notice">BORRADOR NOMINAL · NO CORTAR NI FABRICAR</strong> · 100 % sin conexión · geometría CADExchange existente</p>
-<p class="sub">Escena <span id="digest" class="tag"></span> · <span id="status"></span></p></header>
-<main><div class="stage"><svg id="scene" role="img" aria-label="Vista isométrica de los tableros nominales" viewBox="0 0 900 640"></svg></div>
-<aside class="sidebar"><fieldset><legend>Orientación de revisión</legend><div id="views"></div>
-<label>Altura de corte <output id="cutLabel"></output><input type="range" min="0" max="900" step="1" id="cut"></label>
-<label>Ampliación <output id="zoomLabel">100 %</output><input type="range" min="60" max="160" step="10" value="100" id="zoom"></label>
-<label><input type="checkbox" checked id="zones"> Mostrar reservas de servicio</label></fieldset>
-<fieldset><legend>Módulos visibles</legend><div id="groups"></div></fieldset>
-<fieldset><legend>Panel seleccionado</legend><label for="piecePicker">Elegir tablero (incluye los ocultos)</label><select id="piecePicker"></select><div id="details" aria-live="polite">Selecciona un tablero en la vista 3D.</div></fieldset>
-<div class="warn">La representación es geométrica, no un plano de fabricación. No certifica cargas, anclajes, herrajes, holguras dinámicas ni uniones. Las reservas no crean perforaciones.</div>
+<header class="top"><h1>CarpiNova · VISOR NOMINAL SIN AUTORIZACIÓN DE FABRICACIÓN</h1>
+<p class="sub"><strong class="notice">Ejemplo de revisión, no proyecto para fabricar</strong> · Vista geométrica 2.5D simplificada · 100 % sin conexión</p>
+<p class="sub">Estado <span id="status"></span> · SHA de escena <span id="digest" class="tag"></span></p></header>
+<section class="summary" aria-label="Resumen dimensional de revisión">
+<div class="summary-card"><strong>Conjunto nominal</strong><span id="sceneName"></span></div>
+<div class="summary-card"><strong>Envolvente CAD global</strong><span id="globalBounds"></span></div>
+<div class="summary-card"><strong>Paneles nominales</strong><span id="sceneCount"></span></div>
+<div class="summary-card"><strong>Grupos</strong><span id="groupSummary"></span></div>
+</section>
+<main><section class="stage-wrap"><div class="stage"><svg id="scene" role="img" aria-label="Vista nominal simplificada 2.5D; no valida ensamble" viewBox="0 0 900 640"></svg></div>
+<p class="stage-caption">La proyección puede simplificar oclusiones y uniones. Cambiar la vista solo mueve la cámara; no modifica piezas ni valida el ensamble.</p></section>
+<aside class="sidebar"><fieldset><legend>Vista y controles visuales</legend><span class="control-note">Orientación — solo cámara</span><div id="views" class="views"></div>
+<label class="control-line"><input type="checkbox" id="interior"><span>Inspeccionar interior (ocultar frentes y tapa SOLO visualmente)</span></label>
+<div id="interiorBanner" class="interior-banner" hidden>VISTA INTERIOR: frentes y tapa ocultos SOLO EN PANTALLA — el mueble conserva esas piezas. Si la repisa o el fondo quedan ocluidos, cambia la orientación; no se quita ningún tablero de los datos.</div>
+<div id="noShelf" class="empty-note" hidden>Este modelo no contiene repisa.</div>
+<label for="cutEnabled" class="control-line"><input type="checkbox" id="cutEnabled"><span id="cutState">Corte OFF</span></label>
+<label for="cutHeight">Altura límite Y (mm)<input type="number" id="cutHeight" step="1" min="0" disabled></label>
+<span class="control-note">Corte de visualización simplificada; no altera el modelo.</span>
+<label for="zoom">Ampliación <output id="zoomLabel">100 %</output><input type="range" min="60" max="160" step="10" value="100" id="zoom"></label>
+<label id="zoneControl" for="zones" hidden><input type="checkbox" checked id="zones"> Mostrar reservas de servicio (no son perforaciones)</label>
+<button type="button" id="resetView">Restablecer vista completa</button></fieldset>
+<fieldset><legend>Grupos visibles</legend><div id="groups"></div></fieldset>
+<fieldset><legend>Panel seleccionado</legend><label for="piecePicker">Elegir tablero (incluye los ocultos)</label><select id="piecePicker"></select><div id="details" aria-live="polite">Selecciona un tablero para ver sus medidas nominales.</div></fieldset>
+<div class="warn"><strong>NO FABRICAR / NO CORTAR / NO PERFORAR / NO COMPRAR.</strong> La proyección no es CAD sólido ni plano de fabricación; no valida cargas, anclajes, herrajes, tolerancias dinámicas, instalación ni accesibilidad física. Las reservas no crean agujeros.</div>
 <div id="warnings" class="warn"></div></aside></main>
 <script id="scene-data" type="application/json">__SCENE_DATA__</script>
 <script>
 'use strict';
 const data=JSON.parse(document.getElementById('scene-data').textContent);
 const NS='http://www.w3.org/2000/svg'; const svg=document.getElementById('scene');
-const cut=document.getElementById('cut'),zoom=document.getElementById('zoom');
+const cutEnabled=document.getElementById('cutEnabled'),cutHeight=document.getElementById('cutHeight'),zoom=document.getElementById('zoom');
 let heading=0,selected='',shown=new Set(data.groups.map(g=>g.id));
 const E=(tag,attrs,text)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs||{}))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n};
 const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:['#467b91','#6ca6bc','#a8d4df'];
-const sw=(x,z)=>heading===0?[x,z]:heading===90?[z,-x]:heading===180?[-x,-z]:[-z,x];
+const sw=(x,z)=>heading===0?[x,-z]:heading===90?[-z,-x]:heading===180?[-x,z]:[z,x];
 const P=(x,y,z)=>{const [u,v]=sw(x,z);return [(u-v)*.83,(u+v)*.42-y*.97]};
-const square=(b,side)=>{const [x,y,z]=b.origin,[w,h,d]=b.size,top=Math.min(y+h,Number(cut.value));if(top<=y)return null;const q=(a,c,e)=>P(a,c,e);
-const faces=[[[x,y+top-y,z],[x+w,y+top-y,z],[x+w,y+top-y,z+d],[x,y+top-y,z+d]],
+const ROLE_LABEL={front_left:'puerta izquierda nominal',front_right:'puerta derecha nominal',front_corner_blind:'panel ciego NO puerta',front_corner_access:'puerta nominal sin bisagra validada',shelf_horizontal:'repisa',top:'tapa',bottom:'base',left_side:'lateral izquierdo',right_side:'lateral derecho',back_full:'fondo completo'};
+const labelRole=role=>ROLE_LABEL[role]||role;
+const maxHeight=Math.max(...data.groups.map(g=>g.origin[1]+g.size[1]));
+cutHeight.max=String(maxHeight);cutHeight.value=String(maxHeight);
+const mins=[0,1,2].map(i=>Math.min(...data.groups.map(g=>g.origin[i])));
+const maxs=[0,1,2].map(i=>Math.max(...data.groups.map(g=>g.origin[i]+g.size[i])));
+const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];
+document.getElementById('globalBounds').textContent=axes.map((axis,i)=>`${axis}: ${mins[i]}–${maxs[i]} (${maxs[i]-mins[i]} mm)`).join(' · ');
+document.getElementById('sceneName').textContent=data.groups.map(g=>g.id).join(' · ');
+document.getElementById('sceneCount').textContent=`${data.boxes.length} paneles · ${data.status}`;
+document.getElementById('groupSummary').textContent=data.groups.map(g=>`${g.id}: origen ${g.origin.join(', ')} mm; bounds ${g.size.join(' × ')} mm; ${data.boxes.filter(b=>b.group===g.id).length} piezas${Number.isInteger(g.rotation)?`; rotación ${g.rotation}°`:''}`).join(' | ');
+document.getElementById('digest').textContent=data.digest.slice(0,12);
+document.getElementById('status').textContent=data.status;
+const updateCut=()=>{cutHeight.disabled=!cutEnabled.checked;document.getElementById('cutState').textContent=cutEnabled.checked?`CORTE ACTIVADO · hasta Y=${cutHeight.value} mm`:'Corte OFF'};
+const square=(b,side)=>{const [x,y,z]=b.origin,[w,h,d]=b.size,top=cutEnabled.checked?Math.min(y+h,Number(cutHeight.value)):y+h;if(top<=y)return null;
+const faces=[[[x,top,z],[x+w,top,z],[x+w,top,z+d],[x,top,z+d]],
 [[x+w,y,z],[x+w,y,z+d],[x+w,top,z+d],[x+w,top,z]],
 [[x,y,z+d],[x+w,y,z+d],[x+w,top,z+d],[x,top,z+d]],
 [[x,y,z],[x,y,z+d],[x,top,z+d],[x,top,z]],
 [[x,y,z],[x+w,y,z],[x+w,top,z],[x,top,z]]];
-const a=heading;let nearA,nearB;if(a===0){nearA=1;nearB=2}else if(a===90){nearA=2;nearB=3}else if(a===180){nearA=3;nearB=4}else{nearA=4;nearB=1}
-return [faces[nearA],faces[nearB],faces[0]].map((points,i)=>({pts:points.map(([xx,yy,zz])=>q(xx,yy,zz)),fill:palette(side)[i]}));};
+const visible=heading===0?[0,1,4]:heading===90?[0,3,4]:heading===180?[0,3,2]:[0,1,2];
+return visible.map(index=>{const points=faces[index];const depth=points.reduce((sum,[xx,,zz])=>{const [u,v]=sw(xx,zz);return sum+u+v},0)/points.length;return {pts:points.map(([xx,yy,zz])=>P(xx,yy,zz)),depth,faceIndex:index,fill:palette(side)[index===0?2:index===1||index===2?1:0]}})};
 function render(){while(svg.firstChild)svg.removeChild(svg.firstChild);let all=[];const layer=E('g',{'id':'panels'});svg.appendChild(layer);
-for(const box of data.boxes){if(!shown.has(box.group))continue;const parts=square(box,box.role);if(!parts)continue;const [x,y,z]=box.origin;const [w,h,d]=box.size;
-const [u,v]=sw(x+w/2,z+d/2);all.push({depth:u+v,box,parts})}
-all.sort((a,b)=>(a.box.id===selected?1:0)-(b.box.id===selected?1:0)||a.depth-b.depth);
+for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
+if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
+const parts=square(box,box.role);if(!parts)continue;
+for(const face of parts)all.push({depth:face.depth,order:boxIndex*parts.length+face.faceIndex,box,face})}
+all.sort((a,b)=>{const frontVisible=heading===0||heading===90;const af=frontVisible&&a.box.role.startsWith('front_'),bf=frontVisible&&b.box.role.startsWith('front_');return af!==bf?(af?1:-1):a.depth-b.depth||a.order-b.order});
 const pts=[];
-for(const entry of all){for(const face of entry.parts){const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+entry.box.role));el.addEventListener('click',()=>pick(entry.box));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}}
-if(document.getElementById('zones').checked){for(const zone of data.zones){if(zone.origin[1]>=Number(cut.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.22'});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#e69925','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
+for(const entry of all){const face=entry.face;const el=E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':face.fill,'data-piece-id':entry.box.id,'data-role':entry.box.role,'data-depth':entry.depth,'tabindex':'0','class':selected===entry.box.id?'selected':''});el.appendChild(E('title',{},entry.box.id+' · '+labelRole(entry.box.role)+' · '+entry.box.role));el.addEventListener('click',()=>pick(entry.box));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick(entry.box)}});layer.appendChild(el);face.pts.forEach(p=>pts.push(p))}
+if(data.zones.length&&document.getElementById('zones').checked){for(const zone of data.zones){if(cutEnabled.checked&&zone.origin[1]>=Number(cutHeight.value))continue;const q={origin:zone.origin,size:zone.size};const faces=square(q,'zone');if(!faces)continue;const g=E('g',{'opacity':'.42','data-zone-id':zone.id});for(const face of faces){g.appendChild(E('polygon',{'points':face.pts.map(p=>p.join(',')).join(' '),'fill':'#ffbd68','stroke':'#a45f00','stroke-dasharray':'4 3'}));face.pts.forEach(p=>pts.push(p))}layer.appendChild(g)}}
 if(!pts.length){svg.setAttribute('viewBox','0 0 900 640');svg.appendChild(E('text',{x:30,y:50},'Sin paneles a esta altura o con filtros actuales.'));return}
 const minx=Math.min(...pts.map(p=>p[0])),maxx=Math.max(...pts.map(p=>p[0])),miny=Math.min(...pts.map(p=>p[1])),maxy=Math.max(...pts.map(p=>p[1]));const sc=Number(zoom.value)/100;const w=Math.max(100,(maxx-minx)/sc),h=Math.max(100,(maxy-miny)/sc);const cx=(minx+maxx)/2,cy=(miny+maxy)/2;svg.setAttribute('viewBox',[cx-w/2-30,cy-h/2-30,w+60,h+60].join(' '));}
-function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=box.id+'\nGrupo: '+box.group+' · '+box.role+'\nOrigen XYZ: '+box.origin.join(', ')+' mm\nTamaño XYZ: '+box.size.join(' × ')+' mm';e.style.whiteSpace='pre-line';render()}
-const maxHeight=Math.max(...data.groups.map(g=>g.origin[1]+g.size[1]));cut.max=String(maxHeight);cut.value=String(maxHeight);cutLabel.value=cut.value+' mm';document.getElementById('digest').textContent=data.digest.slice(0,12);document.getElementById('status').textContent=data.status;
-for(const a of [0,90,180,270]){let b=document.createElement('button');b.textContent=a+'°';b.type='button';b.setAttribute('aria-pressed',String(a===0));b.addEventListener('click',()=>{heading=a;for(const b of document.querySelectorAll('#views button'))b.setAttribute('aria-pressed',String(b.textContent===a+'°'));render()});document.getElementById('views').appendChild(b)}
-for(const g of data.groups){const row=document.createElement('label');const box=document.createElement('input');box.type='checkbox';box.checked=true;box.addEventListener('change',()=>{box.checked?shown.add(g.id):shown.delete(g.id);render()});row.append(box,document.createTextNode(' '+g.id+' ('+data.boxes.filter(b=>b.group===g.id).length+' tableros)'));document.getElementById('groups').appendChild(row)}
-const warningText={'ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY':'Solo geometría nominal, sin autorización de corte','ROOM_LAYOUT_DOES_NOT_VERIFY_WALLS_LOADS_ANCHORS_OR_HARDWARE':'Muros, cargas, anclajes y herrajes sin verificar','SERVICE_RESERVATIONS_ARE_NOT_HOLES_OR_PLUMBING_INSTALLATION':'Reservas sin perforaciones ni instalación','CORNER_JOINT_AND_FILLER_NOT_DESIGNED':'Uniones y rellenos de esquina sin diseñar','OVERLAPPING_CABINET_ENVELOPES_BLOCK_APPROVAL':'Interferencias entre muebles: aprobación bloqueada'};document.getElementById('warnings').textContent=data.warnings.map(w=>warningText[w]||w).join(' · ');
-const picker=document.getElementById('piecePicker');for(const b of data.boxes){const o=document.createElement('option');o.value=b.id;o.textContent=b.id+' — '+b.role;picker.appendChild(o)}picker.selectedIndex=-1;picker.addEventListener('change',()=>pick(data.boxes.find(b=>b.id===picker.value)));
-cut.addEventListener('input',()=>{cutLabel.value=cut.value+' mm';render()});zoom.addEventListener('input',()=>{document.getElementById('zoomLabel').textContent=zoom.value+' %';render()});document.getElementById('zones').addEventListener('change',render);render();
+function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=`${box.id}\nGrupo: ${box.group}\nRol: ${labelRole(box.role)} (${box.role})\nOrigen XYZ: ${box.origin.join(', ')} mm\nTamaño XYZ: ${box.size.join(' × ')} mm`;render()}
+for(const angle of [0,90,180,270]){const button=document.createElement('button');button.textContent=angle+'°';button.type='button';button.setAttribute('aria-label',`Solo cámara: orientación ${angle} grados`);button.setAttribute('aria-pressed',String(angle===0));button.addEventListener('click',()=>{heading=angle;for(const b of document.querySelectorAll('#views button'))b.setAttribute('aria-pressed',String(Number.parseInt(b.textContent,10)===angle));render()});document.getElementById('views').appendChild(button)}
+for(const group of data.groups){const row=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=true;box.addEventListener('change',()=>{box.checked?shown.add(group.id):shown.delete(group.id);render()});row.append(box,document.createTextNode(` ${group.id} (${data.boxes.filter(b=>b.group===group.id).length} paneles)`));document.getElementById('groups').appendChild(row)}
+const warningText={'ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY':'Geometría nominal, sin autorización de corte','ROOM_LAYOUT_DOES_NOT_VERIFY_WALLS_LOADS_ANCHORS_OR_HARDWARE':'Muros, cargas, anclajes y herrajes sin verificar','SERVICE_RESERVATIONS_ARE_NOT_HOLES_OR_PLUMBING_INSTALLATION':'Reservas sin perforaciones ni instalación','CORNER_JOINT_AND_FILLER_NOT_DESIGNED':'Uniones y rellenos de esquina sin diseñar','OVERLAPPING_CABINET_ENVELOPES_BLOCK_APPROVAL':'Interferencias entre muebles: aprobación bloqueada'};
+document.getElementById('warnings').textContent=data.warnings.map(w=>warningText[w]||w).join(' · ');
+const picker=document.getElementById('piecePicker');for(const box of data.boxes){const option=document.createElement('option');option.value=box.id;option.textContent=`${box.id} — ${labelRole(box.role)} (${box.role})`;picker.appendChild(option)}picker.selectedIndex=-1;
+picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));
+cutEnabled.addEventListener('change',()=>{updateCut();render()});cutHeight.addEventListener('input',()=>{const valid=cutHeight.value!==''&&Number(cutHeight.value)>=0&&Number(cutHeight.value)<=maxHeight;if(valid){updateCut();render()}});
+zoom.addEventListener('input',()=>{document.getElementById('zoomLabel').textContent=zoom.value+' %';render()});
+document.getElementById('interior').addEventListener('change',event=>{const enabled=event.target.checked;document.getElementById('interiorBanner').hidden=!enabled;document.getElementById('noShelf').hidden=!(enabled&&!data.boxes.some(box=>box.role==='shelf_horizontal'));render()});
+if(data.zones.length){document.getElementById('zoneControl').hidden=false;document.getElementById('zones').addEventListener('change',render)}
+document.getElementById('resetView').addEventListener('click',()=>{heading=0;zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(button.textContent==='0°'));updateCut();render()});
+updateCut();render();
 </script></body></html>
 '''
 

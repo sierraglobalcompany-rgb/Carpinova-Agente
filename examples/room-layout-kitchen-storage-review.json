@@ -1,0 +1,32 @@
+{
+  "review_kind": "room_layout_v1",
+  "assemblies": [{
+    "group_id": "BAJO_COCINA_2P",
+    "module_spec": {
+      "type": "modular_run", "application": "kitchen", "width_mm": 900,
+      "height_mm": 720, "depth_mm": 560, "installation": "freestanding",
+      "modules": [{
+        "module_id": "BAJO_COCINA_2P", "width_mm": 900,
+        "panel_thickness_mm": 18, "material_id": "MELAMINA_18",
+        "construction": "sides_full", "support": "floor", "drawers": "none",
+        "fronts": {
+          "style": "overlay", "leaf_count": 2, "material_id": "MELAMINA_18",
+          "thickness_mm": 18, "hinge_sides": ["left", "right"],
+          "left_reveal_mm": 3, "right_reveal_mm": 3,
+          "top_reveal_mm": 3, "bottom_reveal_mm": 3, "center_gap_mm": 4
+        },
+        "back": {
+          "style": "inset_full", "material_id": "MELAMINA_6",
+          "thickness_mm": 6, "services_present": false, "grain_axis": "none"
+        },
+        "horizontal_divider": {
+          "material_id": "MELAMINA_18", "thickness_mm": 18,
+          "position_from_clear_bottom_mm": 320,
+          "depth_mm": 500, "depth_from_front_mm": 25
+        }
+      }]
+    },
+    "origin_xyz_mm": [0, 0, 0], "rotation_deg": 0
+  }],
+  "service_zones": []
+}
