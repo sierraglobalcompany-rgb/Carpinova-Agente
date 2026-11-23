@@ -45,6 +45,69 @@ def _id(value: Any, path: str) -> str:
     return value
 
 
+def _construction_review(model: dict[str, Any]) -> dict[str, Any]:
+    """Summarize declared back/support choices without certifying installation."""
+    modules = model.get("modules")
+    if type(modules) is not list or not modules:
+        _error("Maestro no devolvió módulos para revisar fondo y soporte")
+
+    back_states: list[str] = []
+    support_states: list[str] = []
+    for module in modules:
+        if type(module) is not dict:
+            _error("Módulo Maestro inválido para revisar construcción")
+        back = module.get("back")
+        if back == "none":
+            back_status = "none"
+        elif back == "pending" or back is None:
+            back_status = "pending"
+        elif type(back) is dict and back.get("style") in {
+                "inset_full", "inset_two_strips"}:
+            back_status = back["style"]
+        else:
+            back_status = "unconfirmed"
+        back_states.append(back_status)
+
+        support = module.get("support")
+        if support == "wall" or model.get("installation") == "wall_mounted":
+            support_states.append("REAR_WALL_SUPPORT_PENDING")
+        elif support in {"floor", "legs", "plinth"}:
+            support_states.append("NOT_APPLICABLE")
+        else:
+            support_states.append("SUPPORT_PENDING")
+
+    unique_back = sorted(set(back_states))
+    unique_support = sorted(set(support_states))
+    return {
+        "back_status": unique_back[0] if len(unique_back) == 1 else "mixed",
+        "wall_support_status": (
+            unique_support[0] if len(unique_support) == 1 else "mixed"
+        ),
+        "wall_tie_mode": (
+            "NOT_IMPLEMENTED"
+            if "REAR_WALL_SUPPORT_PENDING" in support_states
+            else "NOT_APPLICABLE"
+        ),
+        "install_ready": False,
+        "module_count": len(modules),
+    }
+
+
+def _attach_construction_reviews(
+    result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    reviews = {group: _construction_review(model)
+               for group, model in models_by_group.items()}
+    result["construction_review_by_group"] = reviews
+    if any(item["wall_support_status"] in {
+            "REAR_WALL_SUPPORT_PENDING", "SUPPORT_PENDING", "mixed"}
+            for item in reviews.values()):
+        result["warnings"] = list(dict.fromkeys([
+            *result["warnings"], "REAR_WALL_SUPPORT_PENDING",
+        ]))
+    return result
+
+
 def _hash(payload: Any) -> str:
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False,
                          separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -275,6 +338,7 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
     if type(assembly_input) is not list or not 1 <= len(assembly_input) <= MAX_GROUPS:
         _error("assemblies: entre 1 y 6 grupos")
     prepared = []
+    models_by_group: dict[str, dict[str, Any]] = {}
     for raw in assembly_input:
         if type(raw) is not dict or set(raw) != {
             "group_id", "module_spec", "origin_xyz_mm", "rotation_deg"
@@ -290,12 +354,14 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
 
             _error("El compositor no entregó un modelo nominal seguro")
         exchange = validate_exchange(cad_exchange(model))
+        models_by_group[raw["group_id"]] = model
         prepared.append({
             "group_id": raw["group_id"], "exchange": exchange,
             "origin_xyz_mm": raw["origin_xyz_mm"],
             "rotation_deg": raw["rotation_deg"],
         })
-    return compose_verified_exchanges(prepared, request["service_zones"])
+    result = compose_verified_exchanges(prepared, request["service_zones"])
+    return _attach_construction_reviews(result, models_by_group)
 
 
 def render_top_view_svg(review: dict[str, Any]) -> str:
@@ -374,6 +440,7 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
         _error("El historial no valida la instantánea; no se aceptan hashes del cliente")
 
     assemblies = []
+    models_by_group: dict[str, dict[str, Any]] = {}
     for group in _GROUPS:
         reviewed = rebuilt["_reviews"][group]
         origin = working["positions"][group]
@@ -386,7 +453,9 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
             "origin_xyz_mm": origin,
             "rotation_deg": rotations[group],
         })
+        models_by_group[group] = reviewed["model"]
     output = compose_verified_exchanges(assemblies, request["service_zones"])
+    _attach_construction_reviews(output, models_by_group)
     if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
         _error("La revisión espacial no puede habilitar fabricación")
     output["top_view_svg"] = render_top_view_svg(output)

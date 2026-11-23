@@ -94,6 +94,87 @@ def _payload(review: Any) -> dict[str, Any]:
            for item in groups):
         # Existing room_layout_v1 includes group piece counts; refuse discrepancy.
         raise RoomViewerError("El conteo de paneles por grupo no corresponde")
+    construction = review.get("construction_review_by_group", {})
+    if type(construction) is not dict or set(construction) - group_ids:
+        raise RoomViewerError("Resumen de fondo y soporte inválido")
+    valid_back = {"none", "pending", "inset_full", "inset_two_strips",
+                  "unconfirmed", "mixed"}
+    valid_support = {"REAR_WALL_SUPPORT_PENDING", "SUPPORT_PENDING",
+                     "NOT_APPLICABLE", "mixed"}
+    for group in clean_groups:
+        item = construction.get(group["id"])
+        if item is None:
+            continue
+        if (type(item) is not dict
+                or set(item) != {"back_status", "wall_support_status",
+                                 "wall_tie_mode", "install_ready", "module_count"}
+                or type(item.get("back_status")) is not str
+                or item.get("back_status") not in valid_back
+                or type(item.get("wall_support_status")) is not str
+                or item.get("wall_support_status") not in valid_support
+                or type(item.get("wall_tie_mode")) is not str
+                or item.get("wall_tie_mode") not in {
+                    "NOT_IMPLEMENTED", "NOT_APPLICABLE"}
+                or item.get("install_ready") is not False
+                or type(item.get("module_count")) is not int
+                or not 1 <= item["module_count"] <= 6):
+            raise RoomViewerError("Resumen de fondo y soporte inseguro")
+        group["construction"] = item
+
+    drawer_suffix = {
+        "drawer_side_left": "SIDE_LEFT",
+        "drawer_side_right": "SIDE_RIGHT",
+        "drawer_front_wall": "FRONT_WALL",
+        "drawer_rear_wall": "REAR_WALL",
+        "drawer_bottom": "BOTTOM",
+        "drawer_facade": "FACADE",
+    }
+    drawer_groups: dict[str, list[dict[str, Any]]] = {}
+    blocked_drawers: list[dict[str, str]] = []
+    for box in clean_boxes:
+        if not box["role"].startswith("drawer_") and "-DRAWER_" not in box["id"]:
+            continue
+        if "-DRAWER_" not in box["id"]:
+            blocked_drawers.append({"id": box["id"], "group": box["group"],
+                                    "reason": "ID sin separador -DRAWER_"})
+            continue
+        prefix, _suffix = box["id"].rsplit("-DRAWER_", 1)
+        drawer_groups.setdefault(prefix, []).append(box)
+    drawers = []
+    expected_roles = set(drawer_suffix)
+    for drawer_id, parts in sorted(drawer_groups.items()):
+        role_counts = {role: sum(part["role"] == role for part in parts)
+                       for role in expected_roles}
+        groups_for_drawer = {part["group"] for part in parts}
+        valid = (
+            len(parts) == 6
+            and len(groups_for_drawer) == 1
+            and set(part["role"] for part in parts) == expected_roles
+            and all(part["id"] == drawer_id + "-DRAWER_" + drawer_suffix[part["role"]]
+                    for part in parts)
+            and all(count == 1 for count in role_counts.values())
+        )
+        if not valid:
+            blocked_drawers.append({
+                "id": drawer_id,
+                "group": next(iter(groups_for_drawer)) if len(groups_for_drawer) == 1 else "",
+                "reason": "Se requieren seis roles e IDs originales distintos del mismo cajón",
+            })
+            continue
+        min_z = min(part["origin"][2] for part in parts)
+        max_z = max(part["origin"][2] + part["size"][2] for part in parts)
+        if max_z <= min_z:
+            blocked_drawers.append({"id": drawer_id, "group": parts[0]["group"],
+                                    "reason": "Profundidad nominal inválida"})
+            continue
+        match = re.search(r"-(D[0-9]+)$", drawer_id)
+        drawers.append({
+            "id": drawer_id,
+            "label": match.group(1) if match else drawer_id,
+            "group": parts[0]["group"],
+            "piece_ids": sorted(part["id"] for part in parts),
+            "depth_mm": max_z - min_z,
+        })
     zones = review.get("service_zones")
     if type(zones) is not list or len(zones) > 12:
         raise RoomViewerError("Reservas de servicio inválidas")
@@ -111,7 +192,8 @@ def _payload(review: Any) -> dict[str, Any]:
     if not isinstance(review.get("layout_sha256"), str) or not re.fullmatch(
             r"[0-9a-f]{64}", review["layout_sha256"]):
         raise RoomViewerError("Firma del layout inválida")
-    return {"groups": clean_groups, "boxes": clean_boxes, "zones": clean_zones,
+    return {"groups": clean_groups, "boxes": clean_boxes, "drawers": drawers,
+            "blocked_drawers": blocked_drawers, "zones": clean_zones,
             "warnings": warnings, "status": review["status"],
             "digest": review["layout_sha256"]}
 
@@ -143,7 +225,7 @@ label{display:block;font-size:13px;margin:8px 0}.control-line{display:flex;align
 svg polygon:focus-visible,svg polygon.selected{stroke:#f5bc3d;stroke-width:3;outline:none}
 svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-order:stroke;stroke:#102530;stroke-width:3}
 .warn{border-left:3px solid #bd7c15;padding:7px 9px;background:#fff7e5;color:#624719;font-size:12px;overflow-wrap:anywhere}
-.open-controls{margin:10px 0;background:#f5fafb}.door-control{margin:8px 0;padding:6px 0;border-bottom:1px solid #d9e4e8}.door-control input[type=range]{width:100%}.door-control output{font-variant-numeric:tabular-nums;color:#0e6978;font-weight:700}
+.open-controls{margin:10px 0;background:#f5fafb}.door-control,.drawer-control{margin:8px 0;padding:6px 0;border-bottom:1px solid #d9e4e8}.door-control input[type=range],.drawer-control input[type=range]{width:100%}.door-control output,.drawer-control output{font-variant-numeric:tabular-nums;color:#0e6978;font-weight:700}
 .interior-banner{padding:9px;border-radius:6px;background:#fff2cc;color:#624719;font-size:12px;font-weight:700}.empty-note{font-size:12px;color:#526974}
 @media(max-width:850px){main{grid-template-columns:minmax(0,1fr)}.sidebar{border-left:0;border-top:1px solid #cad5d9}.stage-wrap{padding:10px}.stage{min-height:390px}#scene{min-height:370px;height:58vh}}
 @media(max-width:420px){.summary{grid-template-columns:minmax(0,1fr)}.stage{min-height:340px}#scene{min-height:320px;height:48vh}.sidebar{padding:10px}.views{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.views button{padding:7px 3px;margin:2px 2px 2px 0}}
@@ -161,13 +243,15 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <p class="stage-caption"><strong>Arrastra sobre el mueble para girar · rueda para ampliar.</strong> La proyección puede simplificar oclusiones y uniones. Cambiar la vista solo mueve la cámara; no modifica piezas ni valida el ensamble.</p></section>
 <aside class="sidebar"><fieldset><legend>Vista y controles visuales</legend><span class="control-note">Orientación — solo cámara</span><div id="views" class="views"></div>
 <span id="cameraReadout" class="control-note" aria-live="polite">Giro 0° · Elevación 35°</span>
-<label class="control-line"><input type="checkbox" id="interior"><span>Inspeccionar interior (ocultar frentes y tapa SOLO visualmente)</span></label>
+<label class="control-line"><input type="checkbox" id="interior"><span>Inspeccionar interior (oculta frentes de puertas; conserva tapas y repisas)</span></label>
 <fieldset id="openingGroup" class="open-controls"><legend>Abrir puertas nominales</legend>
 <div id="doorSliders"></div><div id="noDoors" class="empty-note" hidden>Esta escena no tiene puertas abatibles con lados identificables.</div>
-<div id="noDrawers" class="empty-note">Este ejemplo no contiene cajones. Para simularlos se necesitan sus frentes y cajas reales; no se inventarán.</div>
+<div id="drawerSliders"></div><div id="noDrawers" class="empty-note" hidden>Este ejemplo no contiene cajones completos para abrir.</div>
+<div id="blockedDrawers" class="empty-note" hidden></div>
 <div class="control-note">Movimiento visual ilustrativo (0–90°). Sin bisagras, holguras de giro ni cargas verificadas. No altera las piezas CAD.</div>
+<div class="control-note">Apertura de cajón nominal e ilustrativa; no valida riel, cargas, colisiones dinámicas, holguras ni perforaciones.</div>
 </fieldset>
-<div id="interiorBanner" class="interior-banner" hidden>VISTA INTERIOR: frentes y tapa ocultos SOLO EN PANTALLA — el mueble conserva esas piezas. Si la repisa o el fondo quedan ocluidos, cambia la orientación; no se quita ningún tablero de los datos.</div>
+<div id="interiorBanner" class="interior-banner" hidden>VISTA INTERIOR: solo se ocultan visualmente los frentes de puertas; tapas, bases, repisas, laterales, fondos y piezas drawer_* permanecen en escena y en los datos.</div>
 <div id="noShelf" class="empty-note" hidden>Este modelo no contiene repisa.</div>
 <label for="cutEnabled" class="control-line"><input type="checkbox" id="cutEnabled"><span id="cutState">Corte OFF</span></label>
 <label for="cutHeight">Altura límite Y (mm)<input type="number" id="cutHeight" step="1" min="0" disabled></label>
@@ -187,7 +271,8 @@ const NS='http://www.w3.org/2000/svg'; const svg=document.getElementById('scene'
 const cutEnabled=document.getElementById('cutEnabled'),cutHeight=document.getElementById('cutHeight'),zoom=document.getElementById('zoom');
 const INITIAL_ELEVATION=35;
 let yaw=0,elevation=INITIAL_ELEVATION,activePreset=0,selected='',shown=new Set(data.groups.map(g=>g.id));
-const doorAngles=new Map();
+const doorAngles=new Map(),drawerProgress=new Map(),drawerByPiece=new Map();
+for(const drawer of data.drawers){for(const id of drawer.piece_ids)drawerByPiece.set(id,drawer)}
 const E=(tag,attrs,text)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs||{}))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n};
 const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:['#467b91','#6ca6bc','#a8d4df'];
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
@@ -202,7 +287,7 @@ cutHeight.max=String(maxHeight);cutHeight.value=String(maxHeight);
 const mins=[0,1,2].map(i=>Math.min(...data.groups.map(g=>g.origin[i])));
 const maxs=[0,1,2].map(i=>Math.max(...data.groups.map(g=>g.origin[i]+g.size[i])));
 const pivot=mins.map((value,i)=>(value+maxs[i])/2);
-// Keep a fixed camera frame that includes the complete, illustrative 0–90° door sweep.
+// Keep a fixed camera frame that includes door swings and the conservative visual drawer travel.
 const frameMin=mins.slice(),frameMax=maxs.slice();
 const includeFramePoint=point=>{for(let i=0;i<3;i++){frameMin[i]=Math.min(frameMin[i],point[i]);frameMax[i]=Math.max(frameMax[i],point[i])}};
 for(const box of data.boxes.filter(item=>item.role==='front_left'||item.role==='front_right')){
@@ -212,11 +297,18 @@ for(const box of data.boxes.filter(item=>item.role==='front_left'||item.role==='
   includeFramePoint([hx+dx*c+dz*s,yy,hz-dx*s+dz*c]);
  }
 }
+for(const drawer of data.drawers){
+ const travel=drawer.depth_mm*.2;
+ for(const box of data.boxes.filter(item=>drawer.piece_ids.includes(item.id))){
+  includeFramePoint([box.origin[0],box.origin[1],box.origin[2]-travel]);
+  includeFramePoint([box.origin[0]+box.size[0],box.origin[1]+box.size[1],box.origin[2]+box.size[2]-travel]);
+ }
+}
 const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];
 document.getElementById('globalBounds').textContent=axes.map((axis,i)=>`${axis}: ${mins[i]}–${maxs[i]} (${maxs[i]-mins[i]} mm)`).join(' · ');
 document.getElementById('sceneName').textContent=data.groups.map(g=>g.id).join(' · ');
 document.getElementById('sceneCount').textContent=`${data.boxes.length} paneles · ${data.status}`;
-document.getElementById('groupSummary').textContent=data.groups.map(g=>`${g.id}: origen ${g.origin.join(', ')} mm; bounds ${g.size.join(' × ')} mm; ${data.boxes.filter(b=>b.group===g.id).length} piezas${Number.isInteger(g.rotation)?`; rotación ${g.rotation}°`:''}`).join(' | ');
+document.getElementById('groupSummary').textContent=data.groups.map(g=>{const c=g.construction;const state=c?`; fondo ${c.back_status}; soporte ${c.wall_support_status}; amarre ${c.wall_tie_mode}; instalación no liberada`:'';return `${g.id}: origen ${g.origin.join(', ')} mm; bounds ${g.size.join(' × ')} mm; ${data.boxes.filter(b=>b.group===g.id).length} piezas${Number.isInteger(g.rotation)?`; rotación ${g.rotation}°`:''}${state}`}).join(' | ');
 document.getElementById('digest').textContent=data.digest.slice(0,12);
 document.getElementById('status').textContent=data.status;
 const updateCut=()=>{cutHeight.disabled=!cutEnabled.checked;document.getElementById('cutState').textContent=cutEnabled.checked?`CORTE ACTIVADO · hasta Y=${cutHeight.value} mm`:'Corte OFF'};
@@ -278,8 +370,10 @@ function render(){
  document.getElementById('status').textContent=data.status;
  const all=[],layer=E('g',{'id':'panels'});svg.appendChild(layer);
  for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){
-  const box=data.boxes[boxIndex];if(!shown.has(box.group))continue;
-  if(document.getElementById('interior').checked&&(box.role.startsWith('front_')||box.role==='top'))continue;
+  const original=data.boxes[boxIndex];if(!shown.has(original.group))continue;
+  if(document.getElementById('interior').checked&&original.role.startsWith('front_'))continue;
+  const drawer=drawerByPiece.get(original.id),progress=drawer?drawerProgress.get(drawer.id)||0:0;
+  const box=progress?{...original,origin:[original.origin[0],original.origin[1],original.origin[2]-drawer.depth_mm*.2*progress/100]}:original;
   const angle=doorAngles.get(box.id)||0,parts=angle>0?hingeFaces(box,angle):square(box,box.role);
   if(!parts)continue;
   for(const face of parts)all.push({boxIndex,faceId:boxIndex*6+face.faceIndex,box,face});
@@ -389,8 +483,20 @@ picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.v
 // and missing drawers are never invented or animated.
 const movable=data.boxes.filter(box=>box.role==='front_left'||box.role==='front_right');
 document.getElementById('noDoors').hidden=movable.length>0;
-const drawerPresent=data.boxes.some(box=>box.role.startsWith('drawer_'));
-document.getElementById('noDrawers').textContent=drawerPresent?'Esta escena contiene cajones nominales: no se abren aquí sin verificar el conjunto de piezas y su recorrido.':'Este ejemplo no contiene cajones. Para simularlos se necesitan sus frentes y cajas reales; no se inventarán.';
+document.getElementById('noDrawers').hidden=data.drawers.length>0;
+const blocked=document.getElementById('blockedDrawers');
+if(data.blocked_drawers.length){blocked.hidden=false;blocked.textContent='Cajones bloqueados para apertura visual: '+data.blocked_drawers.map(item=>`${item.id}: ${item.reason}`).join(' · ')}
+for(const drawer of data.drawers){
+ const row=document.createElement('div');row.className='drawer-control';row.dataset.drawerId=drawer.id;
+ const label=document.createElement('label');const title=document.createElement('strong');
+ title.textContent=`${drawer.label} · ${drawer.group}`;
+ const output=document.createElement('output');output.textContent='0 % (cerrado)';
+ const slider=document.createElement('input');slider.type='range';slider.min='0';slider.max='100';slider.step='10';slider.value='0';
+ slider.dataset.drawerId=drawer.id;
+ slider.setAttribute('aria-label',`Apertura visual nominal de ${drawer.label} en ${drawer.group}`);
+ slider.addEventListener('input',()=>{const value=Number(slider.value);drawerProgress.set(drawer.id,value);output.textContent=`${value} % ${value===0?'(cerrado)':'(solo ilustración)'}`;render()});
+ label.append(title,document.createTextNode(' '),output);row.append(label,slider);document.getElementById('drawerSliders').appendChild(row);
+}
 for(const box of movable){
  const row=document.createElement('div');row.className='door-control';
  const label=document.createElement('label');
@@ -413,7 +519,7 @@ cutEnabled.addEventListener('change',()=>{updateCut();render()});cutHeight.addEv
 zoom.addEventListener('input',()=>{document.getElementById('zoomLabel').textContent=zoom.value+' %';render()});
 document.getElementById('interior').addEventListener('change',event=>{const enabled=event.target.checked;document.getElementById('interiorBanner').hidden=!enabled;document.getElementById('noShelf').hidden=!(enabled&&!data.boxes.some(box=>box.role==='shelf_horizontal'));render()});
 if(data.zones.length){document.getElementById('zoneControl').hidden=false;document.getElementById('zones').addEventListener('change',render)}
-document.getElementById('resetView').addEventListener('click',()=>{yaw=0;elevation=INITIAL_ELEVATION;activePreset=0;updateCameraReadout();zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));for(const input of document.querySelectorAll('#groups input[type=checkbox]'))input.checked=true;document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';doorAngles.clear();for(const input of document.querySelectorAll('#doorSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0° (cerrada)')}updateCut();render()});
+document.getElementById('resetView').addEventListener('click',()=>{yaw=0;elevation=INITIAL_ELEVATION;activePreset=0;updateCameraReadout();zoom.value='100';cutEnabled.checked=false;cutHeight.value=String(maxHeight);shown=new Set(data.groups.map(group=>group.id));for(const input of document.querySelectorAll('#groups input[type=checkbox]'))input.checked=true;document.getElementById('interior').checked=false;document.getElementById('interiorBanner').hidden=true;document.getElementById('noShelf').hidden=true;if(data.zones.length)document.getElementById('zones').checked=true;selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.';document.getElementById('zoomLabel').textContent='100 %';doorAngles.clear();drawerProgress.clear();for(const input of document.querySelectorAll('#doorSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0° (cerrada)')}for(const input of document.querySelectorAll('#drawerSliders input')){input.value='0';input.previousElementSibling?.querySelector('output')?.replaceChildren('0 % (cerrado)')}updateCut();render()});
 updateCut();render();
 </script></body></html>
 '''
