@@ -55,6 +55,10 @@ def _construction_review(model: dict[str, Any]) -> dict[str, Any]:
 
     back_states: list[str] = []
     support_states: list[str] = []
+    verified_wall_tie_pair = False
+    model_parts = model.get("parts")
+    if type(model_parts) is not list:
+        _error("Maestro no devolvió piezas F6 para revisar soportes traseros")
     for module in modules:
         if type(module) is not dict:
             _error("Módulo Maestro inválido para revisar construcción")
@@ -78,6 +82,49 @@ def _construction_review(model: dict[str, Any]) -> dict[str, Any]:
         else:
             support_states.append("SUPPORT_PENDING")
 
+        tie_review = module.get("wall_rear_ties_review")
+        if tie_review is not None:
+            if type(tie_review) is not dict:
+                _error("Resumen Maestro de amarres traseros inválido")
+            expected = {
+                "wall_rear_lower_tie": module.get("module_id", "")
+                                     + "-WALL_REAR_LOWER_TIE",
+                "wall_rear_upper_tie": module.get("module_id", "")
+                                     + "-WALL_REAR_UPPER_TIE",
+            }
+            module_parts = [part for part in model_parts
+                            if type(part) is dict
+                            and part.get("module_id") == module.get("module_id")
+                            and part.get("role") in expected]
+            by_role = {part["role"]: part for part in module_parts}
+            thickness = tie_review.get("thickness_mm")
+            tie_height = tie_review.get("tie_height_mm")
+            material_id = tie_review.get("material_id")
+            part_ids = module.get("part_ids")
+            if (module.get("back") != "none"
+                    or tie_review.get("module_id") != module.get("module_id")
+                    or tie_review.get("style") != "direct_pair_review"
+                    or tie_review.get("piece_ids") != list(expected.values())
+                    or type(thickness) is not int or thickness <= 0
+                    or type(tie_height) is not int or tie_height <= 0
+                    or type(material_id) is not str or not material_id
+                    or type(part_ids) is not list
+                    or any(piece_id not in part_ids
+                           for piece_id in expected.values())
+                    or tie_review.get("structural_engineering") != "UNVERIFIED"
+                    or tie_review.get("cabinet_wall_anchoring") != "NOT_DESIGNED"
+                    or tie_review.get("install_ready") is not False
+                    or set(by_role) != set(expected)
+                    or any(by_role[role].get("piece_id") != piece_id
+                           or by_role[role].get("material_id") != material_id
+                           or by_role[role].get("thickness_mm") != thickness
+                           or by_role[role].get("nominal_face_y_mm") != tie_height
+                           or by_role[role].get("source_engine")
+                              != "F6_WALL_REAR_TIES_CONCEPT_ONLY"
+                           for role, piece_id in expected.items())):
+                _error("Maestro devolvió un par de amarres incompleto o no verificable")
+            verified_wall_tie_pair = True
+
     unique_back = sorted(set(back_states))
     unique_support = sorted(set(support_states))
     return {
@@ -86,6 +133,8 @@ def _construction_review(model: dict[str, Any]) -> dict[str, Any]:
             unique_support[0] if len(unique_support) == 1 else "mixed"
         ),
         "wall_tie_mode": (
+            "DIRECT_PAIR_CONCEPT_ONLY_UNVERIFIED"
+            if verified_wall_tie_pair else
             "NOT_IMPLEMENTED"
             if "REAR_WALL_SUPPORT_PENDING" in support_states
             else "NOT_APPLICABLE"
@@ -107,6 +156,12 @@ def _attach_construction_reviews(
         result["warnings"] = list(dict.fromkeys([
             *result["warnings"], "REAR_WALL_SUPPORT_PENDING",
         ]))
+    if any(item["wall_tie_mode"] == "DIRECT_PAIR_CONCEPT_ONLY_UNVERIFIED"
+           for item in reviews.values()):
+        result["warnings"] = list(dict.fromkeys([
+            *result["warnings"],
+            "DIRECT_PAIR_CONCEPT_ONLY_UNVERIFIED_NO_LOADS_ANCHORS_OR_HOLES",
+        ]))
     return result
 
 
@@ -124,14 +179,16 @@ def _apply_back_revisions(
     seen: set[tuple[str, str]] = set()
     for revision in revisions:
         revision_fields = {"group_id", "module_id", "back"}
+        wall_tie_fields = revision_fields | {"wall_rear_ties"}
         if (type(revision) is not dict
                 or set(revision) not in (
                     revision_fields,
                     revision_fields | {"horizontal_divider_depth_mm"},
+                    wall_tie_fields,
                 )):
             _error(
                 "back_revision: use group_id, module_id, back y, opcionalmente, "
-                "horizontal_divider_depth_mm"
+                "horizontal_divider_depth_mm o wall_rear_ties"
             )
         group, module_id = revision["group_id"], revision["module_id"]
         if type(group) is not str or group not in ("BAJO", "ALTO", "TORRE"):
@@ -154,6 +211,45 @@ def _apply_back_revisions(
         if (type(trusted) is not dict or trusted.get("action") != "modular"
                 or len(matches) != 1):
             _error(f"{group}/{module_id}: no existe en la solicitud Maestro revalidada")
+        if "wall_rear_ties" in revision:
+            ties = revision["wall_rear_ties"]
+            tie_fields = {"style", "material_id", "thickness_mm", "tie_height_mm"}
+            if (group != "ALTO"
+                    or module_spec.get("application") != "kitchen"
+                    or set(revision) != wall_tie_fields
+                    or revision["back"] != "none"
+                    or type(ties) is not dict or set(ties) != tie_fields
+                    or ties.get("style") != "direct_pair_review"):
+                _error(
+                    f"{group}/{module_id}: wall_rear_ties requiere ALTO de cocina, "
+                    "back=none y el contrato direct_pair_review exacto"
+                )
+            target = matches[0]
+            thickness = ties["thickness_mm"]
+            tie_height = ties["tie_height_mm"]
+            module_height = module_spec.get("height_mm")
+            panel_thickness = target.get("panel_thickness_mm")
+            if (module_spec.get("installation") != "wall_mounted"
+                    or target.get("construction") != "sides_full"
+                    or target.get("support") != "wall"
+                    or target.get("back") != "none"
+                    or "wall_rear_ties" in target
+                    or target.get("material_id") != ties["material_id"]
+                    or type(panel_thickness) is not int
+                    or type(thickness) is not int or thickness != panel_thickness
+                    or type(module_height) is not int
+                    or type(tie_height) is not int or tie_height <= 0
+                    or 2 * tie_height > module_height - 2 * panel_thickness
+                    or any(target.get(field) is not None for field in (
+                        "upper_support", "countertop", "support_concept",
+                        "horizontal_divider", "vertical_divider", "corner_blind",
+                    ))
+                    or target.get("drawers", "none") not in (None, "none")):
+                _error(
+                    f"{group}/{module_id}: amarres requieren módulo ALTO mural "
+                    "sides_full, wall, back=none, material/espesor coincidentes, "
+                    "altura entera positiva y sin conceptos incompatibles"
+                )
         by_group.setdefault(group, []).append(revision)
 
     effective = dict(reviews)
@@ -204,7 +300,13 @@ def _apply_back_revisions(
                         "el fondo completo; se requiere una profundidad explícita compatible"
                     )
                 divider["depth_mm"] = new_depth
-            target["back"] = copy.deepcopy(revision["back"])
+            if "wall_rear_ties" in revision:
+                target["back"] = "none"
+                target["wall_rear_ties"] = copy.deepcopy(
+                    revision["wall_rear_ties"]
+                )
+            else:
+                target["back"] = copy.deepcopy(revision["back"])
             target_ids.add(module_id)
 
         answer = consult_maestro(rebuilt_request)
@@ -226,6 +328,87 @@ def _apply_back_revisions(
                               and module.get("module_id") == module_id]
             if len(module_matches) != 1:
                 _error(f"{group}/{module_id}: módulo ausente en el modelo Maestro")
+            revision = next(
+                item for item in group_revisions
+                if item["module_id"] == module_id
+            )
+            if "wall_rear_ties" in revision:
+                ties = revision["wall_rear_ties"]
+                f6_module = module_matches[0]
+                expected_ids = [
+                    module_id + "-WALL_REAR_LOWER_TIE",
+                    module_id + "-WALL_REAR_UPPER_TIE",
+                ]
+                roles = ("wall_rear_lower_tie", "wall_rear_upper_tie")
+                f6_parts = [part for part in model.get("parts", [])
+                            if type(part) is dict
+                            and part.get("module_id") == module_id
+                            and part.get("role") in roles]
+                f6_by_role = {part["role"]: part for part in f6_parts}
+                f6_review = f6_module.get("wall_rear_ties_review")
+                height = f6_module.get("external_height_mm")
+                depth = f6_module.get("external_depth_mm")
+                clear_width = f6_module.get("clear_width_mm")
+                thickness = f6_module.get("panel_thickness_mm")
+                start_x = f6_module.get("start_x_mm")
+                tie_height = ties["tie_height_mm"]
+                front_shift = exchange.get("front_shift_mm", 0)
+                if any(type(value) is not int for value in (
+                        height, depth, clear_width, thickness, start_x,
+                        tie_height, front_shift)) or front_shift < 0:
+                    _error(f"{group}/{module_id}: dimensiones F6/CAD de amarres inválidas")
+                expected_origins = {
+                    roles[0]: [start_x + thickness, thickness, depth - thickness],
+                    roles[1]: [start_x + thickness,
+                               height - thickness - tie_height,
+                               depth - thickness],
+                }
+                part_ids = f6_module.get("part_ids")
+                if (f6_module.get("back") != "none"
+                        or type(f6_review) is not dict
+                        or f6_review.get("style") != "direct_pair_review"
+                        or f6_review.get("piece_ids") != expected_ids
+                        or f6_review.get("material_id") != ties["material_id"]
+                        or f6_review.get("thickness_mm") != ties["thickness_mm"]
+                        or f6_review.get("tie_height_mm") != tie_height
+                        or f6_review.get("structural_engineering") != "UNVERIFIED"
+                        or f6_review.get("cabinet_wall_anchoring") != "NOT_DESIGNED"
+                        or f6_review.get("install_ready") is not False
+                        or type(part_ids) is not list
+                        or any(piece_id not in part_ids for piece_id in expected_ids)
+                        or set(f6_by_role) != set(roles)
+                        or len(f6_parts) != 2):
+                    _error(f"{group}/{module_id}: Maestro/F6 no devolvió los dos amarres requeridos")
+                cad_ties = [box for box in exchange["boxes"]
+                            if box["module_id"] == module_id
+                            and box["role"] in roles]
+                if (len(cad_ties) != 2
+                        or any(box["role"].startswith("back_")
+                               for box in exchange["boxes"]
+                               if box["module_id"] == module_id)):
+                    _error(f"{group}/{module_id}: amarres no son un fondo ni coinciden con CAD")
+                for role, expected_id in zip(roles, expected_ids):
+                    part = f6_by_role[role]
+                    origin = expected_origins[role]
+                    cad_origin = [origin[0], origin[1], origin[2] + front_shift]
+                    cad_matches = [box for box in cad_ties if box["role"] == role]
+                    if (part.get("piece_id") != expected_id
+                            or part.get("material_id") != ties["material_id"]
+                            or part.get("thickness_mm") != ties["thickness_mm"]
+                            or part.get("nominal_face_x_mm") != clear_width
+                            or part.get("nominal_face_y_mm") != tie_height
+                            or part.get("nominal_origin_xyz_mm") != origin
+                            or part.get("face_plane") != "XY"
+                            or part.get("source_engine")
+                               != "F6_WALL_REAR_TIES_CONCEPT_ONLY"
+                            or len(cad_matches) != 1
+                            or cad_matches[0]["piece_id"] != expected_id
+                            or cad_matches[0]["material_id"] != ties["material_id"]
+                            or cad_matches[0]["origin_xyz_mm"] != cad_origin
+                            or cad_matches[0]["size_xyz_mm"]
+                               != [clear_width, tie_height, thickness]):
+                        _error(f"{group}/{module_id}: CAD del amarre no coincide con F6")
+                continue
             back = module_matches[0].get("back")
             if type(back) is not dict:
                 _error(f"{group}/{module_id}: Maestro no devolvió un fondo explícito")
@@ -278,9 +461,7 @@ def _apply_back_revisions(
                         or cad_matches[0]["size_xyz_mm"] != size):
                     _error(f"{group}/{module_id}: CAD del fondo no coincide con la pieza F6")
 
-            if "horizontal_divider_depth_mm" in next(
-                    revision for revision in group_revisions
-                    if revision["module_id"] == module_id):
+            if "horizontal_divider_depth_mm" in revision:
                 divider = requested_module.get("horizontal_divider")
                 f6_shelves = [part for part in model.get("parts", [])
                               if type(part) is dict

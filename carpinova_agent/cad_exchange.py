@@ -59,7 +59,8 @@ def cad_exchange(model: dict[str, Any]) -> dict[str, Any]:
         elif role in ("top", "bottom", "shelf_horizontal", "countertop"):
             size=[fx,t,fy]  # panel in XZ plane: thickness Y; face_x -> width X
             grain_world={"face_x":"X","face_y":"Z","none":"none"}
-        elif role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie"):
+        elif role in ("upper_front_tie", "upper_rear_tie", "lower_rear_tie",
+                      "wall_rear_lower_tie", "wall_rear_upper_tie"):
             size=[fx,fy,t]  # upright tie in XY: board thickness is depth Z
             grain_world={"face_x":"X","face_y":"Y","none":"none"}
         elif role in ("back_full", "back_bottom", "back_top",
@@ -233,7 +234,8 @@ def validate_exchange(data: Any) -> dict[str,Any]:
                                 "drawer_bottom","drawer_facade",
                                 "support_leg_concept", "shelf_horizontal",
                                 "countertop", "divider_vertical", "upper_front_tie",
-                                "upper_rear_tie", "lower_rear_tie"):
+                                "upper_rear_tie", "lower_rear_tie",
+                                "wall_rear_lower_tie", "wall_rear_upper_tie"):
             raise DesignError("Rol CAD no soportado.")
         a,b=item["origin_xyz_mm"],item["size_xyz_mm"]
         if (not isinstance(a,list) or not isinstance(b,list)

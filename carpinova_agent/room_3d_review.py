@@ -114,7 +114,8 @@ def _payload(review: Any) -> dict[str, Any]:
                 or item.get("wall_support_status") not in valid_support
                 or type(item.get("wall_tie_mode")) is not str
                 or item.get("wall_tie_mode") not in {
-                    "NOT_IMPLEMENTED", "NOT_APPLICABLE"}
+                    "NOT_IMPLEMENTED", "NOT_APPLICABLE",
+                    "DIRECT_PAIR_CONCEPT_ONLY_UNVERIFIED"}
                 or item.get("install_ready") is not False
                 or type(item.get("module_count")) is not int
                 or not 1 <= item["module_count"] <= 6):

@@ -29,7 +29,7 @@ MODULE_FIELDS = frozenset(("module_id", "width_mm", "panel_thickness_mm",
                            "drawer_layout_reference", "support_concept",
                            "horizontal_divider", "countertop",
                            "upper_support", "vertical_divider",
-                           "corner_blind"))
+                           "corner_blind", "wall_rear_ties"))
 FINISH_FIELDS = frozenset(("grain", "edgebanding", "edgeband_thickness_mm"))
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 
@@ -357,6 +357,52 @@ def _upper_support(value: Any, *, module_id: str, countertop: Any,
             "tie_height_status": height_status}
 
 
+def _wall_rear_ties(value: Any, *, module_id: str, module: dict[str, Any],
+                    application: str, installation: str,
+                    module_height_mm: int) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    name = f"{module_id}.wall_rear_ties"
+    data = _object(value, name)
+    fields = frozenset(("style", "material_id", "thickness_mm",
+                        "tie_height_mm"))
+    _exact(data, fields, name)
+    if set(data) != fields:
+        raise DesignError(f"{name}: faltan campos requeridos.")
+    if data["style"] != "direct_pair_review":
+        raise DesignError(f"{name}.style no admitido.")
+    if (application != "kitchen" or installation != "wall_mounted"
+            or module.get("construction") != "sides_full"
+            or module.get("support") != "wall"
+            or module.get("back") != "none"):
+        raise DesignError(
+            f"{name} requiere cocina mural, apoyo wall, sides_full y back=none."
+        )
+    incompatible = ("upper_support", "countertop", "support_concept",
+                    "horizontal_divider", "vertical_divider", "corner_blind")
+    if (any(module.get(field) is not None for field in incompatible)
+            or module.get("drawers", "none") not in (None, "none")):
+        raise DesignError(
+            f"{name} no se combina con otros soportes, divisiones, cubierta, "
+            "esquinero ni cajones sin revisión específica."
+        )
+    if data["material_id"] != module["material_id"]:
+        raise DesignError(f"{name}.material_id debe coincidir con el módulo.")
+    thickness = data["thickness_mm"]
+    if type(thickness) is not int or thickness != module["panel_thickness_mm"]:
+        raise DesignError(f"{name}.thickness_mm debe coincidir con el módulo.")
+    tie_height = _positive(data["tie_height_mm"], f"{name}.tie_height_mm")
+    clear_height = module_height_mm - 2 * thickness
+    if 2 * tie_height > clear_height:
+        raise DesignError(
+            f"{name}.tie_height_mm: el par excede el alto libre sin invadir tapas."
+        )
+    return {
+        "style": "direct_pair_review", "material_id": data["material_id"],
+        "thickness_mm": thickness, "tie_height_mm": tie_height,
+    }
+
+
 def _horizontal_divider(value: Any, *, module_id: str,
                         module_depth_mm: int) -> dict[str, Any] | None:
     if value is None:
@@ -454,6 +500,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
     support_concepts: dict[str, dict[str, Any]] = {}
     upper_support_specs: dict[str, dict[str, Any]] = {}
     upper_support_reviews: list[dict[str, Any]] = []
+    wall_rear_tie_specs: dict[str, dict[str, Any]] = {}
     concept_only_reasons: list[str] = []
     seen: set[str] = set()
     for i, item in enumerate(modules):
@@ -494,6 +541,13 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         )
         if upper_support is not None:
             upper_support_specs[module_id] = upper_support
+        wall_rear_ties = _wall_rear_ties(
+            module.get("wall_rear_ties"), module_id=module_id, module=module,
+            application=d["application"], installation=installation,
+            module_height_mm=height,
+        )
+        if wall_rear_ties is not None:
+            wall_rear_tie_specs[module_id] = wall_rear_ties
         divider = _horizontal_divider(
             module.get("horizontal_divider"), module_id=module_id,
             module_depth_mm=depth,
@@ -591,6 +645,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
         w, t = module["width_mm"], module["panel_thickness_mm"]
         support = support_concepts.get(module["module_id"])
         upper_support = upper_support_specs.get(module["module_id"])
+        wall_rear_ties = wall_rear_tie_specs.get(module["module_id"])
         origin_x = x_offset + (countertop["left_overhang_mm"] if countertop else 0)
         origin_y = (support["support_height_mm"]
                     if support and countertop else 0)
@@ -827,6 +882,55 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 f"{tie_height} mm ({upper_support['tie_height_status']}); "
                 "uniones y resistencia sin verificar; el muro no recibe carga vertical."
             )
+        wall_rear_tie_parts: list[dict[str, Any]] = []
+        wall_rear_ties_review: dict[str, Any] | None = None
+        if wall_rear_ties is not None:
+            clear_width = geometry["dimensions"]["clear_width_mm"]
+            tie_height = wall_rear_ties["tie_height_mm"]
+            rear_z = origin_z + depth - t
+            for role, y in (
+                ("wall_rear_lower_tie", origin_y + t),
+                ("wall_rear_upper_tie", origin_y + height - t - tie_height),
+            ):
+                wall_rear_tie_parts.append({
+                    "piece_id": module["module_id"] + "-" + role.upper(),
+                    "module_id": module["module_id"], "role": role,
+                    "material_id": wall_rear_ties["material_id"],
+                    "nominal_face_x_mm": clear_width,
+                    "nominal_face_y_mm": tie_height,
+                    "thickness_mm": t,
+                    "grain_axis": "UNCONFIRMED", "face_plane": "XY",
+                    "nominal_origin_xyz_mm": [origin_x + t, y, rear_z],
+                    "edgebanding_edges": "UNCONFIRMED",
+                    "edgebanding_thickness_mm": None,
+                    "edgebanding_nominal_total_mm": None,
+                    "finished_cut_dimensions_mm": None,
+                    "source_engine": "F6_WALL_REAR_TIES_CONCEPT_ONLY",
+                    "source_formula": (
+                        "length=F1.clear_width_mm; lower_y=origin_y+t; "
+                        "upper_y=origin_y+height-t-tie_height; "
+                        "rear_z=origin_z+depth-t; face=XY; "
+                        "thickness=F1.panel_thickness_mm; "
+                        "structural_engineering=UNVERIFIED; "
+                        "cabinet_wall_anchoring=NOT_DESIGNED"
+                    ),
+                })
+            all_parts.extend(wall_rear_tie_parts)
+            wall_rear_ties_review = {
+                "module_id": module["module_id"],
+                "style": wall_rear_ties["style"],
+                "piece_ids": [part["piece_id"] for part in wall_rear_tie_parts],
+                "material_id": wall_rear_ties["material_id"],
+                "thickness_mm": t, "tie_height_mm": tie_height,
+                "source_engine": "F6_WALL_REAR_TIES_CONCEPT_ONLY",
+                "structural_engineering": "UNVERIFIED",
+                "cabinet_wall_anchoring": "NOT_DESIGNED",
+                "install_ready": False,
+            }
+            blockers.append(
+                f"{module['module_id']}: par de amarres traseros NOMINAL; "
+                "uniones, carga, anclajes al muro, tornillos y taladros no diseñados."
+            )
         rear_parts, rear_blockers = back_panels(
             module["back"], module_id=module["module_id"],
             module_height_mm=height, module_depth_mm=depth,
@@ -1030,6 +1134,7 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
                 [module["module_id"] + "-" + role.upper() for role in ROLES
                  if not (role == "top" and omit_top_panel)] +
                 [piece["piece_id"] for piece in upper_tie_parts] +
+                 [piece["piece_id"] for piece in wall_rear_tie_parts] +
                 [piece["piece_id"] for piece in rear_parts] +
                 [piece["piece_id"] for piece in doors] +
                 [piece["piece_id"] for piece in drawer_parts] +
@@ -1045,6 +1150,8 @@ def design_modular_run(spec: Mapping[str, Any]) -> dict[str, Any]:
             **({"support_review": concept} if concept is not None else {}),
             **({"upper_support_review": upper_support_review}
                if upper_support_review is not None else {}),
+            **({"wall_rear_ties_review": wall_rear_ties_review}
+               if wall_rear_ties_review is not None else {}),
             **({"countertop_review": {
                 "piece_id": countertop_parts[0]["piece_id"],
                 "overhangs_mm": {
