@@ -21,12 +21,34 @@ from .room_panel_section import render_room_panel_section_svg
 _MAX_REQUEST_BYTES = 256_000
 _MAX_PACKAGE_BYTES = 4_000_000
 _FIELDS = frozenset(("review_kind", "assemblies", "service_zones"))
+_KITCHEN_FIELDS = frozenset(("review_kind", "review_state", "service_zones"))
+_KITCHEN_FIELDS_WITH_ROTATIONS = _KITCHEN_FIELDS | {"rotations_deg"}
 _FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready",
           "purchase_ready", "can_generate_f7c")
 
 
 class RoomPackageError(ValueError):
     """An unsafe or inconsistent review bundle cannot be issued."""
+
+
+def _validate_source_request(request: dict[str, Any]) -> str:
+    if type(request) is not dict:
+        raise RoomPackageError("La solicitud espacial original debe ser un objeto.")
+    kind = request.get("review_kind")
+    fields = set(request)
+    if kind == "room_layout_v1":
+        if fields != _FIELDS:
+            raise RoomPackageError(
+                "Solicitud original room_layout_v1 obligatoria; CAD aportado prohibido"
+            )
+    elif kind == "kitchen_spatial_v1":
+        if fields not in (_KITCHEN_FIELDS, _KITCHEN_FIELDS_WITH_ROTATIONS):
+            raise RoomPackageError(
+                "kitchen_spatial_v1 solo admite review_kind, review_state, service_zones y rotations_deg opcional"
+            )
+    else:
+        raise RoomPackageError("Tipo de solicitud espacial no admitido.")
+    return kind
 
 
 def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -79,8 +101,7 @@ def _zip_content(content: dict[str, bytes]) -> bytes:
 def _render_verified_review(request: dict[str, Any], review: dict[str, Any],
                             *, y_mm: int) -> tuple[bytes, dict[str, Any]]:
     """Private renderer; public writer always regenerates review from request."""
-    if type(request) is not dict or set(request) != _FIELDS or request.get("review_kind") != "room_layout_v1":
-        raise RoomPackageError("Solo se admite solicitud original room_layout_v1")
+    source_kind = _validate_source_request(request)
     if type(y_mm) is not int or y_mm < 0 or y_mm > 20000:
         raise RoomPackageError("Altura de sección inválida")
     if (type(review) is not dict or review.get("review_kind") != "room_layout_v1"
@@ -132,7 +153,7 @@ PENDIENTES: este paquete NO las corrige ni aprueba.
     }
     manifest = {
         "schema_version": "D19_REVIEW_BUNDLE_V1",
-        "source_review_kind": "room_layout_v1",
+        "source_review_kind": source_kind,
         "layout_sha256": review["layout_sha256"],
         "room_status": review["status"],
         "section_y_mm": y_mm,
@@ -149,15 +170,17 @@ PENDIENTES: este paquete NO las corrige ni aprueba.
 def write_room_review_package(request: dict[str, Any], output_path: Path,
                               *, y_mm: int) -> dict[str, Any]:
     """Build a single portable ZIP, never overwriting any existing path."""
-    if type(request) is not dict or set(request) != _FIELDS or request.get("review_kind") != "room_layout_v1":
-        raise RoomPackageError("Solicitud original room_layout_v1 obligatoria; CAD aportado prohibido")
+    source_kind = _validate_source_request(request)
     raw_request = _json_bytes(request)
     if len(raw_request) > _MAX_REQUEST_BYTES:
         raise RoomPackageError("Solicitud demasiado grande")
     if type(y_mm) is not int or not 0 <= y_mm <= 20000:
         raise RoomPackageError("Altura de sección inválida")
-    from .room_spatial import review_room_from_specs
-    review = review_room_from_specs(request)
+    from .room_spatial import review_room_from_specs, review_room_from_kitchen_state
+    if source_kind == "room_layout_v1":
+        review = review_room_from_specs(request)
+    else:
+        review = review_room_from_kitchen_state(request)
     payload, manifest = _render_verified_review(request, review, y_mm=y_mm)
     target = Path(output_path)
     if target.suffix.lower() != ".zip" or not target.parent.is_dir():

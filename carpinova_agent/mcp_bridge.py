@@ -171,19 +171,19 @@ def carpinova_generar_borrador(
     cutting instructions, runs native CAD, purchases or overwrites a project.
     """
     request = _request(solicitud_json)
-    if request.get("review_kind") == "room_layout_v1":
+    if request.get("review_kind") in {"room_layout_v1", "kitchen_spatial_v1"}:
         if type(incluir_planos) is not bool:
             raise PilotError("incluir_planos debe ser booleano.")
+        if incluir_planos is not False:
+            raise PilotError("incluir_planos debe ser False en los paquetes espaciales.")
         if type(seccion_y_mm) is not int or not 0 <= seccion_y_mm <= 20000:
             raise PilotError(
                 "seccion_y_mm debe ser un entero explícito entre 0 y 20000 mm."
             )
         if flow_review_json != "" or opening_review_json != "":
             raise PilotError(
-                "flow_review_json y opening_review_json no se admiten en room_layout_v1."
+                "flow_review_json y opening_review_json no se admiten en paquetes espaciales."
             )
-        if incluir_planos:
-            raise PilotError("incluir_planos no se admite en room_layout_v1.")
 
         name = _project_id(proyecto)
         root = _output_root()
@@ -200,7 +200,7 @@ def carpinova_generar_borrador(
         package = write_room_review_package(
             request, destination, y_mm=seccion_y_mm,
         )
-        return {
+        result = {
             "status": "REVIEW_ONLY",
             "proyecto": name,
             "room_package_path": package["path"],
@@ -217,9 +217,16 @@ def carpinova_generar_borrador(
                 "LOCAL_PATH_NOT_BINARY_MCP: abra o adjunte la ruta local; MCP no devuelve bytes ZIP.",
             ],
         }
+        if request["review_kind"] == "kitchen_spatial_v1":
+            result["room_status"] = package["room_status"]
+            if package["room_status"] == "INTERFERENCE_REVIEW_REQUIRED":
+                result["warnings"].append(
+                    "INTERFERENCE_REVIEW_REQUIRED: hay interferencias pendientes; el paquete no las aprueba."
+                )
+        return result
     if seccion_y_mm is not None:
         raise PilotError(
-            "seccion_y_mm solo se admite con review_kind=room_layout_v1."
+            "seccion_y_mm solo se admite con review_kind=room_layout_v1 o kitchen_spatial_v1."
         )
 
     name = _project_id(proyecto)
