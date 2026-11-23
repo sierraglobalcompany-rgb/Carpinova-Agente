@@ -175,6 +175,7 @@ def _rebuild_group(group: str, history: list[str]) -> dict[str, Any]:
     return {
         "group_id": group, "family": _FAMILIES[group], "status": "REVIEW_ONLY_VALID",
         "model": model, "exchange": exchange,
+        "_trusted_nominal_request": copy.deepcopy(request),
         "warnings": list(dict.fromkeys([
             *review.get("nominal_draft_warnings", []),
             *answer.get("warnings", []),

@@ -23,6 +23,10 @@ _MAX_PACKAGE_BYTES = 4_000_000
 _FIELDS = frozenset(("review_kind", "assemblies", "service_zones"))
 _KITCHEN_FIELDS = frozenset(("review_kind", "review_state", "service_zones"))
 _KITCHEN_FIELDS_WITH_ROTATIONS = _KITCHEN_FIELDS | {"rotations_deg"}
+_KITCHEN_FIELDS_WITH_BACK_REVISIONS = _KITCHEN_FIELDS | {"back_revisions"}
+_KITCHEN_FIELDS_WITH_ROTATIONS_AND_BACK_REVISIONS = (
+    _KITCHEN_FIELDS | {"rotations_deg", "back_revisions"}
+)
 _FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready",
           "purchase_ready", "can_generate_f7c")
 
@@ -42,9 +46,14 @@ def _validate_source_request(request: dict[str, Any]) -> str:
                 "Solicitud original room_layout_v1 obligatoria; CAD aportado prohibido"
             )
     elif kind == "kitchen_spatial_v1":
-        if fields not in (_KITCHEN_FIELDS, _KITCHEN_FIELDS_WITH_ROTATIONS):
+        if fields not in (
+            _KITCHEN_FIELDS, _KITCHEN_FIELDS_WITH_ROTATIONS,
+            _KITCHEN_FIELDS_WITH_BACK_REVISIONS,
+            _KITCHEN_FIELDS_WITH_ROTATIONS_AND_BACK_REVISIONS,
+        ):
             raise RoomPackageError(
-                "kitchen_spatial_v1 solo admite review_kind, review_state, service_zones y rotations_deg opcional"
+                "kitchen_spatial_v1 solo admite review_kind, review_state, service_zones, "
+                "rotations_deg y back_revisions opcionales"
             )
     else:
         raise RoomPackageError("Tipo de solicitud espacial no admitido.")

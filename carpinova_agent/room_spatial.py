@@ -6,6 +6,7 @@ see review_room_from_specs() for that trust boundary.  All coordinates are mm.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -15,6 +16,7 @@ ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,39}$")
 LIMIT = 20000
 MAX_GROUPS = 6
 MAX_ZONES = 12
+MAX_BACK_REVISIONS = 12
 PHYSICAL_FLAGS = {
     "fabrication_ready": False,
     "cutting_ready": False,
@@ -106,6 +108,214 @@ def _attach_construction_reviews(
             *result["warnings"], "REAR_WALL_SUPPORT_PENDING",
         ]))
     return result
+
+
+def _apply_back_revisions(
+    reviews: dict[str, dict[str, Any]], revisions: Any,
+) -> dict[str, dict[str, Any]]:
+    """Rebuild only explicitly revised groups from their private Maestro requests."""
+    if type(revisions) is not list or not 1 <= len(revisions) <= MAX_BACK_REVISIONS:
+        _error("back_revisions: se requiere una lista de 1 a 12 revisiones explícitas")
+
+    from .maestro import consult_maestro
+    from .cad_exchange import cad_exchange, validate_exchange
+
+    by_group: dict[str, list[dict[str, Any]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for revision in revisions:
+        revision_fields = {"group_id", "module_id", "back"}
+        if (type(revision) is not dict
+                or set(revision) not in (
+                    revision_fields,
+                    revision_fields | {"horizontal_divider_depth_mm"},
+                )):
+            _error(
+                "back_revision: use group_id, module_id, back y, opcionalmente, "
+                "horizontal_divider_depth_mm"
+            )
+        group, module_id = revision["group_id"], revision["module_id"]
+        if type(group) is not str or group not in ("BAJO", "ALTO", "TORRE"):
+            _error("back_revision.group_id debe ser BAJO, ALTO o TORRE")
+        if type(module_id) is not str or not module_id:
+            _error("back_revision.module_id debe identificar un módulo existente")
+        key = (group, module_id)
+        if key in seen:
+            _error("back_revisions no admite módulo duplicado")
+        seen.add(key)
+
+        reviewed = reviews.get(group)
+        trusted = (reviewed.get("_trusted_nominal_request")
+                   if type(reviewed) is dict else None)
+        module_spec = trusted.get("module_spec") if type(trusted) is dict else None
+        modules = module_spec.get("modules") if type(module_spec) is dict else None
+        matches = ([module for module in modules if type(module) is dict
+                    and module.get("module_id") == module_id]
+                   if type(modules) is list else [])
+        if (type(trusted) is not dict or trusted.get("action") != "modular"
+                or len(matches) != 1):
+            _error(f"{group}/{module_id}: no existe en la solicitud Maestro revalidada")
+        by_group.setdefault(group, []).append(revision)
+
+    effective = dict(reviews)
+    for group, group_revisions in by_group.items():
+        trusted = reviews[group]["_trusted_nominal_request"]
+        rebuilt_request = copy.deepcopy(trusted)
+        modules = rebuilt_request["module_spec"]["modules"]
+        target_ids = set()
+        for revision in group_revisions:
+            module_id = revision["module_id"]
+            targets = [module for module in modules
+                       if module.get("module_id") == module_id]
+            if len(targets) != 1:
+                _error(f"{group}/{module_id}: solicitud privada inconsistente")
+            target = targets[0]
+            if "horizontal_divider_depth_mm" in revision:
+                new_depth = revision["horizontal_divider_depth_mm"]
+                divider = target.get("horizontal_divider")
+                back = revision["back"]
+                run_depth = rebuilt_request["module_spec"].get("depth_mm")
+                if (type(new_depth) is not int or new_depth <= 0
+                        or type(run_depth) is not int or run_depth <= 0
+                        or type(divider) is not dict
+                        or type(divider.get("depth_mm")) is not int
+                        or divider["depth_mm"] <= 0
+                        or type(divider.get("depth_from_front_mm")) is not int
+                        or divider["depth_from_front_mm"] < 0
+                        or type(back) is not dict
+                        or back.get("style") != "inset_full"
+                        or type(back.get("thickness_mm")) is not int
+                        or back["thickness_mm"] <= 0
+                        or back.get("services_present") is not False):
+                    _error(
+                        f"{group}/{module_id}: profundidad de repisa requiere "
+                        "datos F6 enteros, fondo completo sin instalaciones y repisa existente"
+                    )
+                previous_depth = divider["depth_mm"]
+                offset = divider["depth_from_front_mm"]
+                thickness = back["thickness_mm"]
+                if new_depth > previous_depth:
+                    _error(
+                        f"{group}/{module_id}: horizontal_divider_depth_mm "
+                        "no puede ampliar la repisa existente"
+                    )
+                if offset + new_depth > run_depth - thickness:
+                    _error(
+                        f"{group}/{module_id}: profundidad de repisa intersecta "
+                        "el fondo completo; se requiere una profundidad explícita compatible"
+                    )
+                divider["depth_mm"] = new_depth
+            target["back"] = copy.deepcopy(revision["back"])
+            target_ids.add(module_id)
+
+        answer = consult_maestro(rebuilt_request)
+        model = answer.get("modular")
+        if (answer.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                or type(model) is not dict
+                or model.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                or any(answer.get(flag) is not False or model.get(flag) is not False
+                       for flag in ("fabrication_ready", "cutting_ready",
+                                    "drilling_ready", "purchase_ready"))
+                or ("can_generate_f7c" in model
+                    and model["can_generate_f7c"] is not False)):
+            _error(f"{group}: Maestro no conservó el borrador nominal bloqueado")
+        exchange = validate_exchange(cad_exchange(model))
+
+        for module_id in target_ids:
+            module_matches = [module for module in model.get("modules", [])
+                              if type(module) is dict
+                              and module.get("module_id") == module_id]
+            if len(module_matches) != 1:
+                _error(f"{group}/{module_id}: módulo ausente en el modelo Maestro")
+            back = module_matches[0].get("back")
+            if type(back) is not dict:
+                _error(f"{group}/{module_id}: Maestro no devolvió un fondo explícito")
+            requested_module = next(
+                module for module in modules
+                if module.get("module_id") == module_id
+            )
+            if back != requested_module.get("back"):
+                _error(f"{group}/{module_id}: el fondo F6 difiere de la solicitud privada")
+            if back.get("style") == "inset_full":
+                expected_roles = ["back_full"]
+            elif back.get("style") == "inset_two_strips":
+                expected_roles = ["back_bottom", "back_top"]
+            else:
+                expected_roles = []
+            actual = [box for box in exchange["boxes"]
+                      if box["module_id"] == module_id
+                      and box["role"].startswith("back_")]
+            if (not expected_roles
+                    or sorted(box["role"] for box in actual) != sorted(expected_roles)
+                    or any(box["material_id"] != back["material_id"]
+                           or box["size_xyz_mm"][2] != back["thickness_mm"]
+                           for box in actual)):
+                _error(f"{group}/{module_id}: el CADExchange no coincide con el fondo Maestro")
+
+            f6_backs = [part for part in model.get("parts", [])
+                        if type(part) is dict
+                        and part.get("module_id") == module_id
+                        and part.get("role", "").startswith("back_")]
+            f6_by_role = {part["role"]: part for part in f6_backs}
+            if (set(f6_by_role) != set(expected_roles)
+                    or any(part.get("material_id") != back["material_id"]
+                           or part.get("thickness_mm") != back["thickness_mm"]
+                           for part in f6_backs)):
+                _error(f"{group}/{module_id}: piezas F6 del fondo no coinciden con Maestro")
+            front_shift = exchange.get("front_shift_mm", 0)
+            if type(front_shift) is not int or front_shift < 0:
+                _error(f"{group}/{module_id}: desplazamiento frontal CAD inválido")
+            for role, part in f6_by_role.items():
+                cad_matches = [box for box in actual if box["role"] == role]
+                origin = list(part["nominal_origin_xyz_mm"])
+                origin[2] += front_shift
+                size = [part["nominal_face_x_mm"],
+                        part["nominal_face_y_mm"], part["thickness_mm"]]
+                if (role not in ("back_full", "back_bottom", "back_top")
+                        or len(cad_matches) != 1
+                        or cad_matches[0]["piece_id"] != part["piece_id"]
+                        or cad_matches[0]["material_id"] != part["material_id"]
+                        or cad_matches[0]["origin_xyz_mm"] != origin
+                        or cad_matches[0]["size_xyz_mm"] != size):
+                    _error(f"{group}/{module_id}: CAD del fondo no coincide con la pieza F6")
+
+            if "horizontal_divider_depth_mm" in next(
+                    revision for revision in group_revisions
+                    if revision["module_id"] == module_id):
+                divider = requested_module.get("horizontal_divider")
+                f6_shelves = [part for part in model.get("parts", [])
+                              if type(part) is dict
+                              and part.get("module_id") == module_id
+                              and part.get("role") == "shelf_horizontal"]
+                cad_shelves = [box for box in exchange["boxes"]
+                               if box["module_id"] == module_id
+                               and box["role"] == "shelf_horizontal"]
+                if (type(divider) is not dict or len(f6_shelves) != 1
+                        or len(cad_shelves) != 1):
+                    _error(f"{group}/{module_id}: Maestro debe devolver una repisa F6 única")
+                shelf = f6_shelves[0]
+                cad_shelf = cad_shelves[0]
+                shelf_origin = list(shelf["nominal_origin_xyz_mm"])
+                shelf_origin[2] += front_shift
+                if (shelf["piece_id"] != module_id + "-SHELF"
+                        or shelf.get("material_id") != divider.get("material_id")
+                        or shelf.get("thickness_mm") != divider.get("thickness_mm")
+                        or shelf.get("nominal_face_y_mm") != divider["depth_mm"]
+                        or shelf.get("nominal_origin_xyz_mm", [None, None, None])[2]
+                        != divider["depth_from_front_mm"]
+                        or cad_shelf["piece_id"] != shelf["piece_id"]
+                        or cad_shelf["material_id"] != shelf["material_id"]
+                        or cad_shelf["origin_xyz_mm"] != shelf_origin
+                        or cad_shelf["size_xyz_mm"] != [
+                            shelf["nominal_face_x_mm"], shelf["thickness_mm"],
+                            shelf["nominal_face_y_mm"],
+                        ]):
+                    _error(f"{group}/{module_id}: CAD de repisa no coincide con solicitud F6")
+
+        effective[group] = {
+            **reviews[group], "model": model, "exchange": exchange,
+            "_trusted_nominal_request": rebuilt_request,
+        }
+    return effective
 
 
 def _hash(payload: Any) -> str:
@@ -416,6 +626,9 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         frozenset(("review_kind", "review_state", "service_zones")),
         frozenset(("review_kind", "review_state", "service_zones", "rotations_deg")),
+        frozenset(("review_kind", "review_state", "service_zones", "back_revisions")),
+        frozenset(("review_kind", "review_state", "service_zones", "rotations_deg",
+                   "back_revisions")),
     }
     if (type(request) is not dict or frozenset(request) not in allowed
             or request.get("review_kind") != "kitchen_spatial_v1"):
@@ -439,10 +652,14 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
             or rebuilt["layout_sha256"] != last["layout_sha256"]):
         _error("El historial no valida la instantánea; no se aceptan hashes del cliente")
 
+    reviewed_groups = (
+        _apply_back_revisions(rebuilt["_reviews"], request["back_revisions"])
+        if "back_revisions" in request else rebuilt["_reviews"]
+    )
     assemblies = []
     models_by_group: dict[str, dict[str, Any]] = {}
     for group in _GROUPS:
-        reviewed = rebuilt["_reviews"][group]
+        reviewed = reviewed_groups[group]
         origin = working["positions"][group]
         if (reviewed["status"] != "REVIEW_ONLY_VALID" or origin is None
                 or type(reviewed.get("exchange")) is not dict):
@@ -461,10 +678,11 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
     output["top_view_svg"] = render_top_view_svg(output)
     output["source_review_kind"] = "kitchen_linear_v1"
     output["source_layout_sha256"] = rebuilt["layout_sha256"]
-    output["warnings"] = list(dict.fromkeys([
-        *output["warnings"],
-        "CONVERSATIONAL_LAYOUT_NOMINAL_ONLY_NO_FABRICATION",
-    ]))
+    warnings = [*output["warnings"],
+                "CONVERSATIONAL_LAYOUT_NOMINAL_ONLY_NO_FABRICATION"]
+    if "back_revisions" in request:
+        warnings.append("BACK_OPTIONS_UNAPPROVED")
+    output["warnings"] = list(dict.fromkeys(warnings))
     return output
 
 def _session_snapshot(assemblies: list[dict[str, Any]],
