@@ -22,11 +22,9 @@ _MAX_REQUEST_BYTES = 256_000
 _MAX_PACKAGE_BYTES = 4_000_000
 _FIELDS = frozenset(("review_kind", "assemblies", "service_zones"))
 _KITCHEN_FIELDS = frozenset(("review_kind", "review_state", "service_zones"))
-_KITCHEN_FIELDS_WITH_ROTATIONS = _KITCHEN_FIELDS | {"rotations_deg"}
-_KITCHEN_FIELDS_WITH_BACK_REVISIONS = _KITCHEN_FIELDS | {"back_revisions"}
-_KITCHEN_FIELDS_WITH_ROTATIONS_AND_BACK_REVISIONS = (
-    _KITCHEN_FIELDS | {"rotations_deg", "back_revisions"}
-)
+_OPTIONAL_KITCHEN_FIELDS = frozenset((
+    "rotations_deg", "back_revisions", "wall_review_revisions",
+))
 _FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready",
           "purchase_ready", "can_generate_f7c")
 
@@ -41,20 +39,26 @@ def _validate_source_request(request: dict[str, Any]) -> str:
     kind = request.get("review_kind")
     fields = set(request)
     if kind == "room_layout_v1":
-        if fields != _FIELDS:
+        if not _FIELDS <= fields or fields - _FIELDS - {"wall_review_revisions"}:
             raise RoomPackageError(
-                "Solicitud original room_layout_v1 obligatoria; CAD aportado prohibido"
+                "Solicitud room_layout_v1 inválida; CAD aportado prohibido y "
+                "solo wall_review_revisions es opcional"
             )
+        if ("wall_review_revisions" in request
+                and (type(request["wall_review_revisions"]) is not list
+                     or len(request["wall_review_revisions"]) > 12)):
+            raise RoomPackageError("wall_review_revisions debe ser una lista de 0 a 12 elementos")
     elif kind == "kitchen_spatial_v1":
-        if fields not in (
-            _KITCHEN_FIELDS, _KITCHEN_FIELDS_WITH_ROTATIONS,
-            _KITCHEN_FIELDS_WITH_BACK_REVISIONS,
-            _KITCHEN_FIELDS_WITH_ROTATIONS_AND_BACK_REVISIONS,
-        ):
+        if (not _KITCHEN_FIELDS <= fields
+                or fields - _KITCHEN_FIELDS - _OPTIONAL_KITCHEN_FIELDS):
             raise RoomPackageError(
                 "kitchen_spatial_v1 solo admite review_kind, review_state, service_zones, "
-                "rotations_deg y back_revisions opcionales"
+                "rotations_deg, back_revisions y wall_review_revisions opcionales"
             )
+        if ("wall_review_revisions" in request
+                and (type(request["wall_review_revisions"]) is not list
+                     or len(request["wall_review_revisions"]) > 12)):
+            raise RoomPackageError("wall_review_revisions debe ser una lista de 0 a 12 elementos")
     else:
         raise RoomPackageError("Tipo de solicitud espacial no admitido.")
     return kind

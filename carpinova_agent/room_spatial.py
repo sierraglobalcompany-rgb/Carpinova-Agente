@@ -17,6 +17,7 @@ LIMIT = 20000
 MAX_GROUPS = 6
 MAX_ZONES = 12
 MAX_BACK_REVISIONS = 12
+MAX_WALL_REVISIONS = 12
 PHYSICAL_FLAGS = {
     "fabrication_ready": False,
     "cutting_ready": False,
@@ -26,6 +27,49 @@ PHYSICAL_FLAGS = {
 }
 ROTATIONS = (0, 90, 180, 270)
 PURPOSES = ("plumbing", "electric", "appliance", "access")
+_WALL_REVISION_FIELDS = frozenset((
+    "group_id", "module_id", "back_choice", "wall_system",
+    "support_choice", "wall_substrate",
+))
+_BACK_CHOICES = frozenset((
+    "keep_existing", "none", "inset_board_3mm_review",
+    "inset_board_15mm_review", "inset_board_18mm_review",
+    "inset_carcass_material_review", "inset_two_strips_review",
+))
+_WALL_SYSTEMS = frozenset((
+    "none", "direct_rear_tie", "french_cleat_45", "metal_L_bracket",
+    "metal_cabinet_hanger", "metal_cabinet_clip", "wall_rail",
+    "floor_furniture_anti_tip",
+))
+_SUPPORT_CHOICES = frozenset((
+    "keep_existing", "floor_direct", "legs", "plinth", "wall_mounted",
+))
+_WALL_SUBSTRATES = frozenset((
+    "unknown", "concrete", "solid_masonry", "hollow_masonry", "drywall",
+    "wood_studs", "other",
+))
+_WALL_CANDIDATE_ROLES = frozenset((
+    "top", "left_side", "right_side", "wall_rear_upper_tie",
+    "wall_rear_lower_tie", "upper_rear_tie", "lower_rear_tie",
+))
+_BOOK_EVIDENCE = {
+    "direct_rear_tie": [{
+        "content_id": "CONTENT-CPNC-2025-P0141-002", "pdf_page": 141,
+        "printed_page": 119, "review_status": "VISUALLY_VERIFIED",
+    }],
+    "french_cleat_45": [{
+        "content_id": "CONTENT-CPNC-2025-P0141-003", "pdf_page": 141,
+        "printed_page": 119, "review_status": "VISUALLY_VERIFIED",
+    }],
+    "metal_cabinet_hanger": [{
+        "content_id": "CONTENT-CPNC-2025-P0141-004", "pdf_page": 141,
+        "printed_page": 119, "review_status": "VISUALLY_VERIFIED",
+    }],
+    "metal_cabinet_clip": [{
+        "content_id": "CONTENT-CPNC-2025-P0142-001", "pdf_page": 142,
+        "printed_page": 120, "review_status": "VISUALLY_VERIFIED",
+    }],
+}
 
 
 def _error(message: str) -> None:
@@ -163,6 +207,351 @@ def _attach_construction_reviews(
             "DIRECT_PAIR_CONCEPT_ONLY_UNVERIFIED_NO_LOADS_ANCHORS_OR_HOLES",
         ]))
     return result
+
+
+def _module_index(
+    result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
+    assemblies: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Reconcile trusted Maestro part ownership with CADExchange/world boxes."""
+    exchanges = {item["group_id"]: item["exchange"] for item in assemblies}
+    world = {(box["group_id"], box["piece_id"]): box
+             for box in result["world_boxes"]}
+    if set(models_by_group) != set(exchanges):
+        _error("Maestro/CADExchange no cubren los mismos grupos")
+    expected_world = {
+        (group_id, f"{group_id}:{box['piece_id']}")
+        for group_id, exchange in exchanges.items()
+        for box in exchange["boxes"]
+    }
+    if set(world) != expected_world:
+        _error("world_boxes no coincide exactamente con CADExchange")
+    contexts: dict[tuple[str, str], dict[str, Any]] = {}
+    indexed: list[dict[str, Any]] = []
+    world_owners: dict[tuple[str, str], str] = {}
+    for group_id, model in models_by_group.items():
+        exchange = exchanges.get(group_id)
+        modules, parts = model.get("modules"), model.get("parts")
+        if (type(exchange) is not dict or type(modules) is not list or not modules
+                or type(parts) is not list):
+            _error(f"{group_id}: Maestro/CADExchange sin módulos verificables")
+        cad_boxes = exchange.get("boxes")
+        if type(cad_boxes) is not list:
+            _error(f"{group_id}: CADExchange sin paneles verificables")
+        cad_by_id = {_id(box.get("piece_id"), "CADExchange.piece_id"): box
+                     for box in cad_boxes if type(box) is dict}
+        if len(cad_by_id) != len(cad_boxes):
+            _error(f"{group_id}: IDs CADExchange duplicados o inválidos")
+        parts_by_id: dict[str, dict[str, Any]] = {}
+        for part in parts:
+            if type(part) is not dict:
+                _error(f"{group_id}: parte F6 inválida")
+            piece_id = _id(part.get("piece_id"), "F6.piece_id")
+            if piece_id in parts_by_id:
+                _error(f"{group_id}: IDs F6 duplicados")
+            parts_by_id[piece_id] = part
+        owned: dict[str, str] = {}
+        seen_modules: set[str] = set()
+        for module in modules:
+            if type(module) is not dict:
+                _error(f"{group_id}: módulo Maestro inválido")
+            module_id = _id(module.get("module_id"), "module_id")
+            part_ids = module.get("part_ids")
+            if (module_id in seen_modules or type(part_ids) is not list
+                    or not part_ids):
+                _error(f"{group_id}/{module_id}: módulo duplicado o sin part_ids")
+            seen_modules.add(module_id)
+            for raw_id in part_ids:
+                piece_id = _id(raw_id, "module.part_ids")
+                part, box = parts_by_id.get(piece_id), cad_by_id.get(piece_id)
+                if part is None or box is None or piece_id in owned:
+                    _error(f"{group_id}/{module_id}: part_id no conciliable con CADExchange")
+                role = _id(part.get("role"), "F6.role")
+                if (part.get("module_id") != module_id
+                        or box.get("module_id") != module_id
+                        or box.get("role") != role):
+                    _error(f"{group_id}/{module_id}/{piece_id}: propietario o rol F6/CAD distinto")
+                world_box = world.get((group_id, f"{group_id}:{piece_id}"))
+                if world_box is None or world_box.get("role") != role:
+                    _error(f"{group_id}/{module_id}/{piece_id}: rol de world_boxes distinto a F6/CAD")
+                owned[piece_id] = module_id
+                world_owners[(group_id, piece_id)] = module_id
+        if set(owned) != set(cad_by_id) or set(owned) != set(parts_by_id):
+            _error(f"{group_id}: part_ids, partes F6 y CADExchange no tienen cobertura única")
+        for module in modules:
+            module_id = module["module_id"]
+            bare_ids = list(module["part_ids"])
+            qualified = [f"{group_id}:{piece_id}" for piece_id in bare_ids]
+            boxes = [world.get((group_id, piece_id)) for piece_id in qualified]
+            if any(box is None for box in boxes):
+                _error(f"{group_id}/{module_id}: world_boxes no concilia part_ids")
+            lows = [min(box["origin_xyz_mm"][axis] for box in boxes)
+                    for axis in range(3)]
+            highs = [max(box["origin_xyz_mm"][axis] + box["size_xyz_mm"][axis]
+                         for box in boxes) for axis in range(3)]
+            candidates = sorted(
+                f"{group_id}:{piece_id}" for piece_id in bare_ids
+                if parts_by_id[piece_id]["role"] in _WALL_CANDIDATE_ROLES
+            )
+            support = module.get("support")
+            declared_installation = module.get("installation", model.get("installation"))
+            if declared_installation in {"wall_mounted", "freestanding"}:
+                installation = declared_installation
+            elif support == "wall":
+                installation = "wall_mounted"
+            elif support in {"floor", "legs", "plinth"}:
+                installation = "freestanding"
+            else:
+                installation = "unknown"
+            entry = {
+                "group_id": group_id, "module_id": module_id,
+                "piece_ids": sorted(qualified),
+                "candidate_piece_ids": candidates,
+                "bounds_origin_xyz_mm": lows,
+                "bounds_size_xyz_mm": [highs[i] - lows[i] for i in range(3)],
+                "installation_mode": installation,
+                "support_status": support if type(support) is str else "unknown",
+                "selection_enabled": True,
+            }
+            contexts[(group_id, module_id)] = {
+                "index": entry, "module": module,
+                "candidate_piece_ids": candidates,
+                "parts_by_id": {pid: parts_by_id[pid] for pid in bare_ids},
+                "cad_by_id": {pid: cad_by_id[pid] for pid in bare_ids},
+                "carcass_material": _carcass_material(
+                    module, bare_ids, parts_by_id, cad_by_id,
+                ),
+            }
+            indexed.append(entry)
+    for (group_id, piece_id), module_id in world_owners.items():
+        world[(group_id, f"{group_id}:{piece_id}")]["module_id"] = module_id
+    result["module_index"] = sorted(
+        indexed, key=lambda item: (item["group_id"], item["module_id"])
+    )
+    return contexts
+
+
+def _carcass_material(
+    module: dict[str, Any], piece_ids: list[str],
+    parts_by_id: dict[str, dict[str, Any]],
+    cad_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Read material and thickness from both real sides across F6 and CAD."""
+    sides = [parts_by_id[pid] for pid in piece_ids
+             if parts_by_id[pid].get("role") in {"left_side", "right_side"}]
+    if {part.get("role") for part in sides} != {"left_side", "right_side"}:
+        return None
+    values = []
+    for part in sides:
+        piece_id = part["piece_id"]
+        cad = cad_by_id[piece_id]
+        material = part.get("material_id")
+        thickness = part.get("thickness_mm")
+        size = cad.get("size_xyz_mm")
+        if (type(material) is not str or not material
+                or type(thickness) is not int or thickness <= 0
+                or cad.get("material_id") != material
+                or type(size) is not list or len(size) != 3
+                or size[0] != thickness):
+            return None
+        values.append((material, thickness))
+    panel_thickness = module.get("panel_thickness_mm")
+    if (len(set(values)) != 1 or values[0][1] != panel_thickness):
+        return None
+    return {"material_id": values[0][0], "thickness_mm": values[0][1]}
+
+
+def _back_geometry_status(
+    choice: str, module: dict[str, Any], carcass_material: dict[str, Any] | None,
+    parts_by_id: dict[str, dict[str, Any]],
+    cad_by_id: dict[str, dict[str, Any]],
+) -> str:
+    back = module.get("back")
+    back_roles = ("back_full",) if type(back) is dict and back.get("style") == "inset_full" else (
+        ("back_bottom", "back_top")
+        if type(back) is dict and back.get("style") == "inset_two_strips" else ()
+    )
+    actual = [part for part in parts_by_id.values()
+              if part.get("role") in {"back_full", "back_bottom", "back_top"}]
+    declared_matches = back == "none" and not actual
+    if type(back) is dict and back_roles:
+        expected_roles = set(back_roles)
+        actual_by_role = {part.get("role"): part for part in actual}
+        declared_matches = set(actual_by_role) == expected_roles
+        if declared_matches:
+            for role, part in actual_by_role.items():
+                cad = cad_by_id[part["piece_id"]]
+                size = cad.get("size_xyz_mm")
+                thickness = part.get("thickness_mm")
+                declared_matches = declared_matches and (
+                    part.get("material_id") == back.get("material_id")
+                    and thickness == back.get("thickness_mm")
+                    and cad.get("material_id") == part.get("material_id")
+                    and type(size) is list and len(size) == 3
+                    and size[2] == thickness
+                )
+        declared_matches = declared_matches and len(actual) == len(expected_roles)
+    if choice == "keep_existing":
+        if back == "none":
+            return "MODELED_NOMINAL" if not actual else "NEEDS_DATA"
+        if type(back) is dict and back_roles:
+            return "MODELED_NOMINAL" if declared_matches else "NEEDS_DATA"
+        return "NEEDS_DATA"
+    if choice == "none":
+        return "MODELED_NOMINAL" if back == "none" and not actual else "BACK_GEOMETRY_PENDING"
+    if type(back) is not dict:
+        return "NEEDS_BACK_SPEC"
+    style = back.get("style")
+    thickness = back.get("thickness_mm")
+    if choice == "inset_two_strips_review":
+        matches = style == "inset_two_strips"
+    elif choice == "inset_carcass_material_review":
+        if carcass_material is None:
+            return "NEEDS_DATA"
+        if (style != "inset_full" or not declared_matches
+                or back.get("material_id") != carcass_material["material_id"]
+                or thickness != carcass_material["thickness_mm"]):
+            return "NEEDS_BACK_SPEC"
+        return "MODELED_NOMINAL"
+    else:
+        expected = int(choice.removeprefix("inset_board_").removesuffix("mm_review"))
+        matches = style == "inset_full" and thickness == expected
+    return "MODELED_NOMINAL" if matches and declared_matches else "NEEDS_BACK_SPEC"
+
+
+def _wall_review(
+    revision: dict[str, Any], context: dict[str, Any],
+) -> dict[str, Any]:
+    module = context["module"]
+    back_choice = revision["back_choice"]
+    wall_system = revision["wall_system"]
+    support_choice = revision["support_choice"]
+    module_support = module.get("support")
+    if support_choice == "wall_mounted":
+        support_function = "wall_suspension"
+    elif support_choice in {"floor_direct", "legs", "plinth"}:
+        support_function = "stability_only" if wall_system != "none" else "not_applicable"
+    elif module_support == "wall":
+        support_function = "wall_suspension"
+    elif module_support in {"floor", "legs", "plinth"}:
+        support_function = "stability_only" if wall_system != "none" else "not_applicable"
+    else:
+        support_function = "pending"
+
+    constraints: list[str] = []
+    back_status = _back_geometry_status(
+        back_choice, module, context["carcass_material"],
+        context["parts_by_id"], context["cad_by_id"],
+    )
+    if back_status == "BACK_GEOMETRY_PENDING":
+        constraints.append("BACK_GEOMETRY_PENDING")
+    elif back_status == "NEEDS_BACK_SPEC":
+        constraints.append("NEEDS_BACK_SPEC")
+    elif back_status == "NEEDS_DATA":
+        constraints.append(
+            "CARCASS_MATERIAL_UNVERIFIED"
+            if back_choice == "inset_carcass_material_review"
+            else "EXISTING_BACK_UNCONFIRMED"
+        )
+
+    if wall_system == "none":
+        if back_choice not in {"none", "keep_existing"}:
+            constraints.append("BACK_PANEL_ALONE_NOT_ANCHOR")
+    elif wall_system == "direct_rear_tie":
+        constraints.append(
+            "CARCASS_JOINT_AND_WALL_PENDING" if back_choice == "none"
+            else "TIE_POSITION_AND_CLEARANCE_PENDING"
+        )
+    elif wall_system == "french_cleat_45":
+        constraints.append(
+            "JOINERY_AND_LOAD_PATH_PENDING" if back_choice == "none"
+            else "REAR_CLEARANCE_AND_SUPPORT_PENDING"
+        )
+    elif wall_system == "metal_L_bracket":
+        constraints.append("METAL_TO_CARCASE_CONNECTION_PENDING")
+    elif wall_system in {"metal_cabinet_hanger", "metal_cabinet_clip", "wall_rail"}:
+        constraints.append("HARDWARE_AND_LOAD_PATH_PENDING")
+    elif wall_system == "floor_furniture_anti_tip":
+        constraints.append("STABILITY_CONNECTION_PENDING")
+    if wall_system != "none" and revision["wall_substrate"] == "unknown":
+        constraints.append("WALL_SUBSTRATE_UNKNOWN")
+    if revision["wall_substrate"] in {"drywall", "hollow_masonry", "other"}:
+        constraints.append("WALL_FIXING_REQUIREMENTS_NEED_VERIFICATION")
+
+    incompatible = support_function == "wall_suspension" and wall_system in {
+        "none", "floor_furniture_anti_tip",
+    }
+    if incompatible:
+        constraints.append("INCOMPATIBLE_FOR_SUSPENSION")
+    if incompatible:
+        status = "INCOMPATIBLE_FOR_SUSPENSION"
+    elif back_status in {"NEEDS_BACK_SPEC", "NEEDS_DATA"}:
+        status = back_status
+    elif wall_system == "none" and back_status == "MODELED_NOMINAL":
+        status = "MODELED_NOMINAL"
+    else:
+        status = "SELECTABLE_CONCEPT_ONLY"
+    support_aliases = {
+        "floor_direct": {"floor", "floor_direct"}, "legs": {"legs"},
+        "plinth": {"plinth"}, "wall_mounted": {"wall", "wall_mounted"},
+    }
+    support_matches = (
+        module_support in {"floor", "legs", "plinth", "wall"}
+        if support_choice == "keep_existing"
+        else module_support in support_aliases.get(support_choice, set())
+    )
+    return {
+        **revision, "support_function": support_function,
+        "back_geometry_status": back_status,
+        "support_actual": module_support if type(module_support) is str else "unknown",
+        "support_review_status": ("AS_DECLARED" if support_matches
+                                  else "SUPPORT_CHOICE_PENDING"),
+        "selection_status": "SELECTABLE_CONCEPT_ONLY",
+        "status": status, "constraints": list(dict.fromkeys(constraints)),
+        "candidate_piece_ids": context["index"]["candidate_piece_ids"],
+        "book_evidence": copy.deepcopy(_BOOK_EVIDENCE.get(wall_system, [])),
+        "install_ready": False, "manufacturing_holes": [],
+    }
+
+
+def _attach_wall_reviews(
+    result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
+    assemblies: list[dict[str, Any]], revisions: Any,
+) -> dict[str, Any]:
+    contexts = _module_index(result, models_by_group, assemblies)
+    normalized = _normalize_wall_revisions(revisions, contexts)
+    result["wall_review_by_module"] = normalized
+    result["manufacturing_holes"] = []
+    result["release"] = "NO_GO"
+    return result
+
+
+def _normalize_wall_revisions(
+    revisions: Any, contexts: dict[tuple[str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if type(revisions) is not list or len(revisions) > MAX_WALL_REVISIONS:
+        _error("wall_review_revisions: se requiere una lista de 0 a 12 selecciones")
+    normalized = []
+    seen: set[tuple[str, str]] = set()
+    for raw in revisions:
+        if type(raw) is not dict or set(raw) != _WALL_REVISION_FIELDS:
+            _error("wall_review_revisions: se requieren exactamente seis campos")
+        item = {key: _id(raw[key], key) for key in ("group_id", "module_id")}
+        for key, allowed in (("back_choice", _BACK_CHOICES),
+                             ("wall_system", _WALL_SYSTEMS),
+                             ("support_choice", _SUPPORT_CHOICES),
+                             ("wall_substrate", _WALL_SUBSTRATES)):
+            if type(raw.get(key)) is not str or raw[key] not in allowed:
+                _error(f"wall_review_revisions.{key}: opción no admitida")
+            item[key] = raw[key]
+        key = (item["group_id"], item["module_id"])
+        if key in seen:
+            _error("wall_review_revisions: módulo duplicado")
+        if key not in contexts:
+            _error("wall_review_revisions: grupo o módulo no existe en Maestro/F6")
+        seen.add(key)
+        normalized.append(_wall_review(item, contexts[key]))
+    return sorted(normalized, key=lambda item: (item["group_id"], item["module_id"]))
 
 
 def _apply_back_revisions(
@@ -719,10 +1108,11 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
     Never accept client-supplied boxes, CADExchange or geometry digests. Existing
     F6/commissioning contracts and permissions remain the authority.
     """
-    if (type(request) is not dict or set(request) != {
-        "review_kind", "assemblies", "service_zones"
-    } or request.get("review_kind") != "room_layout_v1"):
-        _error("room_layout_v1 requiere review_kind, assemblies, service_zones")
+    required = {"review_kind", "assemblies", "service_zones"}
+    if (type(request) is not dict
+            or set(request) not in (required, required | {"wall_review_revisions"})
+            or request.get("review_kind") != "room_layout_v1"):
+        _error("room_layout_v1 requiere review_kind, assemblies, service_zones y wall_review_revisions opcional")
     from .maestro import consult_maestro
     from .cad_exchange import cad_exchange, validate_exchange
     assembly_input = request["assemblies"]
@@ -752,7 +1142,11 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
             "rotation_deg": raw["rotation_deg"],
         })
     result = compose_verified_exchanges(prepared, request["service_zones"])
-    return _attach_construction_reviews(result, models_by_group)
+    _attach_construction_reviews(result, models_by_group)
+    if "wall_review_revisions" in request:
+        _attach_wall_reviews(result, models_by_group, prepared,
+                             request["wall_review_revisions"])
+    return result
 
 
 def render_top_view_svg(review: dict[str, Any]) -> str:
@@ -804,14 +1198,11 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
     """
     from .kitchen_linear import _GROUPS, _build, _validate_state
 
-    allowed = {
-        frozenset(("review_kind", "review_state", "service_zones")),
-        frozenset(("review_kind", "review_state", "service_zones", "rotations_deg")),
-        frozenset(("review_kind", "review_state", "service_zones", "back_revisions")),
-        frozenset(("review_kind", "review_state", "service_zones", "rotations_deg",
-                   "back_revisions")),
-    }
-    if (type(request) is not dict or frozenset(request) not in allowed
+    required = {"review_kind", "review_state", "service_zones"}
+    optional = {"rotations_deg", "back_revisions", "wall_review_revisions"}
+    fields = set(request) if type(request) is dict else set()
+    if (type(request) is not dict or not required <= fields
+            or fields - required - optional
             or request.get("review_kind") != "kitchen_spatial_v1"):
         _error("kitchen_spatial_v1 exige review_kind, review_state y service_zones")
 
@@ -854,6 +1245,9 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
         models_by_group[group] = reviewed["model"]
     output = compose_verified_exchanges(assemblies, request["service_zones"])
     _attach_construction_reviews(output, models_by_group)
+    if "wall_review_revisions" in request:
+        _attach_wall_reviews(output, models_by_group, assemblies,
+                             request["wall_review_revisions"])
     if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
         _error("La revisión espacial no puede habilitar fabricación")
     output["top_view_svg"] = render_top_view_svg(output)

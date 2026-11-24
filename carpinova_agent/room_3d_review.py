@@ -88,8 +88,11 @@ def _payload(review: Any) -> dict[str, Any]:
                for i in range(3)):
             raise RoomViewerError("Panel CAD fuera de la envolvente verificada")
         by_group[gid] += 1
-        clean_boxes.append({"id": pid, "group": gid, "role": role,
-                            "origin": origin, "size": size})
+        clean_box = {"id": pid, "group": gid, "role": role,
+                     "origin": origin, "size": size}
+        if "module_id" in item:
+            clean_box["module_id"] = _record_id(item["module_id"], "module_id de panel")
+        clean_boxes.append(clean_box)
     if any(item.get("piece_count") != by_group[item["group_id"]]
            for item in groups):
         # Existing room_layout_v1 includes group piece counts; refuse discrepancy.
@@ -193,10 +196,167 @@ def _payload(review: Any) -> dict[str, Any]:
     if not isinstance(review.get("layout_sha256"), str) or not re.fullmatch(
             r"[0-9a-f]{64}", review["layout_sha256"]):
         raise RoomViewerError("Firma del layout inválida")
-    return {"groups": clean_groups, "boxes": clean_boxes, "drawers": drawers,
-            "blocked_drawers": blocked_drawers, "zones": clean_zones,
-            "warnings": warnings, "status": review["status"],
-            "digest": review["layout_sha256"]}
+    payload = {"groups": clean_groups, "boxes": clean_boxes, "drawers": drawers,
+               "blocked_drawers": blocked_drawers, "zones": clean_zones,
+               "warnings": warnings, "status": review["status"],
+               "digest": review["layout_sha256"]}
+    if "module_index" not in review:
+        if "wall_review_by_module" in review:
+            raise RoomViewerError("Selección de pared sin índice de módulos")
+        return payload
+
+    from .room_spatial import (
+        _BACK_CHOICES, _BOOK_EVIDENCE, _SUPPORT_CHOICES, _WALL_CANDIDATE_ROLES,
+        _WALL_SUBSTRATES, _WALL_SYSTEMS, _WALL_REVISION_FIELDS,
+    )
+    boxes_by_ref = {(box["group"], box["id"]): box for box in clean_boxes}
+    raw_index = review.get("module_index")
+    index_fields = {
+        "group_id", "module_id", "piece_ids", "candidate_piece_ids", "bounds_origin_xyz_mm",
+        "bounds_size_xyz_mm", "installation_mode", "support_status",
+        "selection_enabled",
+    }
+    if type(raw_index) is not list or not 1 <= len(raw_index) <= 72:
+        raise RoomViewerError("Índice de módulos inválido")
+    modules_by_key, owners, clean_index = {}, {}, []
+    for item in raw_index:
+        if type(item) is not dict or set(item) != index_fields:
+            raise RoomViewerError("Entrada de índice de módulos no admitida")
+        gid = _record_id(item.get("group_id"), "module_index.group_id")
+        mid = _record_id(item.get("module_id"), "module_index.module_id")
+        key = (gid, mid)
+        piece_ids = item.get("piece_ids")
+        if (gid not in group_ids or key in modules_by_key
+                or type(piece_ids) is not list or not piece_ids
+                or item.get("selection_enabled") is not True
+                or item.get("installation_mode") not in {
+                    "wall_mounted", "freestanding", "unknown"}
+                or type(item.get("support_status")) is not str):
+            raise RoomViewerError("Identidad o selección de módulo inválida")
+        origin = _vec(item.get("bounds_origin_xyz_mm"), "module_index.origen")
+        size = _vec(item.get("bounds_size_xyz_mm"), "module_index.tamaño", positive=True)
+        if any(origin[i] + size[i] > 20000 for i in range(3)):
+            raise RoomViewerError("Módulo fuera de límites")
+        ids = [_record_id(pid, "module_index.piece_id") for pid in piece_ids]
+        if len(ids) != len(set(ids)):
+            raise RoomViewerError("Piezas duplicadas en module_index")
+        candidates = item.get("candidate_piece_ids")
+        if type(candidates) is not list:
+            raise RoomViewerError("Candidatos de unión inválidos")
+        candidate_ids = [_record_id(pid, "module_index.candidate_piece_id")
+                         for pid in candidates]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise RoomViewerError("Candidatos de unión duplicados")
+        module_boxes = []
+        for pid in ids:
+            box = boxes_by_ref.get((gid, pid))
+            if box is None or box.get("module_id") != mid or pid in owners:
+                raise RoomViewerError("module_index no concilia con piezas reales")
+            owners[pid] = key
+            module_boxes.append(box)
+        expected_candidates = sorted(
+            box["id"] for box in module_boxes
+            if box["role"] in _WALL_CANDIDATE_ROLES
+        )
+        if candidate_ids != expected_candidates:
+            raise RoomViewerError("Candidatos no concilian con roles reales del módulo")
+        lows = [min(box["origin"][axis] for box in module_boxes) for axis in range(3)]
+        highs = [max(box["origin"][axis] + box["size"][axis]
+                     for box in module_boxes) for axis in range(3)]
+        if lows != origin or [highs[i] - lows[i] for i in range(3)] != size:
+            raise RoomViewerError("Envolvente del módulo no coincide con world_boxes")
+        modules_by_key[key] = ids
+        clean_index.append({
+            "group_id": gid, "module_id": mid, "piece_ids": ids,
+            "candidate_piece_ids": candidate_ids,
+            "bounds_origin_xyz_mm": origin, "bounds_size_xyz_mm": size,
+            "installation_mode": item["installation_mode"],
+            "support_status": item["support_status"], "selection_enabled": True,
+        })
+    if set(owners) != {pid for _gid, pid in boxes_by_ref}:
+        raise RoomViewerError("module_index no cubre todos los paneles exactamente")
+
+    raw_reviews = review.get("wall_review_by_module")
+    if type(raw_reviews) is not list:
+        raise RoomViewerError("Selección de pared debe ser una lista, incluso vacía")
+    review_fields = _WALL_REVISION_FIELDS | {
+        "support_function", "selection_status", "status", "constraints",
+        "candidate_piece_ids", "book_evidence", "install_ready",
+        "manufacturing_holes", "back_geometry_status", "support_actual",
+        "support_review_status",
+    }
+    statuses = {"SELECTABLE_CONCEPT_ONLY", "MODELED_NOMINAL", "NEEDS_BACK_SPEC",
+                "INCOMPATIBLE_FOR_SUSPENSION", "NEEDS_DATA"}
+    back_statuses = {"MODELED_NOMINAL", "NEEDS_BACK_SPEC",
+                     "BACK_GEOMETRY_PENDING", "NEEDS_DATA"}
+    clean_reviews, seen_reviews = [], set()
+    intent_fields = ("group_id", "module_id", "back_choice", "wall_system",
+                     "support_choice", "wall_substrate")
+    for item in raw_reviews:
+        if type(item) is not dict or set(item) != review_fields:
+            raise RoomViewerError("Revisión de pared con esquema inválido")
+        gid = _record_id(item.get("group_id"), "wall_review.group_id")
+        mid = _record_id(item.get("module_id"), "wall_review.module_id")
+        key = (gid, mid)
+        if (key not in modules_by_key or key in seen_reviews
+                or item.get("back_choice") not in _BACK_CHOICES
+                or item.get("wall_system") not in _WALL_SYSTEMS
+                or item.get("support_choice") not in _SUPPORT_CHOICES
+                or item.get("wall_substrate") not in _WALL_SUBSTRATES
+                or item.get("support_function") not in {
+                    "wall_suspension", "stability_only", "not_applicable", "pending"}
+                or item.get("selection_status") != "SELECTABLE_CONCEPT_ONLY"
+                or item.get("status") not in statuses
+                or item.get("back_geometry_status") not in back_statuses
+                or item.get("support_review_status") not in {
+                    "AS_DECLARED", "SUPPORT_CHOICE_PENDING"}
+                or type(item.get("support_actual")) is not str
+                or not item.get("support_actual")
+                or item.get("install_ready") is not False
+                or item.get("manufacturing_holes") != []):
+            raise RoomViewerError("Elección de pared insegura o duplicada")
+        constraints, candidates, evidence = (item.get("constraints"),
+                                              item.get("candidate_piece_ids"),
+                                              item.get("book_evidence"))
+        if (type(constraints) is not list or any(
+                type(value) is not str or not re.fullmatch(r"[A-Z0-9_]{1,80}", value)
+                for value in constraints)
+                or type(candidates) is not list
+                or candidates != next(value["candidate_piece_ids"]
+                                      for value in clean_index
+                                      if (value["group_id"], value["module_id"]) == key)
+                or type(evidence) is not list):
+            raise RoomViewerError("Evidencia o límites de pared inválidos")
+        for source in evidence:
+            if (type(source) is not dict or set(source) != {
+                    "content_id", "pdf_page", "printed_page", "review_status"}
+                    or source.get("review_status") != "VISUALLY_VERIFIED"
+                    or type(source.get("pdf_page")) is not int
+                    or type(source.get("printed_page")) is not int):
+                raise RoomViewerError("Referencia de libro inválida")
+        if evidence != _BOOK_EVIDENCE.get(item["wall_system"], []):
+            raise RoomViewerError("Referencia de libro no conciliable")
+        seen_reviews.add(key)
+        clean_reviews.append({name: item[name] for name in intent_fields} | {
+            "support_function": item["support_function"],
+            "back_geometry_status": item["back_geometry_status"],
+            "support_actual": item["support_actual"],
+            "support_review_status": item["support_review_status"],
+            "selection_status": item["selection_status"], "status": item["status"],
+            "constraints": list(constraints), "candidate_piece_ids": list(candidates),
+            "book_evidence": evidence, "install_ready": False,
+            "manufacturing_holes": [],
+        })
+    if (review.get("manufacturing_holes") != [] or review.get("release") != "NO_GO"
+            or any(review.get(flag) is not False for flag in _FLAGS)):
+        raise RoomViewerError("La revisión de pared habilitó una salida física")
+    payload["module_index"] = sorted(
+        clean_index, key=lambda value: (value["group_id"], value["module_id"])
+    )
+    payload["wall_reviews"] = sorted(
+        clean_reviews, key=lambda value: (value["group_id"], value["module_id"])
+    )
+    return payload
 
 
 # Client-side isometric projection uses only verified world_boxes. No CDN,
@@ -526,11 +686,171 @@ updateCut();render();
 '''
 
 
+_MODULE_CSS = r'''
+.module-review select{width:100%;margin:4px 0 8px}.module-review button{margin:4px 4px 4px 0}
+.module-review output,.module-review pre{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,Consolas,monospace;color:#304c5a;background:#f4f7f8;border-radius:5px;padding:8px;min-height:32px}
+.module-review a{display:inline-block;margin-top:7px;color:#075d78;font-weight:700}
+.module-review .candidate-list{display:flex;flex-wrap:wrap;gap:5px}.module-review .candidate-list button{font-size:12px}
+'''
+
+_MODULE_UI = r'''<fieldset id="moduleReview" class="module-review"><legend>Seleccionar y enfocar mueble</legend>
+<label for="modulePicker">Muebles del conjunto</label><select id="modulePicker"><option value="">Selecciona un mueble</option></select>
+<button type="button" id="focusModule" disabled>Enfocar mueble</button><button type="button" id="returnToSet" hidden>Volver al conjunto</button>
+<output id="moduleSummary" aria-live="polite">Selecciona un módulo de la lista o una pieza visible.</output>
+<fieldset id="candidateField" hidden><legend>Piezas para revisar uniones</legend><div id="candidateButtons" class="candidate-list"></div><output id="candidateStatus" aria-live="polite"></output></fieldset>
+<fieldset id="wallEditor" hidden><legend>Propuesta independiente de fondo, pared y apoyo</legend>
+<label for="backChoice">A · Fondo posterior</label><select id="backChoice"><option value="">Selecciona fondo</option>
+<option value="keep_existing">Conservar el fondo existente</option><option value="none">Sin fondo</option>
+<option value="inset_board_3mm_review">Fondo 3 mm · revisar especificación</option><option value="inset_board_15mm_review">Fondo 15 mm · revisar especificación</option><option value="inset_board_18mm_review">Fondo 18 mm · revisar especificación</option>
+<option value="inset_carcass_material_review">Material y espesor reales de carcasa</option><option value="inset_two_strips_review">Dos franjas · revisar especificación</option></select>
+<label for="wallSystem">B · Sistema de fijación a pared</label><select id="wallSystem"><option value="">Selecciona fijación</option>
+<option value="none">Ninguno</option><option value="direct_rear_tie">Amarre trasero directo</option><option value="french_cleat_45">Sistema francés 45°</option><option value="metal_L_bracket">Ángulo metálico en L</option><option value="metal_cabinet_hanger">Colgador metálico</option><option value="metal_cabinet_clip">Grapa metálica para mueble</option><option value="wall_rail">Riel de pared</option><option value="floor_furniture_anti_tip">Antivuelco para mueble apoyado en piso</option></select>
+<label for="supportChoice">C · Apoyo propio</label><select id="supportChoice"><option value="">Selecciona apoyo</option>
+<option value="keep_existing">Conservar apoyo existente</option><option value="floor_direct">Piso directo</option><option value="legs">Patas</option><option value="plinth">Zócalo</option><option value="wall_mounted">Suspendido al muro</option></select>
+<label for="wallSubstrate">Tipo de muro</label><select id="wallSubstrate"><option value="">Selecciona muro</option>
+<option value="unknown">Desconocido</option><option value="concrete">Concreto</option><option value="solid_masonry">Mampostería sólida</option><option value="hollow_masonry">Mampostería hueca</option><option value="drywall">Panel de yeso</option><option value="wood_studs">Montantes de madera</option><option value="other">Otro</option></select>
+<button type="button" id="prepareWallReview" disabled>Preparar revisión JSON</button>
+<output id="backGeometryStatus" aria-live="polite">Geometría del fondo: pendiente de revisión.</output>
+<output id="supportReviewStatus" aria-live="polite">Apoyo: pendiente de selección y comparación.</output>
+<output id="wallReviewStatus" aria-live="polite">Las opciones no cambian piezas ni autorizan montaje.</output><pre id="wallIntentPreview" hidden></pre><a id="downloadWallIntent" hidden>Descargar intención JSON</a>
+</fieldset></fieldset>'''
+
+_MODULE_SCRIPT = r'''
+Object.assign(ROLE_LABEL,{wall_rear_upper_tie:'amarre trasero superior',wall_rear_lower_tie:'amarre trasero inferior',upper_rear_tie:'correa trasera superior',lower_rear_tie:'correa trasera inferior'});
+const moduleKey=(groupId,moduleId)=>groupId+'::'+moduleId;
+const moduleIndex=data.module_index,wallReviews=data.wall_reviews;
+const modulePicker=document.getElementById('modulePicker'),moduleSummary=document.getElementById('moduleSummary');
+const wallEditor=document.getElementById('wallEditor'),wallSelects=['backChoice','wallSystem','supportChoice','wallSubstrate'].map(id=>document.getElementById(id));
+const wallStatus=document.getElementById('wallReviewStatus'),wallPreview=document.getElementById('wallIntentPreview');
+const wallDownload=document.getElementById('downloadWallIntent'),prepareWall=document.getElementById('prepareWallReview');
+const backGeometryStatus=document.getElementById('backGeometryStatus'),supportReviewStatus=document.getElementById('supportReviewStatus');
+const candidateField=document.getElementById('candidateField'),candidateButtons=document.getElementById('candidateButtons'),candidateStatus=document.getElementById('candidateStatus');
+const allPieceOptions=[...picker.options].map(option=>({value:option.value,text:option.textContent}));
+const findModule=key=>moduleIndex.find(item=>moduleKey(item.group_id,item.module_id)===key);
+const savedReview=item=>wallReviews.find(review=>review.group_id===item.group_id&&review.module_id===item.module_id);
+function clearPieceSelection(){selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.'}
+function setPieceOptions(item=null){picker.replaceChildren();const allowed=item?new Set(item.piece_ids):null;for(const option of allPieceOptions){if(allowed&&!allowed.has(option.value))continue;const node=document.createElement('option');node.value=option.value;node.textContent=option.text;picker.appendChild(node)}picker.selectedIndex=-1}
+function clearIntent(){wallPreview.textContent='';wallPreview.hidden=true;wallDownload.hidden=true;wallDownload.removeAttribute('href');wallDownload.removeAttribute('download');prepareWall.disabled=true;if(wallObjectUrl){URL.revokeObjectURL(wallObjectUrl);wallObjectUrl=null}}
+function showCandidates(item){candidateButtons.replaceChildren();candidateField.hidden=false;const candidates=item.candidate_piece_ids.map(id=>data.boxes.find(box=>box.id===id)).filter(Boolean);if(!candidates.length){candidateStatus.textContent='Sin piezas candidatas verificadas; revisión de uniones pendiente.';return}candidateStatus.textContent='Candidatos nominales de revisión. No son puntos de perforación ni certifican carga.';for(const box of candidates){const button=document.createElement('button');button.type='button';button.textContent=`${labelRole(box.role)} · ${box.id}`;button.setAttribute('aria-label',`Enfocar ${labelRole(box.role)} ${box.id}`);button.addEventListener('click',()=>focusCandidate(item,box));candidateButtons.appendChild(button)}}
+function showModuleSummary(){const item=findModule(selectedModuleKey);if(!item)return;moduleSummary.textContent=`${item.group_id} · ${item.module_id}\nEnvolvente nominal XYZ: origen ${item.bounds_origin_xyz_mm.join(', ')} mm; tamaño ${item.bounds_size_xyz_mm.join(' × ')} mm\nInstalación: ${item.installation_mode}; apoyo real declarado: ${item.support_status}.\nFoco visual: prioriza este mueble frente a los vecinos atenuados; no representa oclusión física ni medida de corte.`;showCandidates(item)}
+function supportPending(item,choice){const actual=item.support_status,aliases={floor_direct:['floor','floor_direct'],legs:['legs'],plinth:['plinth'],wall_mounted:['wall','wall_mounted']};return choice==='keep_existing'?!['floor','legs','plinth','wall'].includes(actual):!(aliases[choice]||[]).includes(actual)}
+function updateWallStatus(){const item=findModule(selectedModuleKey),values=wallSelects.map(select=>select.value);clearIntent();prepareWall.disabled=!item||values.some(value=>!value);if(!item){backGeometryStatus.textContent='Geometría del fondo: pendiente de revisión.';supportReviewStatus.textContent='Apoyo: pendiente de selección y comparación.';wallStatus.textContent='Selecciona un módulo. Las opciones no cambian piezas ni autorizan montaje.';return}const saved=savedReview(item),same=saved&&saved.back_choice===values[0]&&saved.wall_system===values[1]&&saved.support_choice===values[2]&&saved.wall_substrate===values[3];backGeometryStatus.textContent=`Geometría del fondo: ${same?saved.back_geometry_status:'sin validar para esta intención'}. No determina fijación.`;supportReviewStatus.textContent=`Apoyo real declarado: ${item.support_status}. ${values[2]?supportPending(item,values[2])?'Apoyo por confirmar; la opción difiere del modelo y no se aplica.':'Opción de apoyo sin cambios aplicados.':'Elige una propuesta para compararla.'}`;wallStatus.textContent=same?`Revisión Maestro: ${saved.status}${saved.constraints.length?` · Pendiente: ${saved.constraints.join(', ')}`:''}${saved.book_evidence.length?` · Fuente: ${saved.book_evidence.map(source=>source.content_id+' p.'+source.pdf_page).join(', ')}`:''}. Instalación no autorizada.`:'PENDING_BACKEND_REVIEW · Esta elección es una intención sin validar; enviar el JSON a Maestro. No se aplicó geometría ni instalación.'}
+function leaveFocus(restoreZoom=true){if(!focusedModuleKey)return;focusedModuleKey='';pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();if(restoreZoom&&savedGroupZoom!==null){zoom.value=String(savedGroupZoom);document.getElementById('zoomLabel').textContent=zoom.value+' %'}savedGroupZoom=null;setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true}
+function returnToSet(){leaveFocus(true);showModuleSummary();render()}
+function selectModule(item){const key=moduleKey(item.group_id,item.module_id);if(focusedModuleKey&&focusedModuleKey!==key)leaveFocus(true);const groupIndex=data.groups.findIndex(group=>group.id===item.group_id),groupToggle=document.querySelectorAll('#groups input')[groupIndex];if(groupToggle&&!shown.has(item.group_id)){groupToggle.checked=true;shown.add(item.group_id)}selectedModuleKey=key;modulePicker.value=String(moduleIndex.indexOf(item));document.getElementById('focusModule').disabled=false;wallEditor.hidden=false;showModuleSummary();const saved=savedReview(item),values=saved?[saved.back_choice,saved.wall_system,saved.support_choice,saved.wall_substrate]:['','','',''];wallSelects.forEach((select,index)=>{select.value=values[index]});clearPieceSelection();document.getElementById('details').textContent='Selecciona el mueble; enfócalo para inspeccionar sus piezas.';updateWallStatus();render()}
+function focusSelectedModule(){const item=findModule(selectedModuleKey);if(!item)return;const key=selectedModuleKey;if(!focusedModuleKey)savedGroupZoom=Number(zoom.value);focusedModuleKey=key;const boxes=data.boxes.filter(box=>box.group===item.group_id&&box.module_id===item.module_id),frame=movementFrame(boxes,item.bounds_origin_xyz_mm,item.bounds_origin_xyz_mm.map((value,index)=>value+item.bounds_size_xyz_mm[index]));pivot=frame.min.map((value,index)=>(value+frame.max[index])/2);frameMin=frame.min;frameMax=frame.max;zoom.value='100';document.getElementById('zoomLabel').textContent='100 %';setPieceOptions(item);clearPieceSelection();document.getElementById('focusModule').hidden=true;document.getElementById('returnToSet').hidden=false;showModuleSummary();render()}
+function focusCandidate(item,box){if(!shown.has(box.group)){const index=data.groups.findIndex(group=>group.id===box.group),toggle=document.querySelectorAll('#groups input')[index];if(toggle)toggle.checked=true;shown.add(box.group)}if(cutEnabled.checked&&box.origin[1]>=Number(cutHeight.value)){candidateStatus.textContent=`${box.id} queda por encima del corte activo; desactiva el corte para inspeccionarlo.`;return}if(selectedModuleKey!==moduleKey(item.group_id,item.module_id))selectModule(item);if(!focusedModuleKey)focusSelectedModule();pick(box)}
+function clearModuleSelection(){leaveFocus(true);selectedModuleKey='';modulePicker.value='';document.getElementById('focusModule').disabled=true;document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true;wallEditor.hidden=true;moduleSummary.textContent='Selecciona un módulo de la lista o una pieza visible.';candidateField.hidden=true;candidateButtons.replaceChildren();candidateStatus.textContent='';wallSelects.forEach(select=>select.value='');clearIntent();clearPieceSelection();updateWallStatus();render()}
+const originalPick=pick;
+pick=function(box){if(!box)return;const key=moduleKey(box.group,box.module_id);if(focusedModuleKey){if(key!==focusedModuleKey)return;originalPick(box);return}if(key!==selectedModuleKey){const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===key);if(item)selectModule(item);return}showModuleSummary()};
+for(const [index,item] of moduleIndex.entries()){const option=document.createElement('option');option.value=String(index);option.textContent=`${item.group_id} · ${item.module_id}`;modulePicker.appendChild(option)}
+modulePicker.addEventListener('change',()=>{if(modulePicker.value===''){clearModuleSelection();return}const index=Number(modulePicker.value),item=Number.isInteger(index)?moduleIndex[index]:null;if(item)selectModule(item);else clearModuleSelection()});
+document.getElementById('focusModule').addEventListener('click',focusSelectedModule);document.getElementById('returnToSet').addEventListener('click',returnToSet);
+svg.addEventListener('dblclick',event=>{const id=panelAt(event.clientX,event.clientY),box=data.boxes.find(item=>item.id===id);if(!box||!box.module_id)return;const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===moduleKey(box.group,box.module_id));if(item){selectModule(item);focusSelectedModule()}event.preventDefault()});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&focusedModuleKey)returnToSet()});
+document.getElementById('resetView').addEventListener('click',()=>{focusedModuleKey='';savedGroupZoom=null;pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true;if(selectedModuleKey)showModuleSummary();render()});
+wallSelects.forEach(select=>select.addEventListener('change',updateWallStatus));
+prepareWall.addEventListener('click',()=>{const item=findModule(selectedModuleKey);if(!item||wallSelects.some(select=>!select.value))return;const intent={group_id:item.group_id,module_id:item.module_id,back_choice:wallSelects[0].value,wall_system:wallSelects[1].value,support_choice:wallSelects[2].value,wall_substrate:wallSelects[3].value};const text=JSON.stringify(intent,null,2);wallPreview.textContent=text;wallPreview.hidden=false;wallObjectUrl=URL.createObjectURL(new Blob([text+'\n'],{type:'application/json'}));wallDownload.href=wallObjectUrl;wallDownload.download=`wall-review-${item.group_id}-${item.module_id}.json`;wallDownload.hidden=false;wallDownload.textContent='Descargar intención JSON · seis campos';wallStatus.textContent='Preparada para revisión del Maestro. No se guardó ni aplicó al proyecto y no autoriza instalación.'});
+'''
+
+
+def _module_editor_html(html: str) -> str:
+    """Add the editor only to explicitly selected D19 reviews.
+
+    The no-selection D19 path intentionally returns the historical template
+    bytes unchanged.
+    """
+    frame_block = """const pivot=mins.map((value,i)=>(value+maxs[i])/2);
+// Keep a fixed camera frame that includes door swings and the conservative visual drawer travel.
+const frameMin=mins.slice(),frameMax=maxs.slice();
+const includeFramePoint=point=>{for(let i=0;i<3;i++){frameMin[i]=Math.min(frameMin[i],point[i]);frameMax[i]=Math.max(frameMax[i],point[i])}};
+for(const box of data.boxes.filter(item=>item.role==='front_left'||item.role==='front_right')){
+ const [x,y,z]=box.origin,[w,h,d]=box.size,isLeft=box.role==='front_left',hx=isLeft?x:x+w,hz=z+d/2,turn=isLeft?1:-1;
+ for(const xx of [x,x+w])for(const yy of [y,y+h])for(const zz of [z,z+d])for(let deg=0;deg<=90;deg++){
+  const a=turn*deg*Math.PI/180,c=Math.cos(a),s=Math.sin(a),dx=xx-hx,dz=zz-hz;
+  includeFramePoint([hx+dx*c+dz*s,yy,hz-dx*s+dz*c]);
+ }
+}
+for(const drawer of data.drawers){
+ const travel=drawer.depth_mm*.2;
+ for(const box of data.boxes.filter(item=>drawer.piece_ids.includes(item.id))){
+  includeFramePoint([box.origin[0],box.origin[1],box.origin[2]-travel]);
+  includeFramePoint([box.origin[0]+box.size[0],box.origin[1]+box.size[1],box.origin[2]+box.size[2]-travel]);
+ }
+}
+const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
+    scoped_frame_block = """let pivot=mins.map((value,i)=>(value+maxs[i])/2);
+// Shared review-only movement AABB; this never validates hinge or slide hardware.
+const movementFrame=(boxes,baseMin=null,baseMax=null)=>{
+ const low=baseMin?baseMin.slice():[Infinity,Infinity,Infinity],high=baseMax?baseMax.slice():[-Infinity,-Infinity,-Infinity];
+ const include=point=>{for(let i=0;i<3;i++){low[i]=Math.min(low[i],point[i]);high[i]=Math.max(high[i],point[i])}};
+ for(const box of boxes){
+  const [x,y,z]=box.origin,[w,h,d]=box.size;
+  for(const xx of [x,x+w])for(const yy of [y,y+h])for(const zz of [z,z+d])include([xx,yy,zz]);
+  if(box.role==='front_left'||box.role==='front_right'){
+   const isLeft=box.role==='front_left',hx=isLeft?x:x+w,hz=z+d/2,turn=isLeft?1:-1;
+   for(const xx of [x,x+w])for(const yy of [y,y+h])for(const zz of [z,z+d])for(let deg=0;deg<=90;deg++){
+    const a=turn*deg*Math.PI/180,c=Math.cos(a),s=Math.sin(a),dx=xx-hx,dz=zz-hz;
+    include([hx+dx*c+dz*s,yy,hz-dx*s+dz*c]);
+   }
+  }
+  const drawer=drawerByPiece.get(box.id);
+  if(drawer){const travel=drawer.depth_mm*.2;for(const xx of [x,x+w])for(const yy of [y,y+h])for(const zz of [z,z+d])include([xx,yy,zz-travel]);}
+ }
+ return {min:low,max:high};
+};
+const fullFrame=movementFrame(data.boxes,mins,maxs);let frameMin=fullFrame.min.slice(),frameMax=fullFrame.max.slice();
+const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
+    substitutions = (
+        ('</style>', _MODULE_CSS + '</style>'),
+        ('<fieldset><legend>Panel seleccionado</legend>',
+         _MODULE_UI + '<fieldset><legend>Panel seleccionado</legend>'),
+        ('const data=JSON.parse(document.getElementById(\'scene-data\').textContent);',
+         'const data=JSON.parse(document.getElementById(\'scene-data\').textContent);\n'
+         'let selectedModuleKey=\'\',focusedModuleKey=\'\',wallObjectUrl=null,savedGroupZoom=null,focusPriorityOverrides=0;'),
+        (frame_block, scoped_frame_block),
+        ('function render(){', 'function render(){focusPriorityOverrides=0;'),
+        ('let depth,owners,faceIds,canvas,ctx,imageData;',
+         'let depth,owners,faceIds,ownerPriority,canvas,ctx,imageData;'),
+        ('faceIds=new Int16Array(pixelCount);faceIds.fill(-1);',
+         'faceIds=new Int16Array(pixelCount);faceIds.fill(-1);ownerPriority=new Uint8Array(pixelCount);'),
+        ('const faceColors=[],camera=cameraState();\n for(const entry of all){',
+         'const faceColors=[],camera=cameraState();\n const renderFocusKey=typeof focusedModuleKey===\'string\'?focusedModuleKey:\'\';\n for(const entry of all){\n  const priority=renderFocusKey&&entry.box.module_id&&entry.box.group+\'::\'+entry.box.module_id===renderFocusKey?1:0;'),
+        ('if(value>depth[index]+1e-5){depth[index]=value;owners[index]=entry.boxIndex;faceIds[index]=entry.faceId;}',
+         'if(priority>ownerPriority[index]||(priority===ownerPriority[index]&&value>depth[index]+1e-5)){if(priority&&owners[index]>=0)focusPriorityOverrides++;depth[index]=value;owners[index]=entry.boxIndex;faceIds[index]=entry.faceId;ownerPriority[index]=priority;}'),
+        ('const updateViewBox=()=>{',
+         'const fullPivot=pivot.slice(),fullFrameMin=frameMin.slice(),fullFrameMax=frameMax.slice();\nconst updateViewBox=()=>{'),
+        ('const color=edge?[15,46,60]:base,selectedPiece=data.boxes[owners[index]].id;',
+         'const ownerBox=data.boxes[owners[index]],neighborDimmed=Boolean(focusedModuleKey&&'
+         'ownerBox.module_id&&ownerBox.group+\'::\'+ownerBox.module_id!==focusedModuleKey);'
+         'let color=edge?[15,46,60]:base;if(neighborDimmed)color=color.map(channel=>Math.round(255-(255-channel)*.2));'
+         'const selectedPiece=ownerBox.id;'),
+        ('rgba[offset+3]=255;\n }',
+         'rgba[offset+3]=255;if(neighborDimmed)owners[index]=-1;\n }'),
+        ("href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length});",
+         "href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,"
+         "'data-focused-module':focusedModuleKey,'data-neighbor-opacity':focusedModuleKey?'0.20':'0',"
+         "'data-focused-priority-overrides':focusPriorityOverrides});"),
+        ("picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));",
+         "picker.addEventListener('change',()=>{const box=data.boxes.find(item=>item.id===picker.value);if(box)pick(box)});"),
+        ('</script></body></html>', _MODULE_SCRIPT + '</script></body></html>'),
+    )
+    for old, new in substitutions:
+        if html.count(old) != 1:
+            raise RoomViewerError("Plantilla D19 no coincide con los puntos de extensión aprobados")
+        html = html.replace(old, new, 1)
+    return html
+
+
 def render_room_3d_html(review: dict[str, Any]) -> str:
     """Render a self-contained offline review from a verified room result."""
-    payload = json.dumps(_payload(review), ensure_ascii=False, separators=(",", ":"))
+    data = _payload(review)
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    return _HTML.replace("__SCENE_DATA__", payload)
+    html = _HTML.replace("__SCENE_DATA__", payload)
+    if "module_index" in data:
+        html = _module_editor_html(html)
+    return html
 
 
 def main(argv: list[str] | None = None) -> int:
