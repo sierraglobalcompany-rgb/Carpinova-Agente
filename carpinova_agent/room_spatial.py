@@ -331,6 +331,195 @@ def _module_index(
     return contexts
 
 
+def _attach_module_edit_index(
+    result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
+    assemblies: list[dict[str, Any]], specs_by_group: dict[str, dict[str, Any]],
+) -> None:
+    """Describe editable local dimensions using reconciled F6/CAD modules."""
+    exchanges = {item["group_id"]: item["exchange"] for item in assemblies}
+    rows = []
+    for group_id, model in models_by_group.items():
+        source = specs_by_group.get(group_id)
+        if type(source) is not dict:
+            _error(f"{group_id}: falta la solicitud F6 fuente del editor")
+        source_modules = source.get("modules")
+        if type(source_modules) is not list:
+            _error(f"{group_id}: módulos fuente inválidos para el editor")
+        source_by_id = {item.get("module_id"): item for item in source_modules
+                        if type(item) is dict}
+        f6_modules = model.get("modules")
+        if type(f6_modules) is not list:
+            _error(f"{group_id}: módulos F6 inválidos para el editor")
+        for module in f6_modules:
+            module_id = module.get("module_id")
+            spec = source_by_id.get(module_id)
+            if type(spec) is not dict:
+                _error(f"{group_id}/{module_id}: no coincide con módulo fuente")
+            concept = spec.get("support_concept")
+            style = (concept.get("style") if type(concept) is dict else
+                     ("wall_mounted" if spec.get("support") == "wall" else "floor_direct"))
+            support_height = (concept.get("support_height_mm", 0)
+                              if type(concept) is dict else 0)
+            overall_height = (concept.get("overall_height_mm")
+                              if type(concept) is dict else module.get("external_height_mm"))
+            special = any(spec.get(key) is not None for key in (
+                "countertop", "upper_support", "vertical_divider", "corner_blind",
+                "wall_rear_ties"))
+            shared = len(source_modules) > 1
+            fields = (["width_mm"] if shared else [
+                "width_mm", "overall_height_mm", "carcass_depth_mm",
+                "support_style", "support_height_mm",
+            ])
+            reason = ("Fila compartida: alto, fondo y apoyo requieren independización H10."
+                      if shared else "")
+            if special:
+                fields = []
+                reason = "Módulo con soporte/café, esquinero, divisor vertical o amarres: edición dimensional fuera de alcance."
+            if source.get("installation") == "built_in" or source.get("application") == "closet":
+                fields = []
+                reason = "Empotrado: requiere medidas de sitio y revisión independiente."
+            elif support_height > 0:
+                fields = ["width_mm"]
+                reason = "Origen con apoyo previo no permite recalcular Y sin evidencia de la base de suelo."
+            if type(overall_height) is not int or type(support_height) is not int:
+                _error(f"{group_id}/{module_id}: alturas no verificables")
+            exchange = exchanges[group_id]
+            bounds = exchange.get("bounds_xyz_mm")
+            if type(bounds) is not list or len(bounds) != 3:
+                _error(f"{group_id}: CADExchange sin profundidad ensamblada")
+            rows.append({
+                "group_id": group_id, "module_id": module_id,
+                "width_mm": module.get("external_width_mm"),
+                "overall_height_mm": overall_height,
+                "carcass_height_mm": module.get("external_height_mm"),
+                "carcass_depth_mm": module.get("external_depth_mm"),
+                "assembled_external_depth_mm": bounds[2],
+                "support_style": style, "support_height_mm": support_height,
+                "editable_fields": fields, "edit_block_reason": reason,
+            })
+    result["module_edit_index"] = sorted(
+        rows, key=lambda item: (item["group_id"], item["module_id"])
+    )
+
+
+def _apply_module_edit_revisions(
+    reviews: dict[str, dict[str, Any]], revisions: Any,
+) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
+    from .module_edits import apply_group_revisions, validate_revision_list
+    from .maestro import consult_maestro
+    from .cad_exchange import cad_exchange, validate_exchange
+
+    normalized = validate_revision_list(revisions)
+    by_group: dict[str, list[dict[str, Any]]] = {}
+    for item in normalized:
+        by_group.setdefault(item["group_id"], []).append(item)
+    effective = dict(reviews)
+    offsets: dict[str, int] = {}
+    for group, group_revisions in by_group.items():
+        reviewed = reviews.get(group)
+        trusted = reviewed.get("_trusted_nominal_request") if type(reviewed) is dict else None
+        if type(trusted) is not dict or trusted.get("action") != "modular":
+            _error(f"{group}: no existe una solicitud Maestro privada para editar")
+        updated = copy.deepcopy(trusted)
+        source_spec = updated.get("module_spec")
+        updated_spec, module_offsets = apply_group_revisions(
+            source_spec, group_revisions,
+        )
+        updated["module_spec"] = updated_spec
+        answer = consult_maestro(updated)
+        model = answer.get("modular")
+        if (answer.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                or type(model) is not dict
+                or model.get("status") != "DRAFT_NOT_FOR_CUTTING"
+                or any(answer.get(flag) is not False or model.get(flag) is not False
+                       for flag in ("fabrication_ready", "cutting_ready",
+                                    "drilling_ready", "purchase_ready"))
+                or model.get("can_generate_f7c", False) is not False):
+            _error(f"{group}: Maestro rechazó la revisión nominal de dimensiones")
+        exchange = validate_exchange(cad_exchange(model))
+        if any(value > 0 for value in module_offsets.values()):
+            if len(module_offsets) != 1:
+                _error(f"{group}: reserva de apoyo en fila compartida no permitida")
+            offsets[group] = next(iter(module_offsets.values()))
+        effective[group] = {
+            **reviewed, "model": model, "exchange": exchange,
+            "_trusted_nominal_request": updated,
+            "_module_support_offsets": module_offsets,
+        }
+    return effective, offsets
+
+
+def _attach_support_reservations(
+    result: dict[str, Any], assemblies: list[dict[str, Any]],
+    specs_by_group: dict[str, dict[str, Any]],
+) -> None:
+    """Add non-selectable conceptual AP volumes without creating panels."""
+    reservations = []
+    for assembly in assemblies:
+        group = assembly["group_id"]
+        spec = specs_by_group[group]
+        modules = spec.get("modules", [])
+        for module in modules:
+            concept = module.get("support_concept") if type(module) is dict else None
+            if type(concept) is not dict or concept.get("support_height_mm", 0) <= 0:
+                continue
+            if concept.get("style") not in {"legs", "plinth"}:
+                continue
+            width, depth, height = module.get("width_mm"), spec.get("depth_mm"), concept["support_height_mm"]
+            if any(type(value) is not int or value <= 0 for value in (width, depth, height)):
+                _error(f"{group}/{module.get('module_id')}: reserva conceptual de apoyo inválida")
+            base_origin = list(assembly["origin_xyz_mm"])
+            base_origin[1] -= height
+            origin, size = _transform_box(
+                {"origin_xyz_mm": [0, 0, 0], "size_xyz_mm": [width, height, depth]},
+                assembly["exchange"]["bounds_xyz_mm"], base_origin,
+                assembly["rotation_deg"],
+            )
+            reservations.append({
+                "group_id": group, "module_id": module["module_id"],
+                "style": concept["style"], "support_height_mm": height,
+                "origin_xyz_mm": origin, "size_xyz_mm": size,
+                "selectable": False,
+                "status": "CONCEPTUAL_RESERVATION_NOT_PHYSICAL_PARTS",
+            })
+    collisions = []
+    groups = result.get("groups", [])
+    zones = result.get("service_zones", [])
+    for reservation in reservations:
+        for group in groups:
+            if group["group_id"] == reservation["group_id"]:
+                continue
+            other = {"origin_xyz_mm": group["origin_xyz_mm"],
+                     "bounds_xyz_mm": group["bounds_xyz_mm"]}
+            overlap = _overlap(reservation, other)
+            if overlap:
+                collisions.append({"reservation": reservation["group_id"],
+                                   "other_group": group["group_id"],
+                                   "overlap_xyz_mm": overlap})
+        for zone in zones:
+            overlap = _overlap(reservation, zone)
+            if overlap:
+                collisions.append({"reservation": reservation["group_id"],
+                                   "service_zone": zone["zone_id"],
+                                   "overlap_xyz_mm": overlap})
+    for index, left in enumerate(reservations):
+        for right in reservations[index + 1:]:
+            if left["group_id"] == right["group_id"]:
+                continue
+            overlap = _overlap(left, right)
+            if overlap:
+                collisions.append({"reservation": left["group_id"],
+                                   "other_reservation": right["group_id"],
+                                   "overlap_xyz_mm": overlap})
+    result["support_reservations"] = reservations
+    result["support_collisions"] = collisions
+    if collisions:
+        result["status"] = "INTERFERENCE_REVIEW_REQUIRED"
+        result["warnings"] = list(dict.fromkeys([
+            *result.get("warnings", []), "CONCEPTUAL_SUPPORT_RESERVATION_OVERLAP_BLOCKS_REVIEW",
+        ]))
+
+
 def _carcass_material(
     module: dict[str, Any], piece_ids: list[str],
     parts_by_id: dict[str, dict[str, Any]],
@@ -694,6 +883,8 @@ def _apply_back_revisions(
                 target["wall_rear_ties"] = copy.deepcopy(
                     revision["wall_rear_ties"]
                 )
+            elif revision["back"] == "none":
+                target["back"] = "none"
             else:
                 target["back"] = copy.deepcopy(revision["back"])
             target_ids.add(module_id)
@@ -798,13 +989,23 @@ def _apply_back_revisions(
                                != [clear_width, tie_height, thickness]):
                         _error(f"{group}/{module_id}: CAD del amarre no coincide con F6")
                 continue
-            back = module_matches[0].get("back")
-            if type(back) is not dict:
-                _error(f"{group}/{module_id}: Maestro no devolvió un fondo explícito")
             requested_module = next(
                 module for module in modules
                 if module.get("module_id") == module_id
             )
+            back = module_matches[0].get("back")
+            if back == "none":
+                actual = [box for box in exchange["boxes"]
+                          if box["module_id"] == module_id
+                          and box["role"].startswith("back_")]
+                f6_actual = [part for part in model.get("parts", [])
+                             if part.get("module_id") == module_id
+                             and part.get("role", "").startswith("back_")]
+                if (requested_module.get("back") != "none" or actual or f6_actual):
+                    _error(f"{group}/{module_id}: F6/CAD no retiró exclusivamente el fondo")
+                continue
+            if type(back) is not dict:
+                _error(f"{group}/{module_id}: Maestro no devolvió un fondo explícito")
             if back != requested_module.get("back"):
                 _error(f"{group}/{module_id}: el fondo F6 difiere de la solicitud privada")
             if back.get("style") == "inset_full":
@@ -1109,10 +1310,17 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
     F6/commissioning contracts and permissions remain the authority.
     """
     required = {"review_kind", "assemblies", "service_zones"}
-    if (type(request) is not dict
-            or set(request) not in (required, required | {"wall_review_revisions"})
+    optional = {"wall_review_revisions", "module_edit_revisions"}
+    if (type(request) is not dict or not required <= set(request)
+            or set(request) - required - optional
             or request.get("review_kind") != "room_layout_v1"):
         _error("room_layout_v1 requiere review_kind, assemblies, service_zones y wall_review_revisions opcional")
+    from .module_edits import apply_group_revisions, validate_revision_list
+    edit_revisions = (validate_revision_list(request["module_edit_revisions"])
+                      if "module_edit_revisions" in request else [])
+    revisions_by_group: dict[str, list[dict[str, Any]]] = {}
+    for revision in edit_revisions:
+        revisions_by_group.setdefault(revision["group_id"], []).append(revision)
     from .maestro import consult_maestro
     from .cad_exchange import cad_exchange, validate_exchange
     assembly_input = request["assemblies"]
@@ -1120,12 +1328,20 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
         _error("assemblies: entre 1 y 6 grupos")
     prepared = []
     models_by_group: dict[str, dict[str, Any]] = {}
+    specs_by_group: dict[str, dict[str, Any]] = {}
     for raw in assembly_input:
         if type(raw) is not dict or set(raw) != {
             "group_id", "module_spec", "origin_xyz_mm", "rotation_deg"
         } or type(raw.get("module_spec")) is not dict:
             _error("assembly: use group_id, module_spec, origin_xyz_mm, rotation_deg")
-        answer = consult_maestro({"action": "modular", "module_spec": raw["module_spec"]})
+        module_spec = copy.deepcopy(raw["module_spec"])
+        group_revisions = revisions_by_group.pop(raw["group_id"], [])
+        support_offsets: dict[str, int] = {}
+        if group_revisions:
+            module_spec, support_offsets = apply_group_revisions(
+                module_spec, group_revisions,
+            )
+        answer = consult_maestro({"action": "modular", "module_spec": module_spec})
         model = answer.get("modular")
         if (answer.get("status") != "DRAFT_NOT_FOR_CUTTING" or type(model) is not dict
                 or model.get("status") != "DRAFT_NOT_FOR_CUTTING"
@@ -1136,16 +1352,29 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
             _error("El compositor no entregó un modelo nominal seguro")
         exchange = validate_exchange(cad_exchange(model))
         models_by_group[raw["group_id"]] = model
+        specs_by_group[raw["group_id"]] = module_spec
+        origin = list(raw["origin_xyz_mm"])
+        if support_offsets:
+            if len(support_offsets) != 1:
+                _error("Reserva de apoyo por módulo no permitida en este grupo")
+            origin[1] += next(iter(support_offsets.values()))
         prepared.append({
             "group_id": raw["group_id"], "exchange": exchange,
-            "origin_xyz_mm": raw["origin_xyz_mm"],
+            "origin_xyz_mm": origin,
             "rotation_deg": raw["rotation_deg"],
         })
+    if revisions_by_group:
+        _error("module_edit_revisions identifica un grupo que no existe")
     result = compose_verified_exchanges(prepared, request["service_zones"])
     _attach_construction_reviews(result, models_by_group)
-    if "wall_review_revisions" in request:
+    if "wall_review_revisions" in request or "module_edit_revisions" in request:
         _attach_wall_reviews(result, models_by_group, prepared,
-                             request["wall_review_revisions"])
+                             request.get("wall_review_revisions", []))
+    if "module_edit_revisions" in request:
+        _attach_support_reservations(result, prepared, specs_by_group)
+        _attach_module_edit_index(result, models_by_group, prepared, specs_by_group)
+        if result["status"] != "REVIEW_ONLY":
+            _error("La edición dimensional crea interferencias o reservas incompatibles")
     return result
 
 
@@ -1199,7 +1428,8 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
     from .kitchen_linear import _GROUPS, _build, _validate_state
 
     required = {"review_kind", "review_state", "service_zones"}
-    optional = {"rotations_deg", "back_revisions", "wall_review_revisions"}
+    optional = {"rotations_deg", "back_revisions", "wall_review_revisions",
+                "module_edit_revisions"}
     fields = set(request) if type(request) is dict else set()
     if (type(request) is not dict or not required <= fields
             or fields - required - optional
@@ -1228,26 +1458,43 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
         _apply_back_revisions(rebuilt["_reviews"], request["back_revisions"])
         if "back_revisions" in request else rebuilt["_reviews"]
     )
+    support_offsets: dict[str, int] = {}
+    if "module_edit_revisions" in request:
+        reviewed_groups, support_offsets = _apply_module_edit_revisions(
+            reviewed_groups, request["module_edit_revisions"]
+        )
     assemblies = []
     models_by_group: dict[str, dict[str, Any]] = {}
+    specs_by_group: dict[str, dict[str, Any]] = {}
     for group in _GROUPS:
         reviewed = reviewed_groups[group]
         origin = working["positions"][group]
         if (reviewed["status"] != "REVIEW_ONLY_VALID" or origin is None
                 or type(reviewed.get("exchange")) is not dict):
             _error("Falta geometría nominal revalidada para " + group)
+        assembly_origin = list(origin)
+        assembly_origin[1] += support_offsets.get(group, 0)
         assemblies.append({
             "group_id": group,
             "exchange": reviewed["exchange"],
-            "origin_xyz_mm": origin,
+            "origin_xyz_mm": assembly_origin,
             "rotation_deg": rotations[group],
         })
         models_by_group[group] = reviewed["model"]
+        trusted = reviewed.get("_trusted_nominal_request")
+        if type(trusted) is not dict or type(trusted.get("module_spec")) is not dict:
+            _error(f"{group}: falta solicitud privada para el índice editable")
+        specs_by_group[group] = trusted["module_spec"]
     output = compose_verified_exchanges(assemblies, request["service_zones"])
     _attach_construction_reviews(output, models_by_group)
-    if "wall_review_revisions" in request:
+    if "wall_review_revisions" in request or "module_edit_revisions" in request:
         _attach_wall_reviews(output, models_by_group, assemblies,
-                             request["wall_review_revisions"])
+                             request.get("wall_review_revisions", []))
+    if "module_edit_revisions" in request:
+        _attach_support_reservations(output, assemblies, specs_by_group)
+        _attach_module_edit_index(output, models_by_group, assemblies, specs_by_group)
+        if output["status"] != "REVIEW_ONLY":
+            _error("La edición dimensional crea interferencias o reservas incompatibles")
     if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
         _error("La revisión espacial no puede habilitar fabricación")
     output["top_view_svg"] = render_top_view_svg(output)

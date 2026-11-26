@@ -356,6 +356,87 @@ def _payload(review: Any) -> dict[str, Any]:
     payload["wall_reviews"] = sorted(
         clean_reviews, key=lambda value: (value["group_id"], value["module_id"])
     )
+    if "support_reservations" in review:
+        raw_reservations = review.get("support_reservations")
+        raw_collisions = review.get("support_collisions")
+        reservation_fields = {"group_id", "module_id", "style", "support_height_mm",
+                              "origin_xyz_mm", "size_xyz_mm", "selectable", "status"}
+        if type(raw_reservations) is not list or type(raw_collisions) is not list:
+            raise RoomViewerError("Reservas conceptuales M6 inválidas")
+        clean_reservations = []
+        seen_reservations = set()
+        for item in raw_reservations:
+            if type(item) is not dict or set(item) != reservation_fields:
+                raise RoomViewerError("Reserva conceptual con esquema inválido")
+            gid = _record_id(item.get("group_id"), "support_reservation.group_id")
+            mid = _record_id(item.get("module_id"), "support_reservation.module_id")
+            key = (gid, mid)
+            if (key not in modules_by_key or key in seen_reservations
+                    or item.get("style") not in {"legs", "plinth"}
+                    or type(item.get("support_height_mm")) is not int
+                    or item["support_height_mm"] <= 0
+                    or item.get("selectable") is not False
+                    or item.get("status") != "CONCEPTUAL_RESERVATION_NOT_PHYSICAL_PARTS"):
+                raise RoomViewerError("Reserva de apoyo contradictoria o seleccionable")
+            origin = _vec(item.get("origin_xyz_mm"), "support_reservation.origin")
+            size = _vec(item.get("size_xyz_mm"), "support_reservation.size", positive=True)
+            if size[1] != item["support_height_mm"] or any(
+                    origin[i] + size[i] > 20000 for i in range(3)):
+                raise RoomViewerError("Envolvente conceptual fuera de límites")
+            seen_reservations.add(key)
+            clean_reservations.append({
+                **{field: item[field] for field in ("group_id", "module_id", "style",
+                    "support_height_mm", "selectable", "status")},
+                "origin_xyz_mm": origin, "size_xyz_mm": size,
+            })
+        if raw_collisions:
+            raise RoomViewerError("La reserva conceptual intersecta otra zona; no se puede editar")
+        payload["support_reservations"] = sorted(
+            clean_reservations, key=lambda item: (item["group_id"], item["module_id"])
+        )
+    if "module_edit_index" in review:
+        raw_edits = review.get("module_edit_index")
+        edit_fields = {
+            "group_id", "module_id", "width_mm", "overall_height_mm",
+            "carcass_height_mm", "carcass_depth_mm",
+            "assembled_external_depth_mm", "support_style",
+            "support_height_mm", "editable_fields", "edit_block_reason",
+        }
+        styles = {"floor_direct", "legs", "plinth", "wall_mounted"}
+        editable = {"width_mm", "overall_height_mm", "carcass_depth_mm",
+                    "support_style", "support_height_mm"}
+        if type(raw_edits) is not list or len(raw_edits) != len(clean_index):
+            raise RoomViewerError("Índice dimensional M6 incompleto")
+        clean_edits, seen_edits = [], set()
+        for item in raw_edits:
+            if type(item) is not dict or set(item) != edit_fields:
+                raise RoomViewerError("Entrada dimensional M6 con esquema inválido")
+            gid = _record_id(item.get("group_id"), "module_edit_index.group_id")
+            mid = _record_id(item.get("module_id"), "module_edit_index.module_id")
+            key = (gid, mid)
+            if key not in modules_by_key or key in seen_edits:
+                raise RoomViewerError("Identidad dimensional M6 inexistente o duplicada")
+            seen_edits.add(key)
+            for field in ("width_mm", "overall_height_mm", "carcass_height_mm",
+                          "carcass_depth_mm", "assembled_external_depth_mm"):
+                if type(item.get(field)) is not int or not 1 <= item[field] <= 20000:
+                    raise RoomViewerError(f"{field} dimensional M6 inválido")
+            if (item.get("support_style") not in styles
+                    or type(item.get("support_height_mm")) is not int
+                    or not 0 <= item["support_height_mm"] <= 20000
+                    or item["overall_height_mm"] != item["carcass_height_mm"] + item["support_height_mm"]
+                    or type(item.get("editable_fields")) is not list
+                    or any(type(field) is not str for field in item["editable_fields"])
+                    or len(item["editable_fields"]) != len(set(item["editable_fields"]))
+                    or not set(item["editable_fields"]) <= editable
+                    or type(item.get("edit_block_reason")) is not str):
+                raise RoomViewerError("Valores o permisos dimensionales M6 inválidos")
+            clean_edits.append({key: item[key] for key in edit_fields})
+        if seen_edits != set(modules_by_key):
+            raise RoomViewerError("Índice dimensional M6 no cubre los módulos existentes")
+        payload["module_edit_index"] = sorted(
+            clean_edits, key=lambda item: (item["group_id"], item["module_id"])
+        )
     return payload
 
 
@@ -691,11 +772,12 @@ _MODULE_CSS = r'''
 .module-review output,.module-review pre{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,Consolas,monospace;color:#304c5a;background:#f4f7f8;border-radius:5px;padding:8px;min-height:32px}
 .module-review a{display:inline-block;margin-top:7px;color:#075d78;font-weight:700}
 .module-review .candidate-list{display:flex;flex-wrap:wrap;gap:5px}.module-review .candidate-list button{font-size:12px}
+.module-stage-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;padding:8px 10px;background:#fff;border:1px solid #c4d1d5;border-radius:8px}.module-stage-bar output{flex:1;min-width:120px;font-weight:650;font-size:13px}.module-stage-bar button{margin:0;background:#176b7d;color:#fff;border-color:#176b7d}.module-stage-bar button:disabled{opacity:.45;cursor:default}
 '''
 
 _MODULE_UI = r'''<fieldset id="moduleReview" class="module-review"><legend>Seleccionar y enfocar mueble</legend>
 <label for="modulePicker">Muebles del conjunto</label><select id="modulePicker"><option value="">Selecciona un mueble</option></select>
-<button type="button" id="focusModule" disabled>Enfocar mueble</button><button type="button" id="returnToSet" hidden>Volver al conjunto</button>
+<button type="button" id="focusModule" disabled>Enfocar mueble</button>
 <output id="moduleSummary" aria-live="polite">Selecciona un módulo de la lista o una pieza visible.</output>
 <fieldset id="candidateField" hidden><legend>Piezas para revisar uniones</legend><div id="candidateButtons" class="candidate-list"></div><output id="candidateStatus" aria-live="polite"></output></fieldset>
 <fieldset id="wallEditor" hidden><legend>Propuesta independiente de fondo, pared y apoyo</legend>
@@ -713,18 +795,44 @@ _MODULE_UI = r'''<fieldset id="moduleReview" class="module-review"><legend>Selec
 <output id="backGeometryStatus" aria-live="polite">Geometría del fondo: pendiente de revisión.</output>
 <output id="supportReviewStatus" aria-live="polite">Apoyo: pendiente de selección y comparación.</output>
 <output id="wallReviewStatus" aria-live="polite">Las opciones no cambian piezas ni autorizan montaje.</output><pre id="wallIntentPreview" hidden></pre><a id="downloadWallIntent" hidden>Descargar intención JSON</a>
+<fieldset id="backSpecFields" hidden><legend>Datos explícitos del fondo</legend>
+<label for="backMaterial">Material de fondo</label><select id="backMaterial"><option value="">Selecciona material</option><option value="HDF_3_LAB">HDF_3_LAB</option><option value="MELAMINA_15">MELAMINA_15</option><option value="MELAMINA_18">MELAMINA_18</option></select>
+<label for="backServices">¿Hay servicios detrás?</label><select id="backServices"><option value="">Confirma servicios</option><option value="false">No</option><option value="true">Sí</option></select>
+<label for="backGrain">Veta del fondo</label><select id="backGrain"><option value="">Confirma veta</option><option value="none">Sin veta</option><option value="face_x">Eje X</option><option value="face_y">Eje Y</option></select>
+<label for="stripTop">Alto franja superior (solo dos franjas)</label><input id="stripTop" type="number" min="1" max="20000" step="1">
+<label for="stripBottom">Alto franja inferior (solo dos franjas)</label><input id="stripBottom" type="number" min="1" max="20000" step="1">
+<label for="stripThickness">Espesor de franjas (mm)</label><input id="stripThickness" type="number" min="1" max="20000" step="1">
+<label><input id="replaceTies" type="checkbox"> Confirmo sustituir los amarres existentes de este módulo</label></fieldset>
+</fieldset>
+<fieldset id="moduleDimensions" hidden><legend>Medidas nominales del mueble</legend>
+<label for="editWidth">Ancho exterior local (mm)</label><input id="editWidth" type="number" min="1" max="20000" step="1">
+<label for="editHeight">Alto exterior total con apoyo (mm)</label><input id="editHeight" type="number" min="1" max="20000" step="1">
+<label for="editDepth">Fondo de carcasa (mm)</label><input id="editDepth" type="number" min="1" max="20000" step="1">
+<label for="editSupportStyle">Apoyo conceptual</label><select id="editSupportStyle"><option value="floor_direct">Piso directo</option><option value="legs">Patas</option><option value="plinth">Zócalo</option><option value="wall_mounted">Suspendido al muro</option></select>
+<label for="editSupportHeight">Reserva de altura del apoyo (mm)</label><input id="editSupportHeight" type="number" min="0" max="20000" step="1">
+<output id="editBlockReason" aria-live="polite"></output>
+<p id="offlineNotice" hidden>Visor offline: para aplicar y recalcular abre el editor local.</p>
+<button type="button" id="applyModuleChanges" hidden>Aplicar cambios y recalcular</button>
+<button type="button" id="downloadFullRequest" hidden>Preparar solicitud completa offline</button>
+<a id="downloadFullRequestLink" hidden>Descargar solicitud completa</a>
+<output id="moduleEditStatus" aria-live="polite">Sin cambios aplicados.</output>
 </fieldset></fieldset>'''
 
 _MODULE_SCRIPT = r'''
 Object.assign(ROLE_LABEL,{wall_rear_upper_tie:'amarre trasero superior',wall_rear_lower_tie:'amarre trasero inferior',upper_rear_tie:'correa trasera superior',lower_rear_tie:'correa trasera inferior'});
 const moduleKey=(groupId,moduleId)=>groupId+'::'+moduleId;
 const moduleIndex=data.module_index,wallReviews=data.wall_reviews;
+const moduleEditIndex=data.module_edit_index||[],moduleEditRequest=data.module_edit_request||null;
+const hostSession=window.CARPNOVA_EDITOR_SESSION||null,pendingModuleEdits=new Map();
 const modulePicker=document.getElementById('modulePicker'),moduleSummary=document.getElementById('moduleSummary');
 const wallEditor=document.getElementById('wallEditor'),wallSelects=['backChoice','wallSystem','supportChoice','wallSubstrate'].map(id=>document.getElementById(id));
 const wallStatus=document.getElementById('wallReviewStatus'),wallPreview=document.getElementById('wallIntentPreview');
 const wallDownload=document.getElementById('downloadWallIntent'),prepareWall=document.getElementById('prepareWallReview');
 const backGeometryStatus=document.getElementById('backGeometryStatus'),supportReviewStatus=document.getElementById('supportReviewStatus');
 const candidateField=document.getElementById('candidateField'),candidateButtons=document.getElementById('candidateButtons'),candidateStatus=document.getElementById('candidateStatus');
+const moduleDimensions=document.getElementById('moduleDimensions'),moduleEditStatus=document.getElementById('moduleEditStatus');
+const editInputs={width_mm:document.getElementById('editWidth'),overall_height_mm:document.getElementById('editHeight'),carcass_depth_mm:document.getElementById('editDepth'),support_style:document.getElementById('editSupportStyle'),support_height_mm:document.getElementById('editSupportHeight')};
+const backSpecFields=document.getElementById('backSpecFields');
 const allPieceOptions=[...picker.options].map(option=>({value:option.value,text:option.textContent}));
 const findModule=key=>moduleIndex.find(item=>moduleKey(item.group_id,item.module_id)===key);
 const savedReview=item=>wallReviews.find(review=>review.group_id===item.group_id&&review.module_id===item.module_id);
@@ -732,25 +840,38 @@ function clearPieceSelection(){selected='';picker.selectedIndex=-1;document.getE
 function setPieceOptions(item=null){picker.replaceChildren();const allowed=item?new Set(item.piece_ids):null;for(const option of allPieceOptions){if(allowed&&!allowed.has(option.value))continue;const node=document.createElement('option');node.value=option.value;node.textContent=option.text;picker.appendChild(node)}picker.selectedIndex=-1}
 function clearIntent(){wallPreview.textContent='';wallPreview.hidden=true;wallDownload.hidden=true;wallDownload.removeAttribute('href');wallDownload.removeAttribute('download');prepareWall.disabled=true;if(wallObjectUrl){URL.revokeObjectURL(wallObjectUrl);wallObjectUrl=null}}
 function showCandidates(item){candidateButtons.replaceChildren();candidateField.hidden=false;const candidates=item.candidate_piece_ids.map(id=>data.boxes.find(box=>box.id===id)).filter(Boolean);if(!candidates.length){candidateStatus.textContent='Sin piezas candidatas verificadas; revisión de uniones pendiente.';return}candidateStatus.textContent='Candidatos nominales de revisión. No son puntos de perforación ni certifican carga.';for(const box of candidates){const button=document.createElement('button');button.type='button';button.textContent=`${labelRole(box.role)} · ${box.id}`;button.setAttribute('aria-label',`Enfocar ${labelRole(box.role)} ${box.id}`);button.addEventListener('click',()=>focusCandidate(item,box));candidateButtons.appendChild(button)}}
-function showModuleSummary(){const item=findModule(selectedModuleKey);if(!item)return;moduleSummary.textContent=`${item.group_id} · ${item.module_id}\nEnvolvente nominal XYZ: origen ${item.bounds_origin_xyz_mm.join(', ')} mm; tamaño ${item.bounds_size_xyz_mm.join(' × ')} mm\nInstalación: ${item.installation_mode}; apoyo real declarado: ${item.support_status}.\nFoco visual: prioriza este mueble frente a los vecinos atenuados; no representa oclusión física ni medida de corte.`;showCandidates(item)}
+function editItem(item){return moduleEditIndex.find(value=>value.group_id===item.group_id&&value.module_id===item.module_id)}
+function populateDimensions(item){const source=editItem(item);moduleDimensions.hidden=!source;if(!source)return;const pending=pendingModuleEdits.get(moduleKey(item.group_id,item.module_id));for(const [field,input] of Object.entries(editInputs)){input.value=String(pending?.[field]??source[field]);input.disabled=!source.editable_fields.includes(field)}document.getElementById('editBlockReason').textContent=source.edit_block_reason||`Carcasa ${source.width_mm} × ${source.carcass_height_mm} × ${source.carcass_depth_mm} mm; exterior ensamblado ${source.assembled_external_depth_mm} mm.`;document.getElementById('offlineNotice').hidden=Boolean(hostSession);document.getElementById('applyModuleChanges').hidden=!hostSession;document.getElementById('downloadFullRequest').hidden=Boolean(hostSession);moduleEditStatus.textContent='Los campos pendientes no cambian la escena hasta aplicar.'}
+function showModuleSummary(){const item=findModule(selectedModuleKey);if(!item)return;const reservation=(data.support_reservations||[]).find(value=>value.group_id===item.group_id&&value.module_id===item.module_id);moduleSummary.textContent=`${item.group_id} · ${item.module_id}\nEnvolvente nominal XYZ: origen ${item.bounds_origin_xyz_mm.join(', ')} mm; tamaño ${item.bounds_size_xyz_mm.join(' × ')} mm\nInstalación: ${item.installation_mode}; apoyo real declarado: ${item.support_status}.${reservation?`\nReserva conceptual ${reservation.style}: ${reservation.support_height_mm} mm; contorno discontinuo no seleccionable, no son piezas ni montaje.`:''}\nFoco visual: prioriza este mueble frente a los vecinos atenuados; no representa oclusión física ni medida de corte.`;showCandidates(item);populateDimensions(item)}
 function supportPending(item,choice){const actual=item.support_status,aliases={floor_direct:['floor','floor_direct'],legs:['legs'],plinth:['plinth'],wall_mounted:['wall','wall_mounted']};return choice==='keep_existing'?!['floor','legs','plinth','wall'].includes(actual):!(aliases[choice]||[]).includes(actual)}
 function updateWallStatus(){const item=findModule(selectedModuleKey),values=wallSelects.map(select=>select.value);clearIntent();prepareWall.disabled=!item||values.some(value=>!value);if(!item){backGeometryStatus.textContent='Geometría del fondo: pendiente de revisión.';supportReviewStatus.textContent='Apoyo: pendiente de selección y comparación.';wallStatus.textContent='Selecciona un módulo. Las opciones no cambian piezas ni autorizan montaje.';return}const saved=savedReview(item),same=saved&&saved.back_choice===values[0]&&saved.wall_system===values[1]&&saved.support_choice===values[2]&&saved.wall_substrate===values[3];backGeometryStatus.textContent=`Geometría del fondo: ${same?saved.back_geometry_status:'sin validar para esta intención'}. No determina fijación.`;supportReviewStatus.textContent=`Apoyo real declarado: ${item.support_status}. ${values[2]?supportPending(item,values[2])?'Apoyo por confirmar; la opción difiere del modelo y no se aplica.':'Opción de apoyo sin cambios aplicados.':'Elige una propuesta para compararla.'}`;wallStatus.textContent=same?`Revisión Maestro: ${saved.status}${saved.constraints.length?` · Pendiente: ${saved.constraints.join(', ')}`:''}${saved.book_evidence.length?` · Fuente: ${saved.book_evidence.map(source=>source.content_id+' p.'+source.pdf_page).join(', ')}`:''}. Instalación no autorizada.`:'PENDING_BACKEND_REVIEW · Esta elección es una intención sin validar; enviar el JSON a Maestro. No se aplicó geometría ni instalación.'}
-function leaveFocus(restoreZoom=true){if(!focusedModuleKey)return;focusedModuleKey='';pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();if(restoreZoom&&savedGroupZoom!==null){zoom.value=String(savedGroupZoom);document.getElementById('zoomLabel').textContent=zoom.value+' %'}savedGroupZoom=null;setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true}
-function returnToSet(){leaveFocus(true);showModuleSummary();render()}
-function selectModule(item){const key=moduleKey(item.group_id,item.module_id);if(focusedModuleKey&&focusedModuleKey!==key)leaveFocus(true);const groupIndex=data.groups.findIndex(group=>group.id===item.group_id),groupToggle=document.querySelectorAll('#groups input')[groupIndex];if(groupToggle&&!shown.has(item.group_id)){groupToggle.checked=true;shown.add(item.group_id)}selectedModuleKey=key;modulePicker.value=String(moduleIndex.indexOf(item));document.getElementById('focusModule').disabled=false;wallEditor.hidden=false;showModuleSummary();const saved=savedReview(item),values=saved?[saved.back_choice,saved.wall_system,saved.support_choice,saved.wall_substrate]:['','','',''];wallSelects.forEach((select,index)=>{select.value=values[index]});clearPieceSelection();document.getElementById('details').textContent='Selecciona el mueble; enfócalo para inspeccionar sus piezas.';updateWallStatus();render()}
-function focusSelectedModule(){const item=findModule(selectedModuleKey);if(!item)return;const key=selectedModuleKey;if(!focusedModuleKey)savedGroupZoom=Number(zoom.value);focusedModuleKey=key;const boxes=data.boxes.filter(box=>box.group===item.group_id&&box.module_id===item.module_id),frame=movementFrame(boxes,item.bounds_origin_xyz_mm,item.bounds_origin_xyz_mm.map((value,index)=>value+item.bounds_size_xyz_mm[index]));pivot=frame.min.map((value,index)=>(value+frame.max[index])/2);frameMin=frame.min;frameMax=frame.max;zoom.value='100';document.getElementById('zoomLabel').textContent='100 %';setPieceOptions(item);clearPieceSelection();document.getElementById('focusModule').hidden=true;document.getElementById('returnToSet').hidden=false;showModuleSummary();render()}
+function leaveFocus(restoreZoom=true){if(!focusedModuleKey)return;focusedModuleKey='';pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();if(restoreZoom&&savedGroupZoom!==null){zoom.value=String(savedGroupZoom);document.getElementById('zoomLabel').textContent=zoom.value+' %'}savedGroupZoom=null;setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true}
+function returnToSet(){clearModuleSelection()}
+function selectModule(item){const key=moduleKey(item.group_id,item.module_id);if(focusedModuleKey&&focusedModuleKey!==key)leaveFocus(true);const groupIndex=data.groups.findIndex(group=>group.id===item.group_id),groupToggle=document.querySelectorAll('#groups input')[groupIndex];if(groupToggle&&!shown.has(item.group_id)){groupToggle.checked=true;shown.add(item.group_id)}selectedModuleKey=key;modulePicker.value=String(moduleIndex.indexOf(item));document.getElementById('focusModule').disabled=false;wallEditor.hidden=false;showModuleSummary();const saved=savedReview(item),values=saved?[saved.back_choice,saved.wall_system,saved.support_choice,saved.wall_substrate]:['','','',''];wallSelects.forEach((select,index)=>{select.value=values[index]});backSpecFields.hidden=!['inset_board_3mm_review','inset_board_15mm_review','inset_board_18mm_review','inset_two_strips_review'].includes(values[0]);document.getElementById('replaceTies').checked=false;clearPieceSelection();document.getElementById('details').textContent='Selecciona el mueble; enfócalo para inspeccionar sus piezas.';updateWallStatus();render()}
+function focusSelectedModule(){const item=findModule(selectedModuleKey);if(!item)return;const key=selectedModuleKey;if(!focusedModuleKey)savedGroupZoom=Number(zoom.value);focusedModuleKey=key;const boxes=data.boxes.filter(box=>box.group===item.group_id&&box.module_id===item.module_id),frame=movementFrame(boxes,item.bounds_origin_xyz_mm,item.bounds_origin_xyz_mm.map((value,index)=>value+item.bounds_size_xyz_mm[index]));pivot=frame.min.map((value,index)=>(value+frame.max[index])/2);frameMin=frame.min;frameMax=frame.max;zoom.value='100';document.getElementById('zoomLabel').textContent='100 %';setPieceOptions(item);clearPieceSelection();document.getElementById('focusModule').hidden=true;document.getElementById('returnToSet').disabled=false;showModuleSummary();render()}
 function focusCandidate(item,box){if(!shown.has(box.group)){const index=data.groups.findIndex(group=>group.id===box.group),toggle=document.querySelectorAll('#groups input')[index];if(toggle)toggle.checked=true;shown.add(box.group)}if(cutEnabled.checked&&box.origin[1]>=Number(cutHeight.value)){candidateStatus.textContent=`${box.id} queda por encima del corte activo; desactiva el corte para inspeccionarlo.`;return}if(selectedModuleKey!==moduleKey(item.group_id,item.module_id))selectModule(item);if(!focusedModuleKey)focusSelectedModule();pick(box)}
-function clearModuleSelection(){leaveFocus(true);selectedModuleKey='';modulePicker.value='';document.getElementById('focusModule').disabled=true;document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true;wallEditor.hidden=true;moduleSummary.textContent='Selecciona un módulo de la lista o una pieza visible.';candidateField.hidden=true;candidateButtons.replaceChildren();candidateStatus.textContent='';wallSelects.forEach(select=>select.value='');clearIntent();clearPieceSelection();updateWallStatus();render()}
+function clearModuleSelection(){leaveFocus(true);selectedModuleKey='';modulePicker.value='';document.getElementById('focusModule').disabled=true;document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true;wallEditor.hidden=true;moduleDimensions.hidden=true;moduleSummary.textContent='Selecciona un módulo de la lista o una pieza visible.';candidateField.hidden=true;candidateButtons.replaceChildren();candidateStatus.textContent='';wallSelects.forEach(select=>select.value='');clearIntent();clearPieceSelection();updateWallStatus();render()}
 const originalPick=pick;
 pick=function(box){if(!box)return;const key=moduleKey(box.group,box.module_id);if(focusedModuleKey){if(key!==focusedModuleKey)return;originalPick(box);return}if(key!==selectedModuleKey){const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===key);if(item)selectModule(item);return}showModuleSummary()};
 for(const [index,item] of moduleIndex.entries()){const option=document.createElement('option');option.value=String(index);option.textContent=`${item.group_id} · ${item.module_id}`;modulePicker.appendChild(option)}
 modulePicker.addEventListener('change',()=>{if(modulePicker.value===''){clearModuleSelection();return}const index=Number(modulePicker.value),item=Number.isInteger(index)?moduleIndex[index]:null;if(item)selectModule(item);else clearModuleSelection()});
 document.getElementById('focusModule').addEventListener('click',focusSelectedModule);document.getElementById('returnToSet').addEventListener('click',returnToSet);
 svg.addEventListener('dblclick',event=>{const id=panelAt(event.clientX,event.clientY),box=data.boxes.find(item=>item.id===id);if(!box||!box.module_id)return;const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===moduleKey(box.group,box.module_id));if(item){selectModule(item);focusSelectedModule()}event.preventDefault()});
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&focusedModuleKey)returnToSet()});
-document.getElementById('resetView').addEventListener('click',()=>{focusedModuleKey='';savedGroupZoom=null;pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').hidden=true;if(selectedModuleKey)showModuleSummary();render()});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&(focusedModuleKey||selectedModuleKey))returnToSet()});
+document.getElementById('resetView').addEventListener('click',()=>{focusedModuleKey='';savedGroupZoom=null;pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true;clearModuleSelection()});
 wallSelects.forEach(select=>select.addEventListener('change',updateWallStatus));
+for(const [field,input] of Object.entries(editInputs)){input.addEventListener('input',()=>{if(!selectedModuleKey)return;const values={};for(const [name,control] of Object.entries(editInputs))values[name]=control.type==='number'?Number(control.value):control.value;pendingModuleEdits.set(selectedModuleKey,values);moduleEditStatus.textContent='Cambios pendientes en '+selectedModuleKey+'; la geometría aún no cambia.'})}
+const backChoice=document.getElementById('backChoice');backChoice.addEventListener('change',()=>{const choice=backChoice.value;backSpecFields.hidden=!['inset_board_3mm_review','inset_board_15mm_review','inset_board_18mm_review','inset_two_strips_review'].includes(choice);document.getElementById('replaceTies').checked=false;updateWallStatus()});
 prepareWall.addEventListener('click',()=>{const item=findModule(selectedModuleKey);if(!item||wallSelects.some(select=>!select.value))return;const intent={group_id:item.group_id,module_id:item.module_id,back_choice:wallSelects[0].value,wall_system:wallSelects[1].value,support_choice:wallSelects[2].value,wall_substrate:wallSelects[3].value};const text=JSON.stringify(intent,null,2);wallPreview.textContent=text;wallPreview.hidden=false;wallObjectUrl=URL.createObjectURL(new Blob([text+'\n'],{type:'application/json'}));wallDownload.href=wallObjectUrl;wallDownload.download=`wall-review-${item.group_id}-${item.module_id}.json`;wallDownload.hidden=false;wallDownload.textContent='Descargar intención JSON · seis campos';wallStatus.textContent='Preparada para revisión del Maestro. No se guardó ni aplicó al proyecto y no autoriza instalación.'});
+function currentEdit(item){const source=editItem(item);if(!source)return null;const values={};for(const [field,input] of Object.entries(editInputs)){if(source.editable_fields.includes(field)){if(field==='support_style'){if(!['floor_direct','legs','plinth','wall_mounted'].includes(input.value))throw new Error('Selecciona un tipo de apoyo válido.');values[field]=input.value}else{if(input.value===''||!Number.isInteger(Number(input.value)))throw new Error(`Completa ${field} con milímetros enteros.`);values[field]=Number(input.value)}}else values[field]=source[field]}const edit={group_id:item.group_id,module_id:item.module_id,width_mm:values.width_mm,overall_height_mm:values.overall_height_mm,carcass_depth_mm:values.carcass_depth_mm,support_style:values.support_style,support_height_mm:values.support_height_mm};return Object.keys(edit).some(key=>!['group_id','module_id'].includes(key)&&edit[key]!==source[key])?edit:null}
+function currentWall(item){const values=wallSelects.map(select=>select.value);if(values.some(value=>!value))return null;const saved=savedReview(item),keys=['back_choice','wall_system','support_choice','wall_substrate'];if(saved&&keys.every((key,index)=>saved[key]===values[index]))return null;return {group_id:item.group_id,module_id:item.module_id,back_choice:values[0],wall_system:values[1],support_choice:values[2],wall_substrate:values[3]}}
+function currentBackSpec(){const choice=backChoice.value;if(choice==='keep_existing')return null;if(choice==='none')return 'none';const match=choice.match(/^inset_board_(3|15|18)mm_review$/);if(!match&&choice!=='inset_two_strips_review')return null;const material=document.getElementById('backMaterial').value,services=document.getElementById('backServices').value,grain=document.getElementById('backGrain').value;if(!material||services===''||!grain)throw new Error('Confirma material, servicios y veta del fondo.');const back={style:choice==='inset_two_strips_review'?'inset_two_strips':'inset_full',material_id:material,thickness_mm:match?Number(match[1]):Number(document.getElementById('stripThickness')?.value||0),services_present:services==='true',grain_axis:grain};if(choice==='inset_two_strips_review'){const top=Number(document.getElementById('stripTop').value),bottom=Number(document.getElementById('stripBottom').value);if(!Number.isInteger(top)||top<=0||!Number.isInteger(bottom)||bottom<=0)throw new Error('Indica ambas alturas enteras de las franjas.');back.top_strip_height_mm=top;back.bottom_strip_height_mm=bottom}return back}
+function mergedSourceRequest(item){if(!moduleEditRequest)throw new Error('Solicitud fuente offline no incluida.');const request=JSON.parse(JSON.stringify(moduleEditRequest)),edit=currentEdit(item),wall=currentWall(item);if(edit){const edits=request.module_edit_revisions||[];const i=edits.findIndex(value=>value.group_id===edit.group_id&&value.module_id===edit.module_id);if(i<0)edits.push(edit);else edits[i]=edit;request.module_edit_revisions=edits}if(wall){const revisions=request.wall_review_revisions||[];const i=revisions.findIndex(value=>value.group_id===wall.group_id&&value.module_id===wall.module_id);if(i<0)revisions.push(wall);else revisions[i]=wall;request.wall_review_revisions=revisions}const back=currentBackSpec();if(back!==null){if(!wall)throw new Error('El fondo requiere las seis decisiones murales explícitas.');if(request.review_kind==='kitchen_spatial_v1'){const revisions=request.back_revisions||[];const i=revisions.findIndex(value=>value.group_id===item.group_id&&value.module_id===item.module_id);const revision={group_id:item.group_id,module_id:item.module_id,back};if(i<0)revisions.push(revision);else revisions[i]=revision;request.back_revisions=revisions}else{const assembly=request.assemblies.find(value=>value.group_id===item.group_id),module=assembly?.module_spec?.modules?.find(value=>value.module_id===item.module_id);if(!module)throw new Error('No se encontró el módulo en la fuente.');module.back=back}}return request}
+function makePayload(item,version){const moduleEdit=currentEdit(item),wall=currentWall(item),backSpec=currentBackSpec();if((backSpec!==null)&&!wall)throw new Error('Un cambio de fondo requiere wall_revision completa.');if(!moduleEdit&&!wall)throw new Error('No hay cambios pendientes.');const hasTies=data.boxes.some(box=>box.group===item.group_id&&box.module_id===item.module_id&&['wall_rear_lower_tie','wall_rear_upper_tie','upper_rear_tie','lower_rear_tie'].includes(box.role));const replace=document.getElementById('replaceTies').checked;if(replace&&!hasTies)throw new Error('No hay amarres existentes que confirmar para sustitución.');return {version,group_id:item.group_id,module_id:item.module_id,wall_revision:wall,back_spec:backSpec,replace_existing_ties:replace,module_edit:moduleEdit}}
+document.getElementById('downloadFullRequest').addEventListener('click',()=>{try{const item=findModule(selectedModuleKey),request=mergedSourceRequest(item),text=JSON.stringify(request,null,2);const url=URL.createObjectURL(new Blob([text+'\n'],{type:'application/json'}));const link=document.getElementById('downloadFullRequestLink');link.href=url;link.download='carpinova-solicitud-m6.json';link.hidden=false;link.textContent='Descargar solicitud completa';moduleEditStatus.textContent='Solicitud completa preparada desde la fuente D19; no se aplicó geometría en este visor offline.'}catch(error){moduleEditStatus.textContent=error.message}});
+document.getElementById('applyModuleChanges').addEventListener('click',async()=>{const item=findModule(selectedModuleKey);if(!hostSession||!item)return;const button=document.getElementById('applyModuleChanges');try{const payload=makePayload(item,hostSession.version);button.disabled=true;moduleEditStatus.textContent='Recalculando por Maestro/F6…';const response=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json','X-CarpiNova-Session':hostSession.token},body:JSON.stringify(payload)});const body=await response.json();if(!response.ok||!body.ok)throw new Error(body.message||`El host rechazó la solicitud (${response.status}).`);sessionStorage.setItem('carpinovaSelection',moduleKey(item.group_id,item.module_id));sessionStorage.setItem('carpinovaAppliedMessage',body.result==='GEOMETRY_UPDATED'?'Cambios geométricos aplicados y D19 guardado.':'Revisión conceptual guardada; geometría sin cambios.');location.reload()}catch(error){moduleEditStatus.textContent=error.message;button.disabled=false}});
+if(hostSession){document.getElementById('applyModuleChanges').hidden=false;document.getElementById('downloadFullRequest').hidden=true}else if(moduleEditRequest){document.getElementById('applyModuleChanges').hidden=true;document.getElementById('downloadFullRequest').hidden=false;}
+if(hostSession){const restoreKey=sessionStorage.getItem('carpinovaSelection'),appliedMessage=sessionStorage.getItem('carpinovaAppliedMessage');if(restoreKey){const restored=findModule(restoreKey);sessionStorage.removeItem('carpinovaSelection');sessionStorage.removeItem('carpinovaAppliedMessage');if(restored){selectModule(restored);if(appliedMessage)moduleEditStatus.textContent=appliedMessage}}}
 '''
 
 
@@ -803,15 +924,28 @@ const fullFrame=movementFrame(data.boxes,mins,maxs);let frameMin=fullFrame.min.s
 const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
     substitutions = (
         ('</style>', _MODULE_CSS + '</style>'),
+        ("<section class=\"stage-wrap\"><div class=\"stage\">",
+         "<section class=\"stage-wrap\"><div class=\"module-stage-bar\" id=\"moduleStageBar\"><output id=\"selectionStatus\" aria-live=\"polite\">Conjunto completo · clic: seleccionar; doble clic: enfocar</output><button type=\"button\" id=\"returnToSet\" disabled>← Volver al conjunto</button></div><div class=\"stage\">"),
         ('<fieldset><legend>Panel seleccionado</legend>',
          _MODULE_UI + '<fieldset><legend>Panel seleccionado</legend>'),
         ('const data=JSON.parse(document.getElementById(\'scene-data\').textContent);',
          'const data=JSON.parse(document.getElementById(\'scene-data\').textContent);\n'
          'let selectedModuleKey=\'\',focusedModuleKey=\'\',wallObjectUrl=null,savedGroupZoom=null,focusPriorityOverrides=0;'),
         (frame_block, scoped_frame_block),
-        ('function render(){', 'function render(){focusPriorityOverrides=0;'),
+        ('function render(){', "function render(){focusPriorityOverrides=0;\n const selectionStatus=document.getElementById('selectionStatus'),returnButton=document.getElementById('returnToSet');\n if(selectionStatus&&returnButton){const item=data.module_index.find(value=>value.group_id+'::'+value.module_id===selectedModuleKey);selectionStatus.textContent=item?(focusedModuleKey?'Mueble aislado: ':'Mueble seleccionado: ')+item.group_id+' · '+item.module_id:'Conjunto completo · clic: seleccionar; doble clic: enfocar';returnButton.hidden=false;returnButton.disabled=!selectedModuleKey&&!focusedModuleKey;}"),
+        ("if(selected===selectedPiece&&edge){",
+         "const moduleSelected=Boolean(!focusedModuleKey&&selectedModuleKey&&ownerBox.module_id&&ownerBox.group+'::'+ownerBox.module_id===selectedModuleKey);\n  if((selected===selectedPiece||moduleSelected)&&edge){"),
         ('let depth,owners,faceIds,canvas,ctx,imageData;',
          'let depth,owners,faceIds,ownerPriority,canvas,ctx,imageData;'),
+        ('layer.appendChild(image);',
+         '''layer.appendChild(image);
+ if(Array.isArray(data.support_reservations))for(const reserve of data.support_reservations){
+  const [x,y,z]=reserve.origin_xyz_mm,[w,h,d]=reserve.size_xyz_mm;
+  const world=[[x,y,z],[x+w,y,z],[x+w,y,z+d],[x,y,z+d],[x,y+h,z],[x+w,y+h,z],[x+w,y+h,z+d],[x,y+h,z+d]],projected=world.map(point=>P(...point));
+  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]],g=E('g',{'fill':'none','stroke':'#b2691f','stroke-width':'2','stroke-dasharray':'5 4','pointer-events':'none','data-support-reservation':reserve.group_id+'::'+reserve.module_id,'aria-label':'Reserva conceptual no física'});
+  for(const [a,b] of edges)g.appendChild(E('line',{x1:projected[a][0],y1:projected[a][1],x2:projected[b][0],y2:projected[b][1]}));
+  g.appendChild(E('text',{x:projected[0][0],y:projected[0][1],fill:'#8b4b12','stroke':'none','font-size':'12'},`AP ${reserve.support_height_mm} · reserva conceptual`));layer.appendChild(g);
+ }'''),
         ('faceIds=new Int16Array(pixelCount);faceIds.fill(-1);',
          'faceIds=new Int16Array(pixelCount);faceIds.fill(-1);ownerPriority=new Uint8Array(pixelCount);'),
         ('const faceColors=[],camera=cameraState();\n for(const entry of all){',
@@ -829,7 +963,7 @@ const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
          'rgba[offset+3]=255;if(neighborDimmed)owners[index]=-1;\n }'),
         ("href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length});",
          "href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,"
-         "'data-focused-module':focusedModuleKey,'data-neighbor-opacity':focusedModuleKey?'0.20':'0',"
+         "'data-selected-module':selectedModuleKey,'data-focused-module':focusedModuleKey,'data-neighbor-opacity':focusedModuleKey?'0.20':'0',"
          "'data-focused-priority-overrides':focusPriorityOverrides});"),
         ("picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));",
          "picker.addEventListener('change',()=>{const box=data.boxes.find(item=>item.id===picker.value);if(box)pick(box)});"),
@@ -842,9 +976,23 @@ const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
     return html
 
 
-def render_room_3d_html(review: dict[str, Any]) -> str:
+def render_room_3d_html(
+    review: dict[str, Any], *, module_edit_request: dict[str, Any] | None = None,
+) -> str:
     """Render a self-contained offline review from a verified room result."""
     data = _payload(review)
+    if module_edit_request is not None:
+        from .room_review_package import _validate_source_request
+        if (type(module_edit_request) is not dict
+                or "module_edit_revisions" not in module_edit_request):
+            raise RoomViewerError("Solicitud M6 offline ausente o sin contrato de edición")
+        try:
+            _validate_source_request(module_edit_request)
+        except ValueError as exc:
+            raise RoomViewerError("Solicitud M6 offline no válida") from exc
+        if "module_edit_index" not in data:
+            raise RoomViewerError("Índice M6 requerido para guardar solicitud offline")
+        data["module_edit_request"] = module_edit_request
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     html = _HTML.replace("__SCENE_DATA__", payload)

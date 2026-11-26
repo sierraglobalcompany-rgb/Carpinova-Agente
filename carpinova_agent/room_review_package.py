@@ -24,6 +24,7 @@ _FIELDS = frozenset(("review_kind", "assemblies", "service_zones"))
 _KITCHEN_FIELDS = frozenset(("review_kind", "review_state", "service_zones"))
 _OPTIONAL_KITCHEN_FIELDS = frozenset((
     "rotations_deg", "back_revisions", "wall_review_revisions",
+    "module_edit_revisions",
 ))
 _FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready",
           "purchase_ready", "can_generate_f7c")
@@ -39,10 +40,11 @@ def _validate_source_request(request: dict[str, Any]) -> str:
     kind = request.get("review_kind")
     fields = set(request)
     if kind == "room_layout_v1":
-        if not _FIELDS <= fields or fields - _FIELDS - {"wall_review_revisions"}:
+        optional = {"wall_review_revisions", "module_edit_revisions"}
+        if not _FIELDS <= fields or fields - _FIELDS - optional:
             raise RoomPackageError(
                 "Solicitud room_layout_v1 inválida; CAD aportado prohibido y "
-                "solo wall_review_revisions es opcional"
+                "solo las revisiones permitidas son opcionales"
             )
         if ("wall_review_revisions" in request
                 and (type(request["wall_review_revisions"]) is not list
@@ -61,6 +63,12 @@ def _validate_source_request(request: dict[str, Any]) -> str:
             raise RoomPackageError("wall_review_revisions debe ser una lista de 0 a 12 elementos")
     else:
         raise RoomPackageError("Tipo de solicitud espacial no admitido.")
+    if "module_edit_revisions" in request:
+        from .module_edits import validate_revision_list
+        try:
+            validate_revision_list(request["module_edit_revisions"])
+        except ValueError as exc:
+            raise RoomPackageError(str(exc)) from exc
     return kind
 
 
@@ -117,12 +125,17 @@ def _render_verified_review(request: dict[str, Any], review: dict[str, Any],
     source_kind = _validate_source_request(request)
     if type(y_mm) is not int or y_mm < 0 or y_mm > 20000:
         raise RoomPackageError("Altura de sección inválida")
+    allowed_status = ("REVIEW_ONLY",) if "module_edit_revisions" in request else (
+        "REVIEW_ONLY", "INTERFERENCE_REVIEW_REQUIRED")
     if (type(review) is not dict or review.get("review_kind") != "room_layout_v1"
-            or review.get("status") not in ("REVIEW_ONLY", "INTERFERENCE_REVIEW_REQUIRED")
+            or review.get("status") not in allowed_status
             or any(review.get(flag) is not False for flag in _FLAGS)):
         raise RoomPackageError("Solo revisión nominal con todas las prohibiciones activas")
     # D18 independently verifies IDs, roles, piece counts, bounds and flags.
-    html = render_room_3d_html(review)
+    html = render_room_3d_html(
+        review,
+        module_edit_request=(request if "module_edit_revisions" in request else None),
+    )
     from .room_spatial import render_top_view_svg
     top = render_top_view_svg(review)
     section = render_room_panel_section_svg(review, y_mm=y_mm)

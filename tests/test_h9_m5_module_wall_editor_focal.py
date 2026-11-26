@@ -591,7 +591,8 @@ class H9M5ModuleWallEditorFocalTests(unittest.TestCase):
             }""")
             page.get_by_role("button", name="Enfocar mueble").click()
             page.keyboard.press("Escape")
-            self.assertEqual(page.evaluate("selectedModuleKey"), "CIEGO::CIEGO")
+            self.assertEqual(page.evaluate("selectedModuleKey"), "")
+            self.assertEqual(page.evaluate("focusedModuleKey"), "")
             self.assertEqual(page.evaluate("selected"), "")
             page.select_option("#modulePicker", value="")
             cleared = page.evaluate("""() => ({key:selectedModuleKey,selected,summary:moduleSummary.textContent,
