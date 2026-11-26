@@ -24,7 +24,7 @@ _FIELDS = frozenset(("review_kind", "assemblies", "service_zones"))
 _KITCHEN_FIELDS = frozenset(("review_kind", "review_state", "service_zones"))
 _OPTIONAL_KITCHEN_FIELDS = frozenset((
     "rotations_deg", "back_revisions", "wall_review_revisions",
-    "module_edit_revisions",
+    "module_edit_revisions", "wall_fixation_revisions",
 ))
 _FLAGS = ("fabrication_ready", "cutting_ready", "drilling_ready",
           "purchase_ready", "can_generate_f7c")
@@ -40,7 +40,8 @@ def _validate_source_request(request: dict[str, Any]) -> str:
     kind = request.get("review_kind")
     fields = set(request)
     if kind == "room_layout_v1":
-        optional = {"wall_review_revisions", "module_edit_revisions"}
+        optional = {"wall_review_revisions", "module_edit_revisions",
+                    "wall_fixation_revisions"}
         if not _FIELDS <= fields or fields - _FIELDS - optional:
             raise RoomPackageError(
                 "Solicitud room_layout_v1 inválida; CAD aportado prohibido y "
@@ -50,6 +51,10 @@ def _validate_source_request(request: dict[str, Any]) -> str:
                 and (type(request["wall_review_revisions"]) is not list
                      or len(request["wall_review_revisions"]) > 12)):
             raise RoomPackageError("wall_review_revisions debe ser una lista de 0 a 12 elementos")
+        if ("wall_fixation_revisions" in request
+                and (type(request["wall_fixation_revisions"]) is not list
+                     or len(request["wall_fixation_revisions"]) > 12)):
+            raise RoomPackageError("wall_fixation_revisions debe ser una lista de 0 a 12 elementos")
     elif kind == "kitchen_spatial_v1":
         if (not _KITCHEN_FIELDS <= fields
                 or fields - _KITCHEN_FIELDS - _OPTIONAL_KITCHEN_FIELDS):
@@ -61,6 +66,10 @@ def _validate_source_request(request: dict[str, Any]) -> str:
                 and (type(request["wall_review_revisions"]) is not list
                      or len(request["wall_review_revisions"]) > 12)):
             raise RoomPackageError("wall_review_revisions debe ser una lista de 0 a 12 elementos")
+        if ("wall_fixation_revisions" in request
+                and (type(request["wall_fixation_revisions"]) is not list
+                     or len(request["wall_fixation_revisions"]) > 12)):
+            raise RoomPackageError("wall_fixation_revisions debe ser una lista de 0 a 12 elementos")
     else:
         raise RoomPackageError("Tipo de solicitud espacial no admitido.")
     if "module_edit_revisions" in request:
@@ -139,6 +148,9 @@ def _render_verified_review(request: dict[str, Any], review: dict[str, Any],
     from .room_spatial import render_top_view_svg
     top = render_top_view_svg(review)
     section = render_room_panel_section_svg(review, y_mm=y_mm)
+    if "wall_fixation_geometry" in review:
+        from .wall_fixation_review import append_section_detail
+        section = append_section_detail(section, review["wall_fixation_geometry"])
     if not isinstance(review.get("layout_sha256"), str) or len(review["layout_sha256"]) != 64:
         raise RoomPackageError("Falta firma nominal de la distribución")
     if not any(b["origin_xyz_mm"][1] <= y_mm < b["origin_xyz_mm"][1] + b["size_xyz_mm"][1]
@@ -189,6 +201,8 @@ PENDIENTES: este paquete NO las corrige ni aprueba.
         "files": {name: {"bytes": len(value), "sha256": _sha(value)}
                   for name, value in sorted(files.items())},
     }
+    if "wall_fixation_sha256" in review:
+        manifest["wall_fixation_sha256"] = review["wall_fixation_sha256"]
     files["MANIFEST.json"] = _json_bytes(manifest)
     return _zip_content(files), manifest
 

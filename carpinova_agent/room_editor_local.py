@@ -220,10 +220,13 @@ class EditorSession:
 
     def apply(self, payload: Any) -> dict[str, Any]:
         with self.lock:
-            if type(payload) is not dict or set(payload) != {
+            legacy_fields = {
                 "version", "group_id", "module_id", "wall_revision", "back_spec",
                 "replace_existing_ties", "module_edit",
-            }:
+            }
+            if (type(payload) is not dict
+                    or frozenset(payload) not in {frozenset(legacy_fields),
+                                                  frozenset(legacy_fields | {"fixation_edit"})}):
                 raise EditorError("Solicitud apply con esquema inválido")
             if type(payload["version"]) is not int:
                 raise EditorError("version debe ser entero")
@@ -235,6 +238,7 @@ class EditorSession:
                                for row in self.current_review.get("module_edit_index", []))):
                 raise EditorError("Módulo inexistente en el D19 vigente")
             wall, back, edit = payload["wall_revision"], _validate_back(payload["back_spec"]), payload["module_edit"]
+            fixation_edit = payload.get("fixation_edit")
             replace = payload["replace_existing_ties"]
             if type(replace) is not bool:
                 raise EditorError("replace_existing_ties debe ser booleano explícito")
@@ -246,7 +250,29 @@ class EditorSession:
                 if type(edit) is not dict or edit.get("group_id") != group or edit.get("module_id") != module:
                     raise EditorError("module_edit requiere siete campos e identidad exacta")
                 edit = validate_revision_list([edit])[0]
-            if wall is None and edit is None:
+            if fixation_edit is not None:
+                if type(fixation_edit) is not dict or type(fixation_edit.get("action")) is not str:
+                    raise EditorError("fixation_edit requiere una acción explícita")
+                action = fixation_edit["action"]
+                if action == "remove":
+                    if set(fixation_edit) != {"action"}:
+                        raise EditorError("La acción remove no admite parámetros adicionales")
+                elif action == "model":
+                    model_fields = {
+                        "action", "length_mm", "section_height_mm", "thickness_mm",
+                        "base_y_from_carcass_mm", "rear_clearance_mm",
+                        "confirm_external_clearance",
+                    }
+                    if (set(fixation_edit) != model_fields
+                            or any(type(fixation_edit.get(field)) is not int
+                                   for field in ("length_mm", "section_height_mm",
+                                                 "thickness_mm", "base_y_from_carcass_mm",
+                                                 "rear_clearance_mm"))
+                            or fixation_edit.get("confirm_external_clearance") is not True):
+                        raise EditorError("La acción model requiere cinco cotas enteras y confirmación explícita")
+                else:
+                    raise EditorError("Acción de fijación no admitida")
+            if wall is None and edit is None and fixation_edit is None:
                 raise EditorError("Indica wall_revision o module_edit")
             if back is not None and (wall is None or wall.get("back_choice") == "keep_existing"):
                 raise EditorError("back_spec requiere una wall_revision que cambie el fondo")
@@ -261,6 +287,14 @@ class EditorSession:
             )
             effective_back = edit_context.get("effective_back_spec")
             carcass_material = edit_context.get("carcass_material")
+            effective_wall = next((row for row in self.current_review.get("wall_review_by_module", [])
+                                   if row.get("group_id") == group
+                                   and row.get("module_id") == module), None)
+            target_wall = wall if wall is not None else effective_wall
+            if (fixation_edit is not None and fixation_edit["action"] == "model"
+                    and (type(target_wall) is not dict
+                         or target_wall.get("wall_system") != "french_cleat_45")):
+                raise EditorError("Selecciona francés 45° para modelar los perfiles nominales")
             if wall is not None and wall["back_choice"] not in choices:
                 raise EditorError("back_choice no admitido")
             if wall is not None:
@@ -347,6 +381,30 @@ class EditorSession:
                     if replace:
                         target.pop("wall_rear_ties", None)
                     target["back"] = back
+            existing_fixations = candidate.get("wall_fixation_revisions", [])
+            target_key = (group, module)
+            remove_fixation = (
+                fixation_edit is not None and fixation_edit["action"] == "remove"
+            ) or (wall is not None and wall["wall_system"] != "french_cleat_45")
+            if fixation_edit is not None and fixation_edit["action"] == "model":
+                revision = {
+                    "group_id": group, "module_id": module,
+                    "system": "french_cleat_45",
+                    **{key: fixation_edit[key] for key in (
+                        "length_mm", "section_height_mm", "thickness_mm",
+                        "base_y_from_carcass_mm", "rear_clearance_mm",
+                        "confirm_external_clearance")},
+                }
+                candidate["wall_fixation_revisions"] = _replace_by_key(
+                    existing_fixations, revision,
+                )
+            elif remove_fixation:
+                remaining = [row for row in existing_fixations
+                             if (row.get("group_id"), row.get("module_id")) != target_key]
+                if len(remaining) != len(existing_fixations) or "wall_fixation_revisions" in candidate:
+                    candidate["wall_fixation_revisions"] = remaining
+            if candidate == self.request:
+                raise EditorError("No hay cambios efectivos para aplicar")
             try:
                 _validate_source_request(candidate)
             except ValueError as exc:
@@ -354,6 +412,13 @@ class EditorSession:
             next_version = self.version + 1
             result, zip_path, extraction, html, review = self._new_output(candidate, next_version)
             old_digest = self.layout_sha256
+            from .wall_fixation_review import canonical_sha256
+            old_fixation_digest = self.current_review.get(
+                "wall_fixation_sha256", canonical_sha256([]),
+            )
+            new_fixation_digest = review.get(
+                "wall_fixation_sha256", canonical_sha256([]),
+            )
             self.request = candidate
             self.version = next_version
             self.last_valid_path = extraction
@@ -362,7 +427,8 @@ class EditorSession:
             self.current_review = review
             return {
                 "ok": True, "version": self.version,
-                "result": "GEOMETRY_UPDATED" if old_digest != self.layout_sha256
+                "result": "GEOMETRY_UPDATED" if (old_digest != self.layout_sha256
+                                                     or old_fixation_digest != new_fixation_digest)
                           else "REVIEW_SAVED_NO_GEOMETRY_CHANGE",
                 "layout_sha256": self.layout_sha256,
             }

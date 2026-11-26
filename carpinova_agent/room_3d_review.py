@@ -201,8 +201,10 @@ def _payload(review: Any) -> dict[str, Any]:
                "warnings": warnings, "status": review["status"],
                "digest": review["layout_sha256"]}
     if "module_index" not in review:
-        if "wall_review_by_module" in review:
-            raise RoomViewerError("Selección de pared sin índice de módulos")
+        if any(key in review for key in (
+                "wall_review_by_module", "wall_fixation_geometry",
+                "wall_fixation_sha256", "wall_fixation_revisions")):
+            raise RoomViewerError("Revisión mural/francesa sin índice de módulos")
         return payload
 
     from .room_spatial import (
@@ -475,6 +477,48 @@ def _payload(review: Any) -> dict[str, Any]:
         payload["module_edit_index"] = sorted(
             clean_edits, key=lambda item: (item["group_id"], item["module_id"])
         )
+    if ("wall_fixation_geometry" in review) != ("wall_fixation_sha256" in review):
+        raise RoomViewerError("La geometría francesa requiere su digest")
+    fixation = []
+    if "wall_fixation_geometry" in review:
+        from .wall_fixation_review import validate_geometry
+        try:
+            fixation = validate_geometry(
+                review["wall_fixation_geometry"], review["wall_fixation_sha256"],
+            )
+        except ValueError as exc:
+            raise RoomViewerError(str(exc)) from exc
+        effective = {(item["group_id"], item["module_id"]): item
+                     for item in clean_reviews}
+        requested = review.get("wall_fixation_revisions")
+        expected_keys = ({(item.get("group_id"), item.get("module_id"))
+                          for item in requested} if type(requested) is list else set())
+        geometry_keys = {(item["group_id"], item["module_id"]) for item in fixation}
+        if expected_keys != geometry_keys or any(
+                effective.get(key, {}).get("wall_system") != "french_cleat_45"
+                for key in geometry_keys):
+            raise RoomViewerError("Perfiles franceses no concilian con la selección mural efectiva")
+        payload["wall_fixation_geometry"] = fixation
+        payload["wall_fixation_sha256"] = review["wall_fixation_sha256"]
+    render_entities = [{
+        "id": box["id"], "group": box["group"], "module_id": box.get("module_id"),
+        "role": box["role"], "origin": box["origin"], "size": box["size"],
+        "kind": "panel", "vertices": None, "faces": None,
+    } for box in clean_boxes]
+    panel_ids = {item["id"] for item in render_entities}
+    for pair in fixation:
+        for profile in pair["profiles"]:
+            if profile["id"] in panel_ids:
+                raise RoomViewerError("ID de perfil colisiona con un tablero")
+            panel_ids.add(profile["id"])
+            render_entities.append({
+                "id": profile["id"], "group": pair["group_id"],
+                "module_id": pair["module_id"], "role": profile["role"],
+                "origin": profile["bounds_origin_xyz_mm"],
+                "size": profile["bounds_size_xyz_mm"], "kind": "polyhedron",
+                "vertices": profile["vertices_xyz_mm"], "faces": profile["faces"],
+            })
+    payload["render_entities"] = render_entities
     return payload
 
 
@@ -547,6 +591,7 @@ svg text{font-family:system-ui,sans-serif;fill:#eef5f5;font-size:11px;paint-orde
 <script>
 'use strict';
 const data=JSON.parse(document.getElementById('scene-data').textContent);
+const renderEntities=data.render_entities||data.boxes.map(box=>({...box,kind:'panel',vertices:null,faces:null}));
 const NS='http://www.w3.org/2000/svg'; const svg=document.getElementById('scene');
 const cutEnabled=document.getElementById('cutEnabled'),cutHeight=document.getElementById('cutHeight'),zoom=document.getElementById('zoom');
 const INITIAL_ELEVATION=35;
@@ -554,7 +599,7 @@ let yaw=0,elevation=INITIAL_ELEVATION,activePreset=0,selected='',shown=new Set(d
 const doorAngles=new Map(),drawerProgress=new Map(),drawerByPiece=new Map();
 for(const drawer of data.drawers){for(const id of drawer.piece_ids)drawerByPiece.set(id,drawer)}
 const E=(tag,attrs,text)=>{const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs||{}))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n};
-const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:['#467b91','#6ca6bc','#a8d4df'];
+const palette=(role)=>role.startsWith('front_')||role==='drawer_facade'?['#b98a50','#d8ad72','#f5d5a0']:role.startsWith('back_')?['#5d8470','#83ac8b','#a9d1ae']:role.includes('tie')?['#607aab','#839fd0','#a9c2e6']:role==='french_cleat_cabinet'?['#247a93','#57a4bc','#9bd5df']:role==='french_cleat_wall'?['#d08b27','#eab45b','#f6d99a']:['#467b91','#6ca6bc','#a8d4df'];
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
 const normalizeYaw=value=>((value%360)+360)%360;
 const cameraState=()=>{const az=(45-yaw)*Math.PI/180,el=elevation*Math.PI/180,ce=Math.cos(el),se=Math.sin(el);return {position:[Math.sin(az)*ce,se,-Math.cos(az)*ce],right:[Math.cos(az),0,Math.sin(az)],up:[-Math.sin(az)*se,ce,Math.cos(az)*se]}};
@@ -566,6 +611,7 @@ const maxHeight=Math.max(...data.groups.map(g=>g.origin[1]+g.size[1]));
 cutHeight.max=String(maxHeight);cutHeight.value=String(maxHeight);
 const mins=[0,1,2].map(i=>Math.min(...data.groups.map(g=>g.origin[i])));
 const maxs=[0,1,2].map(i=>Math.max(...data.groups.map(g=>g.origin[i]+g.size[i])));
+for(const entity of renderEntities)for(let i=0;i<3;i++){mins[i]=Math.min(mins[i],entity.origin[i]);maxs[i]=Math.max(maxs[i],entity.origin[i]+entity.size[i])}
 const pivot=mins.map((value,i)=>(value+maxs[i])/2);
 // Keep a fixed camera frame that includes door swings and the conservative visual drawer travel.
 const frameMin=mins.slice(),frameMax=maxs.slice();
@@ -587,7 +633,7 @@ for(const drawer of data.drawers){
 const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];
 document.getElementById('globalBounds').textContent=axes.map((axis,i)=>`${axis}: ${mins[i]}–${maxs[i]} (${maxs[i]-mins[i]} mm)`).join(' · ');
 document.getElementById('sceneName').textContent=data.groups.map(g=>g.id).join(' · ');
-document.getElementById('sceneCount').textContent=`${data.boxes.length} paneles · ${data.status}`;
+document.getElementById('sceneCount').textContent=`${data.boxes.length} tableros${renderEntities.length>data.boxes.length?` + ${renderEntities.length-data.boxes.length} perfiles de revisión`:''} · ${data.status}`;
 document.getElementById('groupSummary').textContent=data.groups.map(g=>{const c=g.construction;const state=c?`; fondo ${c.back_status}; soporte ${c.wall_support_status}; amarre ${c.wall_tie_mode}; instalación no liberada`:'';return `${g.id}: origen ${g.origin.join(', ')} mm; bounds ${g.size.join(' × ')} mm; ${data.boxes.filter(b=>b.group===g.id).length} piezas${Number.isInteger(g.rotation)?`; rotación ${g.rotation}°`:''}${state}`}).join(' | ');
 document.getElementById('digest').textContent=data.digest.slice(0,12);
 document.getElementById('status').textContent=data.status;
@@ -631,6 +677,10 @@ const hingeFaces=(box, angleDeg)=>{
    fill:index===0?fills[2]:index===4?fills[0]:index===2?fills[1]:fills[1]}];
  });
 };
+const polyhedronFaces=entity=>{
+ const camera=cameraState(),center=[0,1,2].map(axis=>entity.vertices.reduce((sum,point)=>sum+point[axis],0)/entity.vertices.length),fills=palette(entity.role);
+ return entity.faces.flatMap((indices,faceIndex)=>{const world=indices.map(index=>entity.vertices[index]),a=world[0],b=world[1],c=world[2],u=b.map((value,i)=>value-a[i]),v=c.map((value,i)=>value-b[i]),normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],faceCenter=[0,1,2].map(axis=>world.reduce((sum,point)=>sum+point[axis],0)/world.length),outward=normal.reduce((sum,value,i)=>sum+value*(faceCenter[i]-center[i]),0);if(outward<0)world.reverse();const p0=world[0],p1=world[1],p2=world[2],d1=p1.map((value,i)=>value-p0[i]),d2=p2.map((value,i)=>value-p1[i]),n=[d1[1]*d2[2]-d1[2]*d2[1],d1[2]*d2[0]-d1[0]*d2[2],d1[0]*d2[1]-d1[1]*d2[0]];if(dot(n,camera.position)<=0.00001)return [];return [{pts:world.map(([x,y,z])=>P(x,y,z)),world,faceIndex,fill:faceIndex===0?fills[2]:faceIndex===1?fills[0]:fills[1]}]});
+};
 const updateViewBox=()=>{const corners=[];for(const x of [frameMin[0],frameMax[0]])for(const y of [frameMin[1],frameMax[1]])for(const z of [frameMin[2],frameMax[2]])corners.push(P(x,y,z));const halfW=(Math.max(...corners.map(p=>Math.abs(p[0])))+30)*100/Number(zoom.value),halfH=(Math.max(...corners.map(p=>Math.abs(p[1])))+30)*100/Number(zoom.value);svg.setAttribute('viewBox',[-halfW,-halfH,halfW*2,halfH*2].join(' '))};
 
 const MAX_RASTER_PIXELS=1000000;
@@ -649,12 +699,14 @@ function render(){
  warnings.textContent=baseWarnings;
  document.getElementById('status').textContent=data.status;
  const all=[],layer=E('g',{'id':'panels'});svg.appendChild(layer);
- for(let boxIndex=0;boxIndex<data.boxes.length;boxIndex++){
-  const original=data.boxes[boxIndex];if(!shown.has(original.group))continue;
-  if(document.getElementById('interior').checked&&original.role.startsWith('front_'))continue;
-  const drawer=drawerByPiece.get(original.id),progress=drawer?drawerProgress.get(drawer.id)||0:0;
-  const box=progress?{...original,origin:[original.origin[0],original.origin[1],original.origin[2]-drawer.depth_mm*.2*progress/100]}:original;
-  const angle=doorAngles.get(box.id)||0,parts=angle>0?hingeFaces(box,angle):square(box,box.role);
+  for(let boxIndex=0;boxIndex<renderEntities.length;boxIndex++){
+   const original=renderEntities[boxIndex];if(!shown.has(original.group))continue;
+   if(document.getElementById('interior').checked&&original.role.startsWith('front_'))continue;
+   const visibility=document.getElementById('fixationVisibility')?.value||'both';
+   if(original.kind==='polyhedron'&&visibility!=='both'&&visibility!==original.role)continue;
+   const drawer=drawerByPiece.get(original.id),progress=drawer?drawerProgress.get(drawer.id)||0:0;
+   const box=progress?{...original,origin:[original.origin[0],original.origin[1],original.origin[2]-drawer.depth_mm*.2*progress/100]}:original;
+   const angle=doorAngles.get(box.id)||0,parts=box.kind==='polyhedron'?polyhedronFaces(box):(angle>0?hingeFaces(box,angle):square(box,box.role));
   if(!parts)continue;
   for(const face of parts)all.push({boxIndex,faceId:boxIndex*6+face.faceIndex,box,face});
  }
@@ -704,7 +756,7 @@ function render(){
   const base=faceColors[face],offset=index*4;
   const edge=(x>0&&faceIds[index-1]!==face)||(x+1<width&&faceIds[index+1]!==face)
    ||(y>0&&faceIds[index-width]!==face)||(y+1<height&&faceIds[index+width]!==face);
-  const color=edge?[15,46,60]:base,selectedPiece=data.boxes[owners[index]].id;
+   const color=edge?[15,46,60]:base,selectedPiece=renderEntities[owners[index]].id;
   if(selected===selectedPiece&&edge){rgba[offset]=249;rgba[offset+1]=209;rgba[offset+2]=84;}
   else{rgba[offset]=color[0];rgba[offset+1]=color[1];rgba[offset+2]=color[2];}
   rgba[offset+3]=255;
@@ -713,8 +765,8 @@ function render(){
   ctx.putImageData(imageData,0,0);
   const dataUrl=canvas.toDataURL('image/png');
   if(dataUrl==='data:,')throw new Error('Canvas PNG unavailable');
-  const image=E('image',{x:vb.x,y:vb.y,width:vb.width,height:vb.height,
-   href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length});
+   const image=E('image',{x:vb.x,y:vb.y,width:vb.width,height:vb.height,
+    href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,'data-render-entity-count':renderEntities.length});
   layer.appendChild(image);
  }catch(error){viewerUnavailable('falló el dibujo Canvas 2D');return;}
  pickBuffer={width,height,ids:owners,x:vb.x,y:vb.y,w:vb.width,h:vb.height};
@@ -741,15 +793,15 @@ const panelAt=(x,y)=>{
   const iy=Math.floor((hit.y-pickBuffer.y)/pickBuffer.h*pickBuffer.height);
   if(ix<0||iy<0||ix>=pickBuffer.width||iy>=pickBuffer.height)return null;
   const owner=pickBuffer.ids[iy*pickBuffer.width+ix];
-  return owner>=0&&owner<data.boxes.length?data.boxes[owner].id:null;
+   return owner>=0&&owner<renderEntities.length?renderEntities[owner].id:null;
  }catch(error){return null;}
 };
-function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=`${box.id}\nGrupo: ${box.group}\nRol: ${labelRole(box.role)} (${box.role})\nOrigen XYZ: ${box.origin.join(', ')} mm\nTamaño XYZ: ${box.size.join(' × ')} mm`;render()}
+function pick(box){selected=box.id;document.getElementById('piecePicker').value=box.id;const e=document.getElementById('details');e.textContent=box.kind==='polyhedron'?`Perfil nominal de revisión · NO ES TABLERO\n${box.id}\nGrupo/módulo: ${box.group} · ${box.module_id}\nRol: ${box.role}\nEnvolvente XYZ: ${box.origin.join(', ')} mm · ${box.size.join(' × ')} mm\nInstalación, material y unión sin verificar.`:`${box.id}\nGrupo: ${box.group}\nRol: ${labelRole(box.role)} (${box.role})\nOrigen XYZ: ${box.origin.join(', ')} mm\nTamaño XYZ: ${box.size.join(' × ')} mm`;render()}
 const updateCameraReadout=()=>{document.getElementById('cameraReadout').textContent=`Giro ${Math.round(yaw)}° · Elevación ${Math.round(elevation)}°`;for(const button of document.querySelectorAll('#views button'))button.setAttribute('aria-pressed',String(activePreset!==null&&Number(button.dataset.yaw)===activePreset&&elevation===INITIAL_ELEVATION))};
 for(const angle of [0,90,180,270]){const button=document.createElement('button');button.textContent=angle+'°';button.dataset.yaw=String(angle);button.type='button';button.setAttribute('aria-label',`Solo cámara: orientación ${angle} grados`);button.addEventListener('click',()=>{yaw=angle;elevation=INITIAL_ELEVATION;activePreset=angle;updateCameraReadout();render()});document.getElementById('views').appendChild(button)}updateCameraReadout();
 const stage=document.querySelector('.stage');let pointerDrag=null,suppressClickUntil=0;
-const finishPointer=(event,allowSelection)=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const drag=pointerDrag;pointerDrag=null;stage.classList.remove('dragging');if(drag.moved){suppressClickUntil=performance.now()+250;setTimeout(()=>{suppressClickUntil=0},0)}else if(allowSelection&&drag.pieceId&&panelAt(event.clientX,event.clientY)===drag.pieceId){const box=data.boxes.find(item=>item.id===drag.pieceId);if(box)pick(box)}};
-svg.addEventListener('pointerdown',event=>{if(event.button!==0||!event.isPrimary)return;pointerDrag={id:event.pointerId,x:event.clientX,y:event.clientY,yaw,elevation,pieceId:panelAt(event.clientX,event.clientY),moved:false};svg.setPointerCapture(event.pointerId)});
+const finishPointer=(event,allowSelection)=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const drag=pointerDrag;pointerDrag=null;stage.classList.remove('dragging');if(drag.moved){suppressClickUntil=performance.now()+250;setTimeout(()=>{suppressClickUntil=0},0)}else if(allowSelection&&drag.pieceId&&panelAt(event.clientX,event.clientY)===drag.pieceId){const box=renderEntities.find(item=>item.id===drag.pieceId);if(box)pick(box)}};
+  svg.addEventListener('pointerdown',event=>{if(event.button!==0||!event.isPrimary)return;pointerDrag={id:event.pointerId,x:event.clientX,y:event.clientY,yaw,elevation,pieceId:panelAt(event.clientX,event.clientY),moved:false};svg.setPointerCapture(event.pointerId)});
 svg.addEventListener('pointermove',event=>{if(!pointerDrag||pointerDrag.id!==event.pointerId)return;const dx=event.clientX-pointerDrag.x,dy=event.clientY-pointerDrag.y;if(!pointerDrag.moved&&Math.hypot(dx,dy)<5)return;pointerDrag.moved=true;event.preventDefault();yaw=normalizeYaw(pointerDrag.yaw+dx*.5);elevation=clamp(pointerDrag.elevation-dy*.35,15,75);activePreset=null;stage.classList.add('dragging');updateCameraReadout();render()});
 svg.addEventListener('pointerup',event=>finishPointer(event,true));svg.addEventListener('pointercancel',event=>finishPointer(event,false));svg.addEventListener('lostpointercapture',event=>finishPointer(event,false));
 svg.addEventListener('click',event=>{if(performance.now()<=suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();suppressClickUntil=0}},true);
@@ -757,8 +809,8 @@ svg.addEventListener('wheel',event=>{if(event.deltaY===0)return;event.preventDef
 for(const group of data.groups){const row=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=true;box.addEventListener('change',()=>{box.checked?shown.add(group.id):shown.delete(group.id);render()});row.append(box,document.createTextNode(` ${group.id} (${data.boxes.filter(b=>b.group===group.id).length} paneles)`));document.getElementById('groups').appendChild(row)}
 const warningText={'ALL_GEOMETRY_NOMINAL_NO_CUT_AUTHORITY':'Geometría nominal, sin autorización de corte','ROOM_LAYOUT_DOES_NOT_VERIFY_WALLS_LOADS_ANCHORS_OR_HARDWARE':'Muros, cargas, anclajes y herrajes sin verificar','SERVICE_RESERVATIONS_ARE_NOT_HOLES_OR_PLUMBING_INSTALLATION':'Reservas sin perforaciones ni instalación','CORNER_JOINT_AND_FILLER_NOT_DESIGNED':'Uniones y rellenos de esquina sin diseñar','OVERLAPPING_CABINET_ENVELOPES_BLOCK_APPROVAL':'Interferencias entre muebles: aprobación bloqueada'};
 document.getElementById('warnings').textContent=data.warnings.map(w=>warningText[w]||w).join(' · ');
-const picker=document.getElementById('piecePicker');for(const box of data.boxes){const option=document.createElement('option');option.value=box.id;option.textContent=`${box.id} — ${labelRole(box.role)} (${box.role})`;picker.appendChild(option)}picker.selectedIndex=-1;
-picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));
+const picker=document.getElementById('piecePicker');for(const box of renderEntities){const option=document.createElement('option');option.value=box.id;option.textContent=`${box.id} — ${labelRole(box.role)} (${box.role})`;picker.appendChild(option)}picker.selectedIndex=-1;
+picker.addEventListener('change',()=>pick(renderEntities.find(box=>box.id===picker.value)));
 // Only actual front-left/right panels get movement controls. Fixed blind panels
 // and missing drawers are never invented or animated.
 const movable=data.boxes.filter(box=>box.role==='front_left'||box.role==='front_right');
@@ -818,6 +870,10 @@ _MODULE_UI = r'''<fieldset id="moduleReview" class="module-review"><legend>Selec
 <button type="button" id="focusModule" disabled>Enfocar mueble</button>
 <output id="moduleSummary" aria-live="polite">Selecciona un módulo de la lista o una pieza visible.</output>
 <fieldset id="candidateField" hidden><legend>Piezas para revisar uniones</legend><div id="candidateButtons" class="candidate-list"></div><output id="candidateStatus" aria-live="polite"></output></fieldset>
+ <fieldset id="fixationView" hidden><legend>Perfiles franceses nominales</legend>
+ <label for="fixationVisibility">Mostrar perfiles</label><select id="fixationVisibility"><option value="both">Mueble y muro</option><option value="french_cleat_cabinet">Solo perfil del mueble</option><option value="french_cleat_wall">Solo perfil del muro</option></select>
+ <button type="button" id="fixationRearView">Vista posterior · solo cámara</button>
+ <output id="fixationViewStatus" aria-live="polite">Dos perfiles de revisión; no son tableros ni herrajes aprobados.</output></fieldset>
 <fieldset id="wallEditor" hidden><legend>Propuesta independiente de fondo, pared y apoyo</legend>
 <label for="backChoice">A · Fondo posterior</label><select id="backChoice"><option value="">Selecciona fondo</option>
 <option value="keep_existing">Conservar el fondo existente</option><option value="none">Sin fondo</option>
@@ -833,6 +889,16 @@ _MODULE_UI = r'''<fieldset id="moduleReview" class="module-review"><legend>Selec
 <output id="backGeometryStatus" aria-live="polite">Geometría del fondo: pendiente de revisión.</output>
 <output id="supportReviewStatus" aria-live="polite">Apoyo: pendiente de selección y comparación.</output>
 <output id="wallReviewStatus" aria-live="polite">Las opciones no cambian piezas ni autorizan montaje.</output><pre id="wallIntentPreview" hidden></pre><a id="downloadWallIntent" hidden>Descargar intención JSON</a>
+ <fieldset id="fixationEditor" hidden><legend>Geometría nominal de perfil francés · solo revisión</legend>
+ <label for="fixationAction">Acción de perfil</label><select id="fixationAction"><option value="preserve">Conservar como está</option><option value="model">Modelar pareja nominal</option><option value="remove">Retirar pareja nominal</option></select>
+ <div id="fixationInputs" hidden>
+ <label for="fixLength">Longitud dentro del vano (mm)</label><input id="fixLength" type="number" min="1" max="20000" step="1">
+ <label for="fixHeight">Alto de sección (mm)</label><input id="fixHeight" type="number" min="1" max="20000" step="1">
+ <label for="fixThickness">Espesor nominal (mm)</label><input id="fixThickness" type="number" min="1" max="20000" step="1">
+ <label for="fixBaseY">Base sobre carcasa (mm)</label><input id="fixBaseY" type="number" min="0" max="20000" step="1">
+ <label for="fixClearance">Reserva posterior declarada (mm)</label><input id="fixClearance" type="number" min="1" max="20000" step="1">
+ <label class="control-line"><input id="confirmFixClearance" type="checkbox"><span>Confirmo solo esta reserva geométrica declarada; no confirma pared ni montaje.</span></label></div>
+ <output id="fixationEditStatus" aria-live="polite">Material, unión a carcasa, pared, anclaje y carga permanecen sin validar.</output></fieldset>
 <fieldset id="backSpecFields" hidden><legend>Datos explícitos del fondo</legend>
 <output id="carcassMaterialContext" aria-live="polite">Material y espesor de carcasa pendientes de verificación F6/CAD.</output>
 <label for="backMaterial">Material de fondo</label><select id="backMaterial"><option value="">Selecciona material</option><option value="HDF_3_LAB">HDF_3_LAB</option><option value="MELAMINA_15">MELAMINA_15</option><option value="MELAMINA_18">MELAMINA_18</option></select>
@@ -865,6 +931,8 @@ const moduleEditIndex=data.module_edit_index||[],moduleEditRequest=data.module_e
 const hostSession=window.CARPNOVA_EDITOR_SESSION||null,pendingModuleEdits=new Map();
 const modulePicker=document.getElementById('modulePicker'),moduleSummary=document.getElementById('moduleSummary');
 const wallEditor=document.getElementById('wallEditor'),wallSelects=['backChoice','wallSystem','supportChoice','wallSubstrate'].map(id=>document.getElementById(id));
+const fixationView=document.getElementById('fixationView'),fixationVisibility=document.getElementById('fixationVisibility'),fixationViewStatus=document.getElementById('fixationViewStatus'),fixationEditor=document.getElementById('fixationEditor'),fixationAction=document.getElementById('fixationAction'),fixationInputs=document.getElementById('fixationInputs'),fixationEditStatus=document.getElementById('fixationEditStatus');
+const fixationInputIds={length_mm:'fixLength',section_height_mm:'fixHeight',thickness_mm:'fixThickness',base_y_from_carcass_mm:'fixBaseY',rear_clearance_mm:'fixClearance'};
 const wallStatus=document.getElementById('wallReviewStatus'),wallPreview=document.getElementById('wallIntentPreview');
 const wallDownload=document.getElementById('downloadWallIntent'),prepareWall=document.getElementById('prepareWallReview');
 const backGeometryStatus=document.getElementById('backGeometryStatus'),supportReviewStatus=document.getElementById('supportReviewStatus');
@@ -876,30 +944,37 @@ const allPieceOptions=[...picker.options].map(option=>({value:option.value,text:
 const findModule=key=>moduleIndex.find(item=>moduleKey(item.group_id,item.module_id)===key);
 const savedReview=item=>wallReviews.find(review=>review.group_id===item.group_id&&review.module_id===item.module_id);
 function clearPieceSelection(){selected='';picker.selectedIndex=-1;document.getElementById('details').textContent='Selecciona un tablero para ver sus medidas nominales.'}
-function setPieceOptions(item=null){picker.replaceChildren();const allowed=item?new Set(item.piece_ids):null;for(const option of allPieceOptions){if(allowed&&!allowed.has(option.value))continue;const node=document.createElement('option');node.value=option.value;node.textContent=option.text;picker.appendChild(node)}picker.selectedIndex=-1}
+function setPieceOptions(item=null){picker.replaceChildren();const allowed=item?new Set([...item.piece_ids,...renderEntities.filter(entity=>entity.kind==='polyhedron'&&entity.group===item.group_id&&entity.module_id===item.module_id).map(entity=>entity.id)]):null;for(const option of allPieceOptions){if(allowed&&!allowed.has(option.value))continue;const node=document.createElement('option');node.value=option.value;node.textContent=option.text;picker.appendChild(node)}picker.selectedIndex=-1}
 function clearIntent(){wallPreview.textContent='';wallPreview.hidden=true;wallDownload.hidden=true;wallDownload.removeAttribute('href');wallDownload.removeAttribute('download');prepareWall.disabled=true;if(wallObjectUrl){URL.revokeObjectURL(wallObjectUrl);wallObjectUrl=null}}
 function showCandidates(item){candidateButtons.replaceChildren();candidateField.hidden=false;const candidates=item.candidate_piece_ids.map(id=>data.boxes.find(box=>box.id===id)).filter(Boolean);if(!candidates.length){candidateStatus.textContent='Sin piezas candidatas verificadas; revisión de uniones pendiente.';return}candidateStatus.textContent='Candidatos nominales de revisión. No son puntos de perforación ni certifican carga.';for(const box of candidates){const button=document.createElement('button');button.type='button';button.textContent=`${labelRole(box.role)} · ${box.id}`;button.setAttribute('aria-label',`Enfocar ${labelRole(box.role)} ${box.id}`);button.addEventListener('click',()=>focusCandidate(item,box));candidateButtons.appendChild(button)}}
 function editItem(item){return moduleEditIndex.find(value=>value.group_id===item.group_id&&value.module_id===item.module_id)}
+function fixationFor(item){return (data.wall_fixation_geometry||[]).find(value=>value.group_id===item.group_id&&value.module_id===item.module_id)}
+function populateFixation(item){const existing=fixationFor(item),isFrench=wallSelects[1].value==='french_cleat_45';fixationView.hidden=!existing;fixationEditor.hidden=!isFrench&&!existing;fixationAction.value='preserve';fixationInputs.hidden=true;document.getElementById('confirmFixClearance').checked=false;document.querySelector('#fixationAction option[value="remove"]').disabled=!existing;if(existing){const params=existing.parameters;for(const [field,id] of Object.entries(fixationInputIds))document.getElementById(id).value=String(params[field]);fixationViewStatus.textContent=`${existing.profiles.length} perfiles de revisión nominal · ${existing.status} · instalación no verificada.`}else{for(const id of Object.values(fixationInputIds))document.getElementById(id).value='';fixationViewStatus.textContent='Sin perfiles modelados para este módulo.'}fixationEditStatus.textContent=isFrench?'Selecciona «Modelar pareja nominal», completa las cinco cotas y confirma la reserva; no valida fijación.':'La geometría, si existe, es solo revisión. Material, unión, pared, anclaje y carga sin validar.'}
+function syncFixationControls(item){if(!item)return;const existing=fixationFor(item),isFrench=wallSelects[1].value==='french_cleat_45';fixationEditor.hidden=!isFrench&&!existing;if(!existing&&fixationAction.value==='remove')fixationAction.value='preserve';fixationEditStatus.textContent=isFrench?'Las cotas se modelan solo después de elegir la acción y confirmar la reserva. No valida fijación.':existing?'Al cambiar a otro sistema, se retirará esta geometría nominal; el fondo se conserva.':'Selecciona francés 45° para proponer geometría nominal.'}
+function currentFixationEdit(item){const action=fixationAction.value,existing=fixationFor(item);if(action==='preserve')return null;if(action==='remove')return existing?{action:'remove'}:null;if(action!=='model')throw new Error('Elige una acción de perfil francés válida.');if(wallSelects[1].value!=='french_cleat_45')throw new Error('Selecciona francés 45° antes de modelar sus perfiles.');const values={};for(const [field,id] of Object.entries(fixationInputIds)){const input=document.getElementById(id),value=Number(input.value);if(input.value===''||!Number.isInteger(value))throw new Error(`Completa ${field} con milímetros enteros.`);values[field]=value}if(!document.getElementById('confirmFixClearance').checked)throw new Error('Confirma explícitamente la reserva posterior declarada.');return {action:'model',...values,confirm_external_clearance:true}}
 function populateDimensions(item){const source=editItem(item);moduleDimensions.hidden=!source;if(!source)return;const pending=pendingModuleEdits.get(moduleKey(item.group_id,item.module_id));for(const [field,input] of Object.entries(editInputs)){input.value=String(pending?.[field]??source[field]);input.disabled=!source.editable_fields.includes(field)}document.getElementById('editBlockReason').textContent=source.edit_block_reason||`Carcasa ${source.width_mm} × ${source.carcass_height_mm} × ${source.carcass_depth_mm} mm; exterior ensamblado ${source.assembled_external_depth_mm} mm.`;document.getElementById('offlineNotice').hidden=Boolean(hostSession);document.getElementById('applyModuleChanges').hidden=!hostSession;document.getElementById('downloadFullRequest').hidden=Boolean(hostSession);moduleEditStatus.textContent='Los campos pendientes no cambian la escena hasta aplicar.'}
 function populateBackControls(item,choiceChanged=false){const source=editItem(item),back=source?.effective_back_spec,carcass=source?.carcass_material,choice=backChoice.value,output=document.getElementById('carcassMaterialContext');output.textContent=carcass?`Material/espesor verificados en ambos laterales F6/CAD: ${carcass.material_id} · ${carcass.thickness_mm} mm.`:'Material/espesor de carcasa no verificables en F6/CAD; esta opción requiere revisión.';backSpecFields.hidden=!['inset_board_3mm_review','inset_board_15mm_review','inset_board_18mm_review','inset_two_strips_review','inset_carcass_material_review'].includes(choice);document.getElementById('backMaterial').disabled=choice==='inset_carcass_material_review';if(choiceChanged){const saved=savedReview(item);if(!saved||choice!==saved.back_choice){document.getElementById('backServices').value='';document.getElementById('backGrain').value='';document.getElementById('backMaterial').value=choice==='inset_carcass_material_review'?(carcass?.material_id||''):'';document.getElementById('stripTop').value='';document.getElementById('stripBottom').value='';document.getElementById('stripThickness').value=''}}else if(back&&typeof back==='object'){document.getElementById('backMaterial').value=back.material_id;document.getElementById('backServices').value=String(back.services_present);document.getElementById('backGrain').value=back.grain_axis;if(back.style==='inset_two_strips'){document.getElementById('stripTop').value=back.top_strip_height_mm;document.getElementById('stripBottom').value=back.bottom_strip_height_mm;document.getElementById('stripThickness').value=back.thickness_mm}}}
 function showModuleSummary(){const item=findModule(selectedModuleKey);if(!item)return;const reservation=(data.support_reservations||[]).find(value=>value.group_id===item.group_id&&value.module_id===item.module_id);moduleSummary.textContent=`${item.group_id} · ${item.module_id}\nEnvolvente nominal XYZ: origen ${item.bounds_origin_xyz_mm.join(', ')} mm; tamaño ${item.bounds_size_xyz_mm.join(' × ')} mm\nInstalación: ${item.installation_mode}; apoyo real declarado: ${item.support_status}.${reservation?`\nReserva conceptual ${reservation.style}: ${reservation.support_height_mm} mm; contorno discontinuo no seleccionable, no son piezas ni montaje.`:''}\nFoco visual: prioriza este mueble frente a los vecinos atenuados; no representa oclusión física ni medida de corte.`;showCandidates(item);populateDimensions(item)}
 function supportPending(item,choice){const actual=item.support_status,aliases={floor_direct:['floor','floor_direct'],legs:['legs'],plinth:['plinth'],wall_mounted:['wall','wall_mounted']};return choice==='keep_existing'?!['floor','legs','plinth','wall'].includes(actual):!(aliases[choice]||[]).includes(actual)}
-function updateWallStatus(){const item=findModule(selectedModuleKey),values=wallSelects.map(select=>select.value);clearIntent();prepareWall.disabled=!item||values.some(value=>!value);if(!item){backGeometryStatus.textContent='Geometría del fondo: pendiente de revisión.';supportReviewStatus.textContent='Apoyo: pendiente de selección y comparación.';wallStatus.textContent='Selecciona un módulo. Las opciones no cambian piezas ni autorizan montaje.';return}const saved=savedReview(item),same=saved&&saved.back_choice===values[0]&&saved.wall_system===values[1]&&saved.support_choice===values[2]&&saved.wall_substrate===values[3];backGeometryStatus.textContent=`Geometría del fondo: ${same?saved.back_geometry_status:'sin validar para esta intención'}. No determina fijación.`;supportReviewStatus.textContent=`Apoyo real declarado: ${item.support_status}. ${values[2]?supportPending(item,values[2])?'Apoyo por confirmar; la opción difiere del modelo y no se aplica.':'Opción de apoyo sin cambios aplicados.':'Elige una propuesta para compararla.'}`;wallStatus.textContent=same?`Revisión Maestro: ${saved.status}${saved.constraints.length?` · Pendiente: ${saved.constraints.join(', ')}`:''}${saved.book_evidence.length?` · Fuente: ${saved.book_evidence.map(source=>source.content_id+' p.'+source.pdf_page).join(', ')}`:''}. Instalación no autorizada.`:'PENDING_BACKEND_REVIEW · Esta elección es una intención sin validar; enviar el JSON a Maestro. No se aplicó geometría ni instalación.'}
+function updateWallStatus(){const item=findModule(selectedModuleKey),values=wallSelects.map(select=>select.value);clearIntent();prepareWall.disabled=!item||values.some(value=>!value);if(!item){backGeometryStatus.textContent='Geometría del fondo: pendiente de revisión.';supportReviewStatus.textContent='Apoyo: pendiente de selección y comparación.';wallStatus.textContent='Selecciona un módulo. Las opciones no cambian piezas ni autorizan montaje.';return}syncFixationControls(item);const saved=savedReview(item),same=saved&&saved.back_choice===values[0]&&saved.wall_system===values[1]&&saved.support_choice===values[2]&&saved.wall_substrate===values[3];backGeometryStatus.textContent=`Geometría del fondo: ${same?saved.back_geometry_status:'sin validar para esta intención'}. No determina fijación.`;supportReviewStatus.textContent=`Apoyo real declarado: ${item.support_status}. ${values[2]?supportPending(item,values[2])?'Apoyo por confirmar; la opción difiere del modelo y no se aplica.':'Opción de apoyo sin cambios aplicados.':'Elige una propuesta para compararla.'}`;wallStatus.textContent=same?`Revisión Maestro: ${saved.status}${saved.constraints.length?` · Pendiente: ${saved.constraints.join(', ')}`:''}${saved.book_evidence.length?` · Fuente: ${saved.book_evidence.map(source=>source.content_id+' p.'+source.pdf_page).join(', ')}`:''}. Instalación no autorizada.`:'PENDING_BACKEND_REVIEW · Esta elección es una intención sin validar; enviar el JSON a Maestro. No se aplicó geometría ni instalación.'}
 function leaveFocus(restoreZoom=true){if(!focusedModuleKey)return;focusedModuleKey='';pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();if(restoreZoom&&savedGroupZoom!==null){zoom.value=String(savedGroupZoom);document.getElementById('zoomLabel').textContent=zoom.value+' %'}savedGroupZoom=null;setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true}
 function returnToSet(){clearModuleSelection()}
-function selectModule(item){const key=moduleKey(item.group_id,item.module_id);if(focusedModuleKey&&focusedModuleKey!==key)leaveFocus(true);const groupIndex=data.groups.findIndex(group=>group.id===item.group_id),groupToggle=document.querySelectorAll('#groups input')[groupIndex];if(groupToggle&&!shown.has(item.group_id)){groupToggle.checked=true;shown.add(item.group_id)}selectedModuleKey=key;modulePicker.value=String(moduleIndex.indexOf(item));document.getElementById('focusModule').disabled=false;wallEditor.hidden=false;showModuleSummary();const saved=savedReview(item),values=saved?[saved.back_choice,saved.wall_system,saved.support_choice,saved.wall_substrate]:['','','',''];wallSelects.forEach((select,index)=>{select.value=values[index]});populateBackControls(item);document.getElementById('replaceTies').checked=false;clearPieceSelection();document.getElementById('details').textContent='Selecciona el mueble; enfócalo para inspeccionar sus piezas.';updateWallStatus();render()}
-function focusSelectedModule(){const item=findModule(selectedModuleKey);if(!item)return;const key=selectedModuleKey;if(!focusedModuleKey)savedGroupZoom=Number(zoom.value);focusedModuleKey=key;const boxes=data.boxes.filter(box=>box.group===item.group_id&&box.module_id===item.module_id),frame=movementFrame(boxes,item.bounds_origin_xyz_mm,item.bounds_origin_xyz_mm.map((value,index)=>value+item.bounds_size_xyz_mm[index]));pivot=frame.min.map((value,index)=>(value+frame.max[index])/2);frameMin=frame.min;frameMax=frame.max;zoom.value='100';document.getElementById('zoomLabel').textContent='100 %';setPieceOptions(item);clearPieceSelection();document.getElementById('focusModule').hidden=true;document.getElementById('returnToSet').disabled=false;showModuleSummary();render()}
+function selectModule(item){const key=moduleKey(item.group_id,item.module_id);if(focusedModuleKey&&focusedModuleKey!==key)leaveFocus(true);const groupIndex=data.groups.findIndex(group=>group.id===item.group_id),groupToggle=document.querySelectorAll('#groups input')[groupIndex];if(groupToggle&&!shown.has(item.group_id)){groupToggle.checked=true;shown.add(item.group_id)}selectedModuleKey=key;modulePicker.value=String(moduleIndex.indexOf(item));document.getElementById('focusModule').disabled=false;wallEditor.hidden=false;showModuleSummary();const saved=savedReview(item),values=saved?[saved.back_choice,saved.wall_system,saved.support_choice,saved.wall_substrate]:['','','',''];wallSelects.forEach((select,index)=>{select.value=values[index]});populateBackControls(item);populateFixation(item);document.getElementById('replaceTies').checked=false;clearPieceSelection();document.getElementById('details').textContent='Selecciona el mueble; enfócalo para inspeccionar sus piezas.';updateWallStatus();render()}
+function focusSelectedModule(){const item=findModule(selectedModuleKey);if(!item)return;const key=selectedModuleKey;if(!focusedModuleKey)savedGroupZoom=Number(zoom.value);focusedModuleKey=key;const boxes=renderEntities.filter(box=>box.group===item.group_id&&box.module_id===item.module_id),frame=movementFrame(boxes,item.bounds_origin_xyz_mm,item.bounds_origin_xyz_mm.map((value,index)=>value+item.bounds_size_xyz_mm[index]));pivot=frame.min.map((value,index)=>(value+frame.max[index])/2);frameMin=frame.min;frameMax=frame.max;zoom.value='100';document.getElementById('zoomLabel').textContent='100 %';setPieceOptions(item);clearPieceSelection();document.getElementById('focusModule').hidden=true;document.getElementById('returnToSet').disabled=false;showModuleSummary();render()}
 function focusCandidate(item,box){if(!shown.has(box.group)){const index=data.groups.findIndex(group=>group.id===box.group),toggle=document.querySelectorAll('#groups input')[index];if(toggle)toggle.checked=true;shown.add(box.group)}if(cutEnabled.checked&&box.origin[1]>=Number(cutHeight.value)){candidateStatus.textContent=`${box.id} queda por encima del corte activo; desactiva el corte para inspeccionarlo.`;return}if(selectedModuleKey!==moduleKey(item.group_id,item.module_id))selectModule(item);if(!focusedModuleKey)focusSelectedModule();pick(box)}
 function clearModuleSelection(){leaveFocus(true);selectedModuleKey='';modulePicker.value='';document.getElementById('focusModule').disabled=true;document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true;wallEditor.hidden=true;moduleDimensions.hidden=true;moduleSummary.textContent='Selecciona un módulo de la lista o una pieza visible.';candidateField.hidden=true;candidateButtons.replaceChildren();candidateStatus.textContent='';wallSelects.forEach(select=>select.value='');clearIntent();clearPieceSelection();updateWallStatus();render()}
 const originalPick=pick;
-pick=function(box){if(!box)return;const key=moduleKey(box.group,box.module_id);if(focusedModuleKey){if(key!==focusedModuleKey)return;originalPick(box);return}if(key!==selectedModuleKey){const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===key);if(item)selectModule(item);return}showModuleSummary()};
+pick=function(box){if(!box)return;const key=moduleKey(box.group,box.module_id);if(focusedModuleKey&&key!==focusedModuleKey)return;if(!focusedModuleKey&&key!==selectedModuleKey){const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===key);if(!item)return;selectModule(item)}originalPick(box)};
 for(const [index,item] of moduleIndex.entries()){const option=document.createElement('option');option.value=String(index);option.textContent=`${item.group_id} · ${item.module_id}`;modulePicker.appendChild(option)}
 modulePicker.addEventListener('change',()=>{if(modulePicker.value===''){clearModuleSelection();return}const index=Number(modulePicker.value),item=Number.isInteger(index)?moduleIndex[index]:null;if(item)selectModule(item);else clearModuleSelection()});
 document.getElementById('focusModule').addEventListener('click',focusSelectedModule);document.getElementById('returnToSet').addEventListener('click',returnToSet);
-svg.addEventListener('dblclick',event=>{const id=panelAt(event.clientX,event.clientY),box=data.boxes.find(item=>item.id===id);if(!box||!box.module_id)return;const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===moduleKey(box.group,box.module_id));if(item){selectModule(item);focusSelectedModule()}event.preventDefault()});
+svg.addEventListener('dblclick',event=>{const id=panelAt(event.clientX,event.clientY),box=renderEntities.find(item=>item.id===id);if(!box||!box.module_id)return;const item=moduleIndex.find(value=>moduleKey(value.group_id,value.module_id)===moduleKey(box.group,box.module_id));if(item){selectModule(item);focusSelectedModule()}event.preventDefault()});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&(focusedModuleKey||selectedModuleKey))returnToSet()});
 document.getElementById('resetView').addEventListener('click',()=>{focusedModuleKey='';savedGroupZoom=null;pivot=fullPivot.slice();frameMin=fullFrameMin.slice();frameMax=fullFrameMax.slice();setPieceOptions();clearPieceSelection();document.getElementById('focusModule').hidden=false;document.getElementById('returnToSet').disabled=true;clearModuleSelection()});
 wallSelects.forEach(select=>select.addEventListener('change',updateWallStatus));
+fixationAction.addEventListener('change',()=>{fixationInputs.hidden=fixationAction.value!=='model';const item=findModule(selectedModuleKey);if(item)syncFixationControls(item);if(fixationAction.value==='model')fixationInputs.hidden=false});
+fixationVisibility.addEventListener('change',render);
+document.getElementById('fixationRearView').addEventListener('click',()=>{yaw=180;elevation=INITIAL_ELEVATION;activePreset=180;updateCameraReadout();render()});
 for(const [field,input] of Object.entries(editInputs)){input.addEventListener('input',()=>{if(!selectedModuleKey)return;const values={};for(const [name,control] of Object.entries(editInputs))values[name]=control.type==='number'?Number(control.value):control.value;pendingModuleEdits.set(selectedModuleKey,values);moduleEditStatus.textContent='Cambios pendientes en '+selectedModuleKey+'; la geometría aún no cambia.'})}
 const backChoice=document.getElementById('backChoice');backChoice.addEventListener('change',()=>{const item=findModule(selectedModuleKey);if(item)populateBackControls(item,true);document.getElementById('replaceTies').checked=false;updateWallStatus()});
 prepareWall.addEventListener('click',()=>{const item=findModule(selectedModuleKey);if(!item||wallSelects.some(select=>!select.value))return;const intent={group_id:item.group_id,module_id:item.module_id,back_choice:wallSelects[0].value,wall_system:wallSelects[1].value,support_choice:wallSelects[2].value,wall_substrate:wallSelects[3].value};const text=JSON.stringify(intent,null,2);wallPreview.textContent=text;wallPreview.hidden=false;wallObjectUrl=URL.createObjectURL(new Blob([text+'\n'],{type:'application/json'}));wallDownload.href=wallObjectUrl;wallDownload.download=`wall-review-${item.group_id}-${item.module_id}.json`;wallDownload.hidden=false;wallDownload.textContent='Descargar intención JSON · seis campos';wallStatus.textContent='Preparada para revisión del Maestro. No se guardó ni aplicó al proyecto y no autoriza instalación.'});
@@ -907,8 +982,8 @@ function currentEdit(item){const source=editItem(item);if(!source)return null;co
 function currentWall(item){const values=wallSelects.map(select=>select.value);if(values.some(value=>!value))return null;const saved=savedReview(item),keys=['back_choice','wall_system','support_choice','wall_substrate'];if(saved&&keys.every((key,index)=>saved[key]===values[index]))return null;return {group_id:item.group_id,module_id:item.module_id,back_choice:values[0],wall_system:values[1],support_choice:values[2],wall_substrate:values[3]}}
 function sameBack(left,right){if(left===null||right===null||left==='none'||right==='none')return left===right;const stable=value=>JSON.stringify(Object.keys(value).sort().reduce((out,key)=>(out[key]=value[key],out),{}));return stable(left)===stable(right)}
 function currentBackSpec(item){const choice=backChoice.value,source=editItem(item),effective=source?.effective_back_spec??null;if(choice==='keep_existing')return null;if(choice==='none')return effective==='none'?null:'none';const match=choice.match(/^inset_board_(3|15|18)mm_review$/),strips=choice==='inset_two_strips_review',carcassChoice=choice==='inset_carcass_material_review';if(!match&&!strips&&!carcassChoice)return null;const carcass=source?.carcass_material;if(carcassChoice&&(!carcass||!Number.isInteger(carcass.thickness_mm)))throw new Error('El material y espesor real de carcasa no están verificados por F6/CAD.');const material=carcassChoice?carcass.material_id:document.getElementById('backMaterial').value,services=document.getElementById('backServices').value,grain=document.getElementById('backGrain').value;if(!material||services===''||!grain)throw new Error('Confirma material, servicios y veta del fondo.');const back={style:strips?'inset_two_strips':'inset_full',material_id:material,thickness_mm:carcassChoice?carcass.thickness_mm:(match?Number(match[1]):Number(document.getElementById('stripThickness').value)),services_present:services==='true',grain_axis:grain};if(strips){const top=Number(document.getElementById('stripTop').value),bottom=Number(document.getElementById('stripBottom').value);if(!Number.isInteger(top)||top<=0||!Number.isInteger(bottom)||bottom<=0)throw new Error('Indica ambas alturas enteras de las franjas.');back.top_strip_height_mm=top;back.bottom_strip_height_mm=bottom}return sameBack(back,effective)?null:back}
-function mergedSourceRequest(item){if(!moduleEditRequest)throw new Error('Solicitud fuente offline no incluida.');const request=JSON.parse(JSON.stringify(moduleEditRequest)),edit=currentEdit(item),wall=currentWall(item),back=currentBackSpec(item);if(edit){const edits=request.module_edit_revisions||[];const i=edits.findIndex(value=>value.group_id===edit.group_id&&value.module_id===edit.module_id);if(i<0)edits.push(edit);else edits[i]=edit;request.module_edit_revisions=edits}if(wall){const revisions=request.wall_review_revisions||[];const i=revisions.findIndex(value=>value.group_id===wall.group_id&&value.module_id===wall.module_id);if(i<0)revisions.push(wall);else revisions[i]=wall;request.wall_review_revisions=revisions}if(back!==null){if(!wall)throw new Error('El fondo requiere las seis decisiones murales explícitas.');if(request.review_kind==='kitchen_spatial_v1'){const revisions=request.back_revisions||[];const i=revisions.findIndex(value=>value.group_id===item.group_id&&value.module_id===item.module_id);const revision=i<0?{group_id:item.group_id,module_id:item.module_id}:revisions[i];revisions[i]={...revision,back};request.back_revisions=revisions}else{const assembly=request.assemblies.find(value=>value.group_id===item.group_id),module=assembly?.module_spec?.modules?.find(value=>value.module_id===item.module_id);if(!module)throw new Error('No se encontró el módulo en la fuente.');module.back=back}}return request}
-function makePayload(item,version){const moduleEdit=currentEdit(item),wall=currentWall(item),backSpec=currentBackSpec(item);if((backSpec!==null)&&!wall)throw new Error('Un cambio de fondo requiere wall_revision completa.');if(!moduleEdit&&!wall)throw new Error('No hay cambios pendientes.');const hasTies=data.boxes.some(box=>box.group===item.group_id&&box.module_id===item.module_id&&['wall_rear_lower_tie','wall_rear_upper_tie','upper_rear_tie','lower_rear_tie'].includes(box.role));const replace=document.getElementById('replaceTies').checked;if(replace&&!hasTies)throw new Error('No hay amarres existentes que confirmar para sustitución.');return {version,group_id:item.group_id,module_id:item.module_id,wall_revision:wall,back_spec:backSpec,replace_existing_ties:replace,module_edit:moduleEdit}}
+function mergedSourceRequest(item){if(!moduleEditRequest)throw new Error('Solicitud fuente offline no incluida.');const request=JSON.parse(JSON.stringify(moduleEditRequest)),edit=currentEdit(item),wall=currentWall(item),back=currentBackSpec(item),fixation=currentFixationEdit(item);if(edit){const edits=request.module_edit_revisions||[];const i=edits.findIndex(value=>value.group_id===edit.group_id&&value.module_id===edit.module_id);if(i<0)edits.push(edit);else edits[i]=edit;request.module_edit_revisions=edits}if(wall){const revisions=request.wall_review_revisions||[];const i=revisions.findIndex(value=>value.group_id===wall.group_id&&value.module_id===wall.module_id);if(i<0)revisions.push(wall);else revisions[i]=wall;request.wall_review_revisions=revisions}if(back!==null){if(!wall)throw new Error('El fondo requiere las seis decisiones murales explícitas.');if(request.review_kind==='kitchen_spatial_v1'){const revisions=request.back_revisions||[];const i=revisions.findIndex(value=>value.group_id===item.group_id&&value.module_id===item.module_id);const revision=i<0?{group_id:item.group_id,module_id:item.module_id}:revisions[i];revisions[i]={...revision,back};request.back_revisions=revisions}else{const assembly=request.assemblies.find(value=>value.group_id===item.group_id),module=assembly?.module_spec?.modules?.find(value=>value.module_id===item.module_id);if(!module)throw new Error('No se encontró el módulo en la fuente.');module.back=back}}const fixationRows=request.wall_fixation_revisions||[],key=value=>value.group_id===item.group_id&&value.module_id===item.module_id;if(fixation?.action==='remove'||(wall&&wall.wall_system!=='french_cleat_45'))request.wall_fixation_revisions=fixationRows.filter(value=>!key(value));else if(fixation?.action==='model'){const revision={group_id:item.group_id,module_id:item.module_id,system:'french_cleat_45',...Object.fromEntries(Object.keys(fixation).filter(field=>field!=='action').map(field=>[field,fixation[field]]))};const index=fixationRows.findIndex(key);if(index<0)fixationRows.push(revision);else fixationRows[index]=revision;request.wall_fixation_revisions=fixationRows}return request}
+function makePayload(item,version){const moduleEdit=currentEdit(item),wall=currentWall(item),backSpec=currentBackSpec(item),fixation=currentFixationEdit(item);if((backSpec!==null)&&!wall)throw new Error('Un cambio de fondo requiere wall_revision completa.');if(!moduleEdit&&!wall&&backSpec===null&&!fixation)throw new Error('No hay cambios pendientes.');const hasTies=data.boxes.some(box=>box.group===item.group_id&&box.module_id===item.module_id&&['wall_rear_lower_tie','wall_rear_upper_tie','upper_rear_tie','lower_rear_tie'].includes(box.role));const replace=document.getElementById('replaceTies').checked;if(replace&&!hasTies)throw new Error('No hay amarres existentes que confirmar para sustitución.');const payload={version,group_id:item.group_id,module_id:item.module_id,wall_revision:wall,back_spec:backSpec,replace_existing_ties:replace,module_edit:moduleEdit};if(fixation)payload.fixation_edit=fixation;return payload}
 document.getElementById('downloadFullRequest').addEventListener('click',()=>{try{const item=findModule(selectedModuleKey),request=mergedSourceRequest(item),text=JSON.stringify(request,null,2);const url=URL.createObjectURL(new Blob([text+'\n'],{type:'application/json'}));const link=document.getElementById('downloadFullRequestLink');link.href=url;link.download='carpinova-solicitud-m6.json';link.hidden=false;link.textContent='Descargar solicitud completa';moduleEditStatus.textContent='Solicitud completa preparada desde la fuente D19; no se aplicó geometría en este visor offline.'}catch(error){moduleEditStatus.textContent=error.message}});
 document.getElementById('applyModuleChanges').addEventListener('click',async()=>{const item=findModule(selectedModuleKey);if(!hostSession||!item)return;const button=document.getElementById('applyModuleChanges');try{const payload=makePayload(item,hostSession.version);button.disabled=true;moduleEditStatus.textContent='Recalculando por Maestro/F6…';const response=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json','X-CarpiNova-Session':hostSession.token},body:JSON.stringify(payload)});const body=await response.json();if(!response.ok||!body.ok)throw new Error(body.message||`El host rechazó la solicitud (${response.status}).`);sessionStorage.setItem('carpinovaSelection',moduleKey(item.group_id,item.module_id));sessionStorage.setItem('carpinovaAppliedMessage',body.result==='GEOMETRY_UPDATED'?'Cambios geométricos aplicados y D19 guardado.':'Revisión conceptual guardada; geometría sin cambios.');location.reload()}catch(error){moduleEditStatus.textContent=error.message;button.disabled=false}});
 if(hostSession){document.getElementById('applyModuleChanges').hidden=false;document.getElementById('downloadFullRequest').hidden=true}else if(moduleEditRequest){document.getElementById('applyModuleChanges').hidden=true;document.getElementById('downloadFullRequest').hidden=false;}
@@ -995,19 +1070,19 @@ const axes=['X (horizontal)','Y (vertical)','Z (fondo)'];"""
          'if(priority>ownerPriority[index]||(priority===ownerPriority[index]&&value>depth[index]+1e-5)){if(priority&&owners[index]>=0)focusPriorityOverrides++;depth[index]=value;owners[index]=entry.boxIndex;faceIds[index]=entry.faceId;ownerPriority[index]=priority;}'),
         ('const updateViewBox=()=>{',
          'const fullPivot=pivot.slice(),fullFrameMin=frameMin.slice(),fullFrameMax=frameMax.slice();\nconst updateViewBox=()=>{'),
-        ('const color=edge?[15,46,60]:base,selectedPiece=data.boxes[owners[index]].id;',
-         'const ownerBox=data.boxes[owners[index]],neighborDimmed=Boolean(focusedModuleKey&&'
+        ('const color=edge?[15,46,60]:base,selectedPiece=renderEntities[owners[index]].id;',
+         'const ownerBox=renderEntities[owners[index]],neighborDimmed=Boolean(focusedModuleKey&&'
          'ownerBox.module_id&&ownerBox.group+\'::\'+ownerBox.module_id!==focusedModuleKey);'
          'let color=edge?[15,46,60]:base;if(neighborDimmed)color=color.map(channel=>Math.round(255-(255-channel)*.2));'
          'const selectedPiece=ownerBox.id;'),
         ('rgba[offset+3]=255;\n }',
          'rgba[offset+3]=255;if(neighborDimmed)owners[index]=-1;\n }'),
-        ("href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length});",
-         "href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,"
+        ("href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,'data-render-entity-count':renderEntities.length});",
+         "href:dataUrl,'data-depth-tested':'true','data-piece-count':data.boxes.length,'data-render-entity-count':renderEntities.length,"
          "'data-selected-module':selectedModuleKey,'data-focused-module':focusedModuleKey,'data-neighbor-opacity':focusedModuleKey?'0.20':'0',"
          "'data-focused-priority-overrides':focusPriorityOverrides});"),
-        ("picker.addEventListener('change',()=>pick(data.boxes.find(box=>box.id===picker.value)));",
-         "picker.addEventListener('change',()=>{const box=data.boxes.find(item=>item.id===picker.value);if(box)pick(box)});"),
+        ("picker.addEventListener('change',()=>pick(renderEntities.find(box=>box.id===picker.value)));",
+         "picker.addEventListener('change',()=>{const box=renderEntities.find(item=>item.id===picker.value);if(box)pick(box)});"),
         ('</script></body></html>', _MODULE_SCRIPT + '</script></body></html>'),
     )
     for old, new in substitutions:

@@ -24,6 +24,19 @@ El host imprime una URL loopback temporal. Ábrala en el navegador mientras el p
 
 El HTML incluido en un D19 se puede consultar sin iniciar el host y permite exportar la solicitud fuente completa tras seleccionar un módulo. Esa descarga es una intención JSON que debe revalidarse en el host; no recalcula geometría por sí sola. Ni los renders ni las reservas conceptuales certifican montaje o herrajes.
 
+## Abrir el D19 francés nominal de H10-M2
+
+El siguiente paquete conserva el borrador con dos perfiles franceses nominales de revisión. Use una carpeta de salida absoluta nueva:
+
+```powershell
+python -m carpinova_agent.room_editor_local `
+  --input "D:\codex\_REPORTES\CarpiNova-Agente\CARPN_H10_M1_M2_V4\QA\M2\RUN_02\HOST\editor-v000002-room-review.zip" `
+  --output-dir "D:\codex\_REPORTES\CarpiNova-Agente\CARPN_H10_M1_M2_V4\USER_REVIEW_M2" `
+  --y-mm 350
+```
+
+El D19 se abre en `REVIEW_ONLY`. Los perfiles son geometría nominal conceptual; material, encuentro, pared, holguras físicas y montaje siguen sin verificar. La prueba negativa de reserva de 14 mm fue rechazada; no es una dimensión admisible para el perfil de 15 mm. Cambiar el sistema a «Ninguno» elimina los dos perfiles y conserva los 45 tableros. No usar estas opciones para fabricar, cortar, perforar, comprar ni instalar.
+
 ### Cierre de seguridad
 
 `fabrication_ready`, `cutting_ready`, `drilling_ready`, `purchase_ready`, `can_generate_f7c` e `install_ready` permanecen falsos. No se modela una autorización física ni se generan patrones de taladro.

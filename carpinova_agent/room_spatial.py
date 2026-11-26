@@ -215,6 +215,7 @@ def _module_index(
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """Reconcile trusted Maestro part ownership with CADExchange/world boxes."""
     exchanges = {item["group_id"]: item["exchange"] for item in assemblies}
+    assemblies_by_group = {item["group_id"]: item for item in assemblies}
     world = {(box["group_id"], box["piece_id"]): box
              for box in result["world_boxes"]}
     if set(models_by_group) != set(exchanges):
@@ -318,6 +319,9 @@ def _module_index(
                 "candidate_piece_ids": candidates,
                 "parts_by_id": {pid: parts_by_id[pid] for pid in bare_ids},
                 "cad_by_id": {pid: cad_by_id[pid] for pid in bare_ids},
+                "exchange_bounds_xyz_mm": list(exchange["bounds_xyz_mm"]),
+                "assembly_origin_xyz_mm": list(assemblies_by_group[group_id]["origin_xyz_mm"]),
+                "rotation_deg": assemblies_by_group[group_id]["rotation_deg"],
                 "carcass_material": _carcass_material(
                     module, bare_ids, parts_by_id, cad_by_id,
                 ),
@@ -755,13 +759,37 @@ def _wall_review(
 def _attach_wall_reviews(
     result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
     assemblies: list[dict[str, Any]], revisions: Any,
-) -> dict[str, Any]:
+) -> dict[tuple[str, str], dict[str, Any]]:
     contexts = _module_index(result, models_by_group, assemblies)
     normalized = _normalize_wall_revisions(revisions, contexts)
     result["wall_review_by_module"] = normalized
     result["manufacturing_holes"] = []
     result["release"] = "NO_GO"
-    return result
+    return contexts
+
+
+def _attach_wall_fixation_geometry(
+    result: dict[str, Any], request: dict[str, Any],
+    contexts: dict[tuple[str, str], dict[str, Any]],
+) -> None:
+    from .wall_fixation_review import (
+        build_geometry, canonical_sha256, normalize_revisions,
+    )
+
+    normalized = normalize_revisions(
+        request["wall_fixation_revisions"], contexts,
+        result.get("wall_review_by_module"),
+    )
+    geometry = build_geometry(normalized, contexts, result)
+    result["wall_fixation_revisions"] = normalized
+    result["wall_fixation_geometry"] = geometry
+    result["wall_fixation_sha256"] = canonical_sha256(geometry)
+    result["manufacturing_holes"] = []
+    result["release"] = "NO_GO"
+    result["warnings"] = list(dict.fromkeys([
+        *result.get("warnings", []),
+        "FRENCH_CLEAT_PROFILES_NOMINAL_ONLY_INSTALL_NOT_VERIFIED",
+    ]))
 
 
 def _normalize_wall_revisions(
@@ -1359,7 +1387,8 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
     F6/commissioning contracts and permissions remain the authority.
     """
     required = {"review_kind", "assemblies", "service_zones"}
-    optional = {"wall_review_revisions", "module_edit_revisions"}
+    optional = {"wall_review_revisions", "module_edit_revisions",
+                "wall_fixation_revisions"}
     if (type(request) is not dict or not required <= set(request)
             or set(request) - required - optional
             or request.get("review_kind") != "room_layout_v1"):
@@ -1423,9 +1452,12 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
         _error("module_edit_revisions identifica un grupo que no existe")
     result = compose_verified_exchanges(prepared, request["service_zones"])
     _attach_construction_reviews(result, models_by_group)
-    if "wall_review_revisions" in request or "module_edit_revisions" in request:
-        _attach_wall_reviews(result, models_by_group, prepared,
-                             request.get("wall_review_revisions", []))
+    wall_contexts = None
+    if ("wall_review_revisions" in request or "module_edit_revisions" in request
+            or "wall_fixation_revisions" in request):
+        wall_contexts = _attach_wall_reviews(
+            result, models_by_group, prepared, request.get("wall_review_revisions", []),
+        )
     if "module_edit_revisions" in request:
         _attach_support_reservations(result, prepared, specs_by_group)
         _attach_module_edit_index(
@@ -1435,6 +1467,13 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
         )
         if result["status"] != "REVIEW_ONLY":
             _error("La edición dimensional crea interferencias o reservas incompatibles")
+    if "wall_fixation_revisions" in request:
+        if wall_contexts is None:
+            _error("No hay contexto Maestro/F6 para validar perfiles franceses")
+        try:
+            _attach_wall_fixation_geometry(result, request, wall_contexts)
+        except ValueError as exc:
+            _error(str(exc))
     return result
 
 
@@ -1447,10 +1486,19 @@ def render_top_view_svg(review: dict[str, Any]) -> str:
     groups = review.get("groups")
     if type(groups) is not list or not groups:
         _error("Vista superior: sin grupos")
-    x_max = max(item["origin_xyz_mm"][0] + item["bounds_xyz_mm"][0]
-                for item in groups) + 100
-    z_max = max(item["origin_xyz_mm"][2] + item["bounds_xyz_mm"][2]
-                for item in groups) + 100
+    fixation = review.get("wall_fixation_geometry", [])
+    x_max = max([item["origin_xyz_mm"][0] + item["bounds_xyz_mm"][0]
+                 for item in groups] + [
+                     pair["clearance_reservation"]["origin_xyz_mm"][0]
+                     + pair["clearance_reservation"]["size_xyz_mm"][0]
+                     for pair in fixation
+                 ]) + 100
+    z_max = max([item["origin_xyz_mm"][2] + item["bounds_xyz_mm"][2]
+                 for item in groups] + [
+                     pair["clearance_reservation"]["origin_xyz_mm"][2]
+                     + pair["clearance_reservation"]["size_xyz_mm"][2]
+                     for pair in fixation
+                 ]) + 100
     svg = ET.Element("svg", {
         "xmlns": "http://www.w3.org/2000/svg", "width": str(x_max),
         "height": str(z_max), "viewBox": f"0 0 {x_max} {z_max}",
@@ -1476,6 +1524,23 @@ def render_top_view_svg(review: dict[str, Any]) -> str:
             "fill": "none", "stroke": "#8d6e63", "stroke-width": "2",
             "stroke-dasharray": "8,6",
         })
+    for pair in fixation:
+        reserve = pair["clearance_reservation"]
+        x, _, z = reserve["origin_xyz_mm"]
+        w, _, d = reserve["size_xyz_mm"]
+        ET.SubElement(svg, "rect", {
+            "x": str(x), "y": str(z), "width": str(w), "height": str(d),
+            "fill": "none", "stroke": "#b2691f", "stroke-width": "2",
+            "stroke-dasharray": "8,5", "data-clearance-reservation": pair["group_id"] + "::" + pair["module_id"],
+        })
+        for profile, color in zip(pair["profiles"], ("#247a93", "#d08b27")):
+            x, _, z = profile["bounds_origin_xyz_mm"]
+            w, _, d = profile["bounds_size_xyz_mm"]
+            ET.SubElement(svg, "rect", {
+                "x": str(x), "y": str(z), "width": str(w), "height": str(d),
+                "fill": "none", "stroke": color, "stroke-width": "3",
+                "data-profile-id": profile["id"],
+            })
     return ET.tostring(svg, encoding="unicode", short_empty_elements=True)
 
 def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
@@ -1489,7 +1554,7 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
 
     required = {"review_kind", "review_state", "service_zones"}
     optional = {"rotations_deg", "back_revisions", "wall_review_revisions",
-                "module_edit_revisions"}
+                "module_edit_revisions", "wall_fixation_revisions"}
     fields = set(request) if type(request) is dict else set()
     if (type(request) is not dict or not required <= fields
             or fields - required - optional
@@ -1558,9 +1623,13 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
         specs_by_group[group] = trusted["module_spec"]
     output = compose_verified_exchanges(assemblies, request["service_zones"])
     _attach_construction_reviews(output, models_by_group)
-    if "wall_review_revisions" in request or "module_edit_revisions" in request:
-        _attach_wall_reviews(output, models_by_group, assemblies,
-                             request.get("wall_review_revisions", []))
+    wall_contexts = None
+    if ("wall_review_revisions" in request or "module_edit_revisions" in request
+            or "wall_fixation_revisions" in request):
+        wall_contexts = _attach_wall_reviews(
+            output, models_by_group, assemblies,
+            request.get("wall_review_revisions", []),
+        )
     if "module_edit_revisions" in request:
         _attach_support_reservations(output, assemblies, specs_by_group)
         _attach_module_edit_index(
@@ -1570,6 +1639,13 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
         )
         if output["status"] != "REVIEW_ONLY":
             _error("La edición dimensional crea interferencias o reservas incompatibles")
+    if "wall_fixation_revisions" in request:
+        if wall_contexts is None:
+            _error("No hay contexto Maestro/F6 para validar perfiles franceses")
+        try:
+            _attach_wall_fixation_geometry(output, request, wall_contexts)
+        except ValueError as exc:
+            _error(str(exc))
     if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
         _error("La revisión espacial no puede habilitar fabricación")
     output["top_view_svg"] = render_top_view_svg(output)
