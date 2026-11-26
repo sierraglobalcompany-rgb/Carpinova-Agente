@@ -1,3 +1,16 @@
+## CURRENT — H10 M1 EDITOR CONTINUO CERRADO EN ALCANCE; M2 PENDIENTE · 26-NOV-2026
+
+- Base verificada `21700ae009677c57b6e92a32cfed39500d5078d3`; checkpoint H9-M6 R2 `5b4e0be503ab445de58ae1cf980af6bea8192bf9`, padre directo de base y ocho rutas exactas. Su publicación acotada de continuidad en rama remota fue verificada antes de iniciar H10. H10 sigue local, sin push ni publicación.
+- H10 prompt V4 SHA-256 `27287438CC6B032B65ADBA0549DAD4DF552BE4D5C8214107D3FD004004C7EBCD`. Fuente final M1 `D19_TORRE_EDIT/05-solicitud.json` SHA-256 `83ddbf967d3eb291fcfbea287df491f17bbf38ceb4b9651941a13755ad7ce163`.
+- **M1_LOCAL=PASS_SCOPED:** A1 `v1→v2` conserva fondo HDF3/45 paneles/layout; A2 `v2→v3` aplica fondo de carcasa MELAMINA_15 de 15 mm sin alterar BAJO/TORRE; B `v3→v4` lleva apoyo TORRE de 40 a 60 mm, conserva altura total 2100 y carcasa 2040, BAJO/ALTO intactos. C reabre el D19 final desde ZIP en sesión nueva `v1`, con solicitud y layout iguales. Cuatro paquetes íntegros de ocho archivos, manifiestos 7/7, CRC correcto, `REVIEW_ONLY`, cinco permisos false.
+- **M1_HTTP_BODY=BLOCKED_NOT_PERSISTED:** la primera corrida confirmó las versiones v2/v3/v4 y el ZIP de reapertura, pero el arnés no persistió los cuerpos/status crudos antes de recargar. No se repitió ningún POST. Los artefactos y la UI versionada conservan evidencia funcional, conforme al gate V4; el límite de captura queda explícito.
+- **M1_OFFLINE_EXPORT=PASS:** con Chromium y el HTML independiente D19, selección ALTO, preparación del enlace y descarga completa; JSON descargado semánticamente igual a `05-solicitud.json` de C (SHA-256 `6111ddc24374e0488e394d53d0331dac470c27d93bf6bfd587d57dd7401fce64`), token ausente, cero errores JS/consola y cero solicitudes externas. No se envió POST.
+- Prueba pura `test_m1_index_guard_precedence`: PASS (1/1). El método integrado queda en el expediente con la interacción offline corregida; no se repitió porque volvería a emitir los tres POST ya confirmados. `py_compile` focal de los tres módulos y el test, prueba pura M1 1/1 y `git diff --check`: PASS. Evidencia principal `D:\codex\_REPORTES\CarpiNova-Agente\CARPN_H10_M1_M2_V4\QA\M1\M1_ARTIFACT_AUDIT.json`, captura `QA\M1\RUN_01\M1_HOST_REVIEW.png`, guía `docs/H10_EDITOR_LOCAL.md`.
+- M1 checkpoint local separado: se registrará en un commit dedicado sobre el checkpoint M6; su SHA se añadirá al cierre final. M2 todavía no iniciado. Sin D19 final combinado de H10 todavía.
+- Seguridad: `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`, `install_ready=false`, `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`.
+- **NEXT único:** implementar y verificar M2 francés desde el D19 final M1, sin reemitir M1 ni la secuencia M6.
+
+---
 ## CURRENT — CODEX H9-M6 R2 V2: TORRE REGENERADA; CAPTURA HTTP INCOMPLETA · 24-NOV-2026
 
 - **Resultado incremental PARTIAL; base/HEAD 21700ae009677c57b6e92a32cfed39500d5078d3, worktree detached.** Se conserva íntegro el WIP V4 de ocho rutas y se añade solo el delta R2 autorizado en room_3d_review.py, el bloque P3 de test_h9_m6_local_editor_focal.py y este encabezado. Sin commit, publicación, GitHub, cambios de configuración ni otros proyectos.

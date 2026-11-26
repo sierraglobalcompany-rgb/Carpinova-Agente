@@ -251,25 +251,50 @@ class EditorSession:
             if back is not None and (wall is None or wall.get("back_choice") == "keep_existing"):
                 raise EditorError("back_spec requiere una wall_revision que cambie el fondo")
             choices = {
-                "keep_existing": None, "none": "none",
-                "inset_board_3mm_review": ("inset_full", 3),
-                "inset_board_15mm_review": ("inset_full", 15),
-                "inset_board_18mm_review": ("inset_full", 18),
-                "inset_two_strips_review": ("inset_two_strips", None),
-                "inset_carcass_material_review": ("inset_full", None),
+                "keep_existing", "none", "inset_board_3mm_review",
+                "inset_board_15mm_review", "inset_board_18mm_review",
+                "inset_two_strips_review", "inset_carcass_material_review",
             }
+            edit_context = next(
+                row for row in self.current_review["module_edit_index"]
+                if row["group_id"] == group and row["module_id"] == module
+            )
+            effective_back = edit_context.get("effective_back_spec")
+            carcass_material = edit_context.get("carcass_material")
             if wall is not None and wall["back_choice"] not in choices:
                 raise EditorError("back_choice no admitido")
             if wall is not None:
-                expected = choices[wall["back_choice"]]
-                if expected is None and back is not None:
-                    raise EditorError("La selección mural no corresponde al back_spec")
-                if expected == "none" and back != "none":
-                    raise EditorError("back_choice=none requiere back_spec=none")
-                if type(expected) is tuple and (type(back) is not dict
-                        or back.get("style") != expected[0]
-                        or (expected[1] is not None and back.get("thickness_mm") != expected[1])):
-                    raise EditorError("El fondo F7C no coincide con back_choice")
+                choice = wall["back_choice"]
+                selected_back = back if back is not None else effective_back
+                if choice == "keep_existing":
+                    valid_back = back is None
+                elif choice == "none":
+                    valid_back = (back == "none" if back is not None
+                                  else effective_back == "none")
+                elif choice == "inset_carcass_material_review":
+                    valid_back = (
+                        type(selected_back) is dict
+                        and selected_back.get("style") == "inset_full"
+                        and type(carcass_material) is dict
+                        and selected_back.get("material_id") == carcass_material.get("material_id")
+                        and selected_back.get("thickness_mm") == carcass_material.get("thickness_mm")
+                    )
+                else:
+                    style, thickness = (
+                        ("inset_two_strips", None)
+                        if choice == "inset_two_strips_review" else
+                        ("inset_full", int(choice.removeprefix("inset_board_")
+                                             .removesuffix("mm_review")))
+                    )
+                    valid_back = (
+                        type(selected_back) is dict
+                        and selected_back.get("style") == style
+                        and (thickness is None or selected_back.get("thickness_mm") == thickness)
+                    )
+                if not valid_back:
+                    raise EditorError(
+                        "El fondo efectivo no coincide con back_choice; indica una especificación F7C completa"
+                    )
             current_ties = any(
                 box.get("group_id") == group and box.get("module_id") == module
                 and box.get("role") in {"wall_rear_lower_tie", "wall_rear_upper_tie",

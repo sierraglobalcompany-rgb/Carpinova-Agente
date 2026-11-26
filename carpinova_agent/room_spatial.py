@@ -334,9 +334,13 @@ def _module_index(
 def _attach_module_edit_index(
     result: dict[str, Any], models_by_group: dict[str, dict[str, Any]],
     assemblies: list[dict[str, Any]], specs_by_group: dict[str, dict[str, Any]],
+    *, base_specs_by_group: dict[str, dict[str, Any]] | None = None,
+    base_floor_origins: dict[str, int] | None = None,
 ) -> None:
     """Describe editable local dimensions using reconciled F6/CAD modules."""
     exchanges = {item["group_id"]: item["exchange"] for item in assemblies}
+    base_specs_by_group = base_specs_by_group or {}
+    base_floor_origins = base_floor_origins or {}
     rows = []
     for group_id, model in models_by_group.items():
         source = specs_by_group.get(group_id)
@@ -347,6 +351,12 @@ def _attach_module_edit_index(
             _error(f"{group_id}: módulos fuente inválidos para el editor")
         source_by_id = {item.get("module_id"): item for item in source_modules
                         if type(item) is dict}
+        base_source = base_specs_by_group.get(group_id, source)
+        base_modules = base_source.get("modules") if type(base_source) is dict else None
+        if type(base_modules) is not list:
+            _error(f"{group_id}: módulos fuente base inválidos para el editor")
+        base_by_id = {item.get("module_id"): item for item in base_modules
+                      if type(item) is dict}
         f6_modules = model.get("modules")
         if type(f6_modules) is not list:
             _error(f"{group_id}: módulos F6 inválidos para el editor")
@@ -355,6 +365,9 @@ def _attach_module_edit_index(
             spec = source_by_id.get(module_id)
             if type(spec) is not dict:
                 _error(f"{group_id}/{module_id}: no coincide con módulo fuente")
+            base_spec = base_by_id.get(module_id)
+            if type(base_spec) is not dict:
+                _error(f"{group_id}/{module_id}: no coincide con la fuente F6 original")
             concept = spec.get("support_concept")
             style = (concept.get("style") if type(concept) is dict else
                      ("wall_mounted" if spec.get("support") == "wall" else "floor_direct"))
@@ -372,13 +385,31 @@ def _attach_module_edit_index(
             ])
             reason = ("Fila compartida: alto, fondo y apoyo requieren independización H10."
                       if shared else "")
-            if special:
-                fields = []
-                reason = "Módulo con soporte/café, esquinero, divisor vertical o amarres: edición dimensional fuera de alcance."
             if source.get("installation") == "built_in" or source.get("application") == "closet":
                 fields = []
                 reason = "Empotrado: requiere medidas de sitio y revisión independiente."
-            elif support_height > 0:
+            elif special:
+                fields = []
+                reason = "Módulo con soporte/café, esquinero, divisor vertical o amarres: edición dimensional fuera de alcance."
+            elif shared:
+                fields = ["width_mm"]
+            else:
+                base_concept = base_spec.get("support_concept")
+                base_style = (base_concept.get("style") if type(base_concept) is dict else
+                              ("wall_mounted" if base_spec.get("support") == "wall"
+                               else "floor_direct"))
+                base_support = (base_concept.get("support_height_mm", 0)
+                                if type(base_concept) is dict else 0)
+                floor_origin = base_floor_origins.get(group_id)
+                base_is_verified_floor = (
+                    base_style in {"floor_direct", "legs", "plinth"}
+                    and type(base_support) is int and base_support == 0
+                    and type(floor_origin) is int and floor_origin == 0
+                    and base_spec.get("support") != "wall"
+                )
+            if (not source.get("installation") == "built_in"
+                    and source.get("application") != "closet"
+                    and not special and not shared and not base_is_verified_floor):
                 fields = ["width_mm"]
                 reason = "Origen con apoyo previo no permite recalcular Y sin evidencia de la base de suelo."
             if type(overall_height) is not int or type(support_height) is not int:
@@ -387,6 +418,22 @@ def _attach_module_edit_index(
             bounds = exchange.get("bounds_xyz_mm")
             if type(bounds) is not list or len(bounds) != 3:
                 _error(f"{group_id}: CADExchange sin profundidad ensamblada")
+            piece_ids = module.get("part_ids")
+            model_parts = model.get("parts")
+            cad_boxes = exchange.get("boxes")
+            if (type(piece_ids) is not list or type(model_parts) is not list
+                    or type(cad_boxes) is not list):
+                _error(f"{group_id}/{module_id}: F6/CAD incompletos para contexto del editor")
+            parts_by_id = {part.get("piece_id"): part for part in model_parts
+                           if type(part) is dict}
+            cad_by_id = {box.get("piece_id"): box for box in cad_boxes
+                         if type(box) is dict}
+            carcass_material = _carcass_material(
+                module, piece_ids, parts_by_id, cad_by_id,
+            )
+            back = module.get("back")
+            effective_back = (copy.deepcopy(back)
+                              if back == "none" or type(back) is dict else None)
             rows.append({
                 "group_id": group_id, "module_id": module_id,
                 "width_mm": module.get("external_width_mm"),
@@ -395,6 +442,8 @@ def _attach_module_edit_index(
                 "carcass_depth_mm": module.get("external_depth_mm"),
                 "assembled_external_depth_mm": bounds[2],
                 "support_style": style, "support_height_mm": support_height,
+                "carcass_material": carcass_material,
+                "effective_back_spec": effective_back,
                 "editable_fields": fields, "edit_block_reason": reason,
             })
     result["module_edit_index"] = sorted(
@@ -1329,12 +1378,19 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
     prepared = []
     models_by_group: dict[str, dict[str, Any]] = {}
     specs_by_group: dict[str, dict[str, Any]] = {}
+    base_specs_by_group: dict[str, dict[str, Any]] = {}
+    base_floor_origins: dict[str, int] = {}
     for raw in assembly_input:
         if type(raw) is not dict or set(raw) != {
             "group_id", "module_spec", "origin_xyz_mm", "rotation_deg"
         } or type(raw.get("module_spec")) is not dict:
             _error("assembly: use group_id, module_spec, origin_xyz_mm, rotation_deg")
         module_spec = copy.deepcopy(raw["module_spec"])
+        base_specs_by_group[raw["group_id"]] = copy.deepcopy(module_spec)
+        source_origin = raw.get("origin_xyz_mm")
+        if (type(source_origin) is list and len(source_origin) == 3
+                and type(source_origin[1]) is int):
+            base_floor_origins[raw["group_id"]] = source_origin[1]
         group_revisions = revisions_by_group.pop(raw["group_id"], [])
         support_offsets: dict[str, int] = {}
         if group_revisions:
@@ -1372,7 +1428,11 @@ def review_room_from_specs(request: dict[str, Any]) -> dict[str, Any]:
                              request.get("wall_review_revisions", []))
     if "module_edit_revisions" in request:
         _attach_support_reservations(result, prepared, specs_by_group)
-        _attach_module_edit_index(result, models_by_group, prepared, specs_by_group)
+        _attach_module_edit_index(
+            result, models_by_group, prepared, specs_by_group,
+            base_specs_by_group=base_specs_by_group,
+            base_floor_origins=base_floor_origins,
+        )
         if result["status"] != "REVIEW_ONLY":
             _error("La edición dimensional crea interferencias o reservas incompatibles")
     return result
@@ -1454,6 +1514,17 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
             or rebuilt["layout_sha256"] != last["layout_sha256"]):
         _error("El historial no valida la instantánea; no se aceptan hashes del cliente")
 
+    base_specs_by_group: dict[str, dict[str, Any]] = {}
+    base_floor_origins: dict[str, int] = {}
+    for group in _GROUPS:
+        original = rebuilt["_reviews"].get(group, {}).get("_trusted_nominal_request")
+        if type(original) is not dict or type(original.get("module_spec")) is not dict:
+            _error(f"{group}: falta solicitud F6 original para confirmar el origen de apoyo")
+        base_specs_by_group[group] = copy.deepcopy(original["module_spec"])
+        position = working["positions"].get(group)
+        if type(position) is list and len(position) == 3 and type(position[1]) is int:
+            base_floor_origins[group] = position[1]
+
     reviewed_groups = (
         _apply_back_revisions(rebuilt["_reviews"], request["back_revisions"])
         if "back_revisions" in request else rebuilt["_reviews"]
@@ -1492,7 +1563,11 @@ def review_room_from_kitchen_state(request: dict[str, Any]) -> dict[str, Any]:
                              request.get("wall_review_revisions", []))
     if "module_edit_revisions" in request:
         _attach_support_reservations(output, assemblies, specs_by_group)
-        _attach_module_edit_index(output, models_by_group, assemblies, specs_by_group)
+        _attach_module_edit_index(
+            output, models_by_group, assemblies, specs_by_group,
+            base_specs_by_group=base_specs_by_group,
+            base_floor_origins=base_floor_origins,
+        )
         if output["status"] != "REVIEW_ONLY":
             _error("La edición dimensional crea interferencias o reservas incompatibles")
     if any(output.get(flag) is not False for flag in PHYSICAL_FLAGS):
