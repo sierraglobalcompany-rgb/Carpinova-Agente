@@ -1,12 +1,46 @@
 # Reproducible Windows preflight for CarpiNova-Agente (no installation of CAD).
 # Keep client configs under ignored work/, NEVER edit users' IDE settings.
 [CmdletBinding()]
-param([string]$OutputRoot = "")
+param(
+    [string]$OutputRoot = "",
+    [switch]$RuntimeOnly,
+    [switch]$AllowDownload,
+    [string]$Wheelhouse = "",
+    [string]$PythonExe = ""
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+
+if ($RuntimeOnly) {
+    if (-not [string]::IsNullOrWhiteSpace($OutputRoot)) {
+        throw "-OutputRoot no se usa con -RuntimeOnly; la QA T1 tiene su propia raíz."
+    }
+    $helper = Join-Path $PSScriptRoot "prepare_mcp_runtime.py"
+    if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
+        throw "Falta scripts/prepare_mcp_runtime.py."
+    }
+    $helperArgs = @($helper, "--repo", $repo)
+    if ($AllowDownload) { $helperArgs += "--allow-download" }
+    if (-not [string]::IsNullOrWhiteSpace($Wheelhouse)) {
+        $helperArgs += @("--wheelhouse", $Wheelhouse)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PythonExe)) {
+        $helperArgs += @("--python-exe", $PythonExe)
+        & $PythonExe @helperArgs
+    } else {
+        & python @helperArgs
+    }
+    exit $LASTEXITCODE
+}
+
+if ($AllowDownload -or -not [string]::IsNullOrWhiteSpace($Wheelhouse) -or
+    -not [string]::IsNullOrWhiteSpace($PythonExe)) {
+    throw "-AllowDownload, -Wheelhouse y -PythonExe requieren -RuntimeOnly."
+}
+
 $work = Join-Path $repo "work"
 $venv = Join-Path $repo ".venv"
 $python = Join-Path $venv "Scripts\python.exe"

@@ -2,6 +2,20 @@
 
 El editor local reabre un paquete D19 o una solicitud JSON, permite revisar cambios nominales y guarda cada aplicación como un nuevo D19. La revisión permanece en estado `REVIEW_ONLY`; no libera fabricación, corte, perforación, compra ni instalación.
 
+## Runtime MCP aislado para Windows (H10-M4)
+
+Para preparar únicamente el runtime MCP de este checkout, sin ejecutar el preflight histórico, las suites generales ni modificar la configuración de Codex Desktop:
+
+```powershell
+.\scripts\prepare_windows.ps1 -RuntimeOnly -PythonExe "C:\ruta\Python312\python.exe" -AllowDownload
+```
+
+`-PythonExe` debe apuntar a Python 3.12. El helper crea y valida un venv bajo `work/mcp-runtime/venv`, instala solo wheels binarias fijadas en `requirements-mcp.txt` y limita la descarga a PyPI oficial cuando se especifica `-AllowDownload`. Para modo desconectado se puede indicar un wheelhouse absoluto con `-Wheelhouse "C:\ruta\wheelhouse"`; si no existe un runtime válido y falta una fuente autorizada de ruedas, la operación queda bloqueada sin instalar paquetes globales. `-AllowDownload`, `-Wheelhouse` y `-PythonExe` se rechazan fuera de `-RuntimeOnly`; este modo también rechaza `-OutputRoot` y retorna antes del preflight ordinario.
+
+El helper guarda `runtime.json`, el registro de instalación y un ejemplo TOML en `work/mcp-runtime/configuracion-local/codex-config.toml.example`; la carpeta local de proyectos es `work/mcp-runtime/projects`. El TOML es una referencia para revisión manual, no una edición ni instalación de la configuración del usuario. La ejecución nativa permanece deshabilitada, no se configura directorio de aprobaciones y la preparación no valida fabricación ni montaje.
+
+En H10-M4 el runtime se preparó con Python 3.12.10 y los pines MCP `1.30.0`, `resvg_py 0.5.0` y `Pillow 13.0.0`. La única llamada stdio del lote generó un D19 de revisión nominal; su respuesta estructurada y el producto se conservaron. El cierre automatizado de fase encontró un defecto en el helper local, por lo que el resultado de transporte se registra como parcial; el producto se auditó offline y no se repitió la llamada. Consulte el informe H10-M4 para resultados y límites.
+
 ## Lanzador Windows y descarga del último D19 guardado (H10-M3)
 
 En Windows, ejecute `ABRIR_CARPINOVA.cmd` desde el explorador o una consola. Sin argumentos abre un selector de archivo; con un argumento acepta la ruta de un D19 `.zip` o una solicitud `.json`. El argumento puede contener espacios y caracteres Unicode. Para un ZIP, el valor de sección Y del manifiesto se conserva; para JSON, si falta, el lanzador lo solicita. El editor crea una sesión nueva bajo `work/editor-local` y muestra una dirección loopback temporal. Cierre únicamente esa ventana de consola para detener el servidor.
