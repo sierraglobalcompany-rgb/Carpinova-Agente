@@ -1,4 +1,18 @@
-## CURRENT — H10 M1+M2 EDITOR CONTINUO / FRANCÉS NOMINAL · 26-NOV-2026
+## CURRENT — H10 M3 EDITOR LOCAL USABLE Y DESCARGA D19 · 26-NOV-2026
+
+- Base verificada `23f72320059d7c3673671de70ff803c75e7c0fb2`; rama local `codex/carpn-h10-m3-v2-20261126`. M1/M2 integrados en el padre; M3 permanece como cambio local sin publicar. Continuidad previa publicada solo en `chatgpt/carpn-h10-m1-m2-v4-scoped-20261126` a `23f72320059d7c3673671de70ff803c75e7c0fb2`; no se publicará M3.
+- **MCP_STDIO=BLOCKED_ENV:** Python 3.12.10 no tiene instalado el módulo `mcp` (`ModuleNotFoundError: No module named 'mcp'`). No se instalaron paquetes ni se sustituyó esta prueba por otro cliente.
+- **LAUNCHER=PASS_SCOPED:** `ABRIR_CARPINOVA.cmd` abrió el D19 M2 original copiado a una ruta con espacios y caracteres Unicode. El archivo fuente conservó SHA-256 `374d7f99be2ad77319ad7fa5ba1c9fced5b482a8615cd6ef8072b560008d9f2b`.
+- **DOWNLOAD/T2=PASS_SCOPED:** UI de host comprobada en Chromium visible. Un GET de descarga sin token fue rechazado con 403; un clic descargó exactamente una vez `editor-v000001-room-review.zip`, cuyo SHA-256 coincide en descarga y servidor: `41f3ce2891709c451fd26e75e4293836f638b5507304693d7671d6294b4be9d7`. La versión permaneció v1 y no se observó POST ni solicitud externa. El HTML offline mostró el aviso de revisión y no inició solicitudes de red. No se repitió la descarga.
+- El D19 descargado conserva 8 miembros, manifiesto 7/7, 45 piezas nominales, `layout_sha256=757c8665b48ec374b0163f6bb2e1906e93f98f544982bd01dedc09846979ea44`, `wall_fixation_sha256=f2e521a9950971f238263d892e1c84be34a9bf113b1266e3711e426c435ece49` y dos perfiles nominales. La captura real está en `D:\codex\_REPORTES\CarpiNova-Agente\CARPN_H10_M3\QA\T2\EDITOR_LOCAL_ALTO_DOWNLOAD.png`; resultado detallado `QA/T2/T2_PLAYWRIGHT_RESULT.json`. La activación de la ventana Brave falló dos veces; se completó y capturó la prueba mediante Chromium visible. Errores JS/consola no se reclaman porque el arnés no persistió esas matrices.
+- Cuatro pruebas focales M3, `py_compile` de archivos cambiados y `git diff --check`: PASS. No se repitieron suites M1/M2. La primera auditoría final del arnés leyó `install_ready` en el nivel incorrecto; lectura corregida confirmó el flag dentro de cada `wall_fixation_geometry`, sin cambio de producto ni repetición de descarga.
+- Uso local: `ABRIR_CARPINOVA.cmd` sin argumentos abre selector de archivo; con un argumento abre un D19 ZIP o JSON. La descarga de host entrega la última versión guardada; cambios de formulario sin aplicar no se incluyen. El HTML offline puede revisar y exportar intención JSON, pero no recalcula ni valida en el host.
+- Flags `fabrication_ready=false`, `cutting_ready=false`, `drilling_ready=false`, `purchase_ready=false`, `can_generate_f7c=false`, `install_ready=false`; `PRODUCT_COMPLETE=false`, `RELEASE=NO_GO`. No CAD nativo, fabricación, corte, perforación, compra o instalación. No hay revisión independiente ni UAT del propietario.
+- **NEXT único:** `CHATGPT_DIRECTOR_VERIFY_H10_M3_V2`; revisión independiente del diff y de este paquete. No repetir T2/descarga ni publicar M3.
+
+---
+
+## HISTÓRICO — H10 M1+M2 EDITOR CONTINUO / FRANCÉS NOMINAL · 26-NOV-2026
 
 - Base del lote `21700ae009677c57b6e92a32cfed39500d5078d3`; checkpoint M6 local/remoto verificado `5b4e0be503ab445de58ae1cf980af6bea8192bf9`; checkpoint M1 local `a632dbf416b1984fa50afba78813078a1f0ed8f6`, padre directo M6. Rama de trabajo H10 aislada. H10 no publicado; sin push/PR/merge.
 - Prompt V4 SHA-256 `27287438CC6B032B65ADBA0549DAD4DF552BE4D5C8214107D3FD004004C7EBCD`.

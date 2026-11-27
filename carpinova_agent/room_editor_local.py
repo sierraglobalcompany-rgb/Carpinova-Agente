@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import hmac
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import stat
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
@@ -49,7 +51,7 @@ def _strict_json(raw: bytes) -> Any:
         raise EditorError("JSON UTF-8 inválido, duplicado o no finito") from exc
 
 
-def _read_d19(path: Path) -> dict[str, Any]:
+def _read_d19_with_manifest(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     if path.is_symlink() or not path.is_file() or path.stat().st_size > _MAX_PACKAGE_BYTES:
         raise EditorError("La entrada debe ser un D19 regular, no symlink, menor de 4 MB")
     try:
@@ -68,10 +70,10 @@ def _read_d19(path: Path) -> dict[str, Any]:
         raise EditorError("No se pudo leer el D19") from exc
     manifest = _strict_json(files["MANIFEST.json"])
     expected = _MEMBERS - {"MANIFEST.json"}
-    if (type(manifest) is not dict or set(manifest.get("files", {})) != expected
+    if (type(manifest) is not dict or type(manifest.get("files")) is not dict
+            or set(manifest["files"]) != expected
             or manifest.get("release") != "NO_GO"):
         raise EditorError("MANIFEST D19 no coincide con sus siete archivos")
-    import hashlib
     for name in expected:
         record = manifest["files"][name]
         if (type(record) is not dict or set(record) != {"bytes", "sha256"}
@@ -83,7 +85,14 @@ def _read_d19(path: Path) -> dict[str, Any]:
     if len(files["05-solicitud.json"]) > _LIMIT:
         raise EditorError("La solicitud D19 supera 64 KiB")
     _validate_source_request(request)
-    return request
+    section_y_mm = manifest.get("section_y_mm")
+    if type(section_y_mm) is not int or not 0 <= section_y_mm <= 20000:
+        raise EditorError("MANIFEST D19 requiere section_y_mm entero entre 0 y 20000")
+    return request, manifest
+
+
+def _read_d19(path: Path) -> dict[str, Any]:
+    return _read_d19_with_manifest(path)[0]
 
 
 def _read_input(path: Path) -> dict[str, Any]:
@@ -139,6 +148,8 @@ class EditorSession:
         self.y_mm = y_mm
         self.version = 0
         self.last_valid_path: Path | None = None
+        self.last_valid_zip_path: Path | None = None
+        self.last_valid_zip_sha256 = ""
         self.last_valid_html = b""
         self.layout_sha256 = ""
         self.current_review: dict[str, Any] = {}
@@ -187,6 +198,17 @@ class EditorSession:
             raise EditorError("La herramienta devolvió una ruta de salida inesperada")
         zip_path = archive.resolve(strict=True)
         try:
+            if not zip_path.is_file() or zip_path.stat().st_size > _MAX_PACKAGE_BYTES:
+                raise EditorError("El ZIP D19 guardado supera el límite permitido")
+            with zip_path.open("rb") as saved_zip:
+                zip_bytes = saved_zip.read(_MAX_PACKAGE_BYTES + 1)
+            reported_zip_sha256 = result.get("zip_sha256")
+            if (len(zip_bytes) > _MAX_PACKAGE_BYTES
+                    or type(reported_zip_sha256) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", reported_zip_sha256)
+                    or not hmac.compare_digest(
+                        hashlib.sha256(zip_bytes).hexdigest(), reported_zip_sha256)):
+                raise EditorError("El SHA-256 del ZIP guardado no coincide con Maestro")
             files = _read_archive(zip_path)
             review = _strict_json(files["04-habitacion.json"])
             if (review.get("status") != "REVIEW_ONLY"
@@ -214,6 +236,8 @@ class EditorSession:
         result, zip_path, extraction, html, review = self._new_output(self.request, 1)
         self.version = 1
         self.last_valid_path = extraction
+        self.last_valid_zip_path = zip_path
+        self.last_valid_zip_sha256 = result["zip_sha256"]
         self.last_valid_html = html
         self.layout_sha256 = result["layout_sha256"]
         self.current_review = review
@@ -422,6 +446,8 @@ class EditorSession:
             self.request = candidate
             self.version = next_version
             self.last_valid_path = extraction
+            self.last_valid_zip_path = zip_path
+            self.last_valid_zip_sha256 = result["zip_sha256"]
             self.last_valid_html = html
             self.layout_sha256 = result["layout_sha256"]
             self.current_review = review
@@ -472,9 +498,14 @@ def create_server(session: EditorSession) -> HTTPServer:
         def log_message(self, _format: str, *args: Any) -> None:
             return
 
-        def _headers(self, status: int, body: bytes = b"", content_type: str = "application/json") -> None:
+        def _headers(self, status: int, body: bytes = b"", content_type: str = "application/json",
+                     attachment_filename: str | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
+            if attachment_filename is not None:
+                if not re.fullmatch(r"editor-v[0-9]{6}-room-review\.zip", attachment_filename):
+                    raise ValueError("Nombre de descarga fuera del formato fijo")
+                self.send_header("Content-Disposition", f'attachment; filename="{attachment_filename}"')
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -494,6 +525,72 @@ def create_server(session: EditorSession) -> HTTPServer:
             parsed = urlsplit(self.path)
             if parsed.path == "/favicon.ico" and not parsed.query:
                 self._headers(204, b"", "text/plain")
+                return
+            if parsed.path == "/download":
+                expected_origin = f"http://127.0.0.1:{self.server.server_port}"
+                if parsed.query or not self._host_ok():
+                    self._headers(404, b'{"ok":false,"message":"Ruta no disponible"}')
+                    return
+                origins = self.headers.get_all("Origin") or []
+                if len(origins) > 1 or (origins and origins[0] != expected_origin):
+                    self._headers(403, b'{"ok":false,"message":"Origen local no autorizado"}')
+                    return
+                supplied = self.headers.get_all("X-CarpiNova-Session") or []
+                if (len(supplied) != 1 or not supplied[0].isascii()
+                        or not hmac.compare_digest(supplied[0], session.token)):
+                    self._headers(403, b'{"ok":false,"message":"Local session rejected"}')
+                    return
+                with session.lock:
+                    version = session.version
+                    zip_path = session.last_valid_zip_path
+                    expected_sha256 = session.last_valid_zip_sha256
+                    if (type(version) is not int or version < 1
+                            or zip_path is None or not expected_sha256):
+                        self._headers(409, b'{"ok":false,"message":"No hay un ZIP guardado vigente"}')
+                        return
+                    filename = f"editor-v{version:06d}-room-review.zip"
+                    if (zip_path.name != filename or zip_path.is_symlink()
+                            or (hasattr(zip_path, "is_junction") and zip_path.is_junction())):
+                        self._headers(404, b'{"ok":false,"message":"El ZIP guardado no es valido"}')
+                        return
+                    try:
+                        if (session.output_dir.is_symlink()
+                                or (hasattr(session.output_dir, "is_junction")
+                                    and session.output_dir.is_junction())):
+                            self._headers(404, b'{"ok":false,"message":"El ZIP guardado no es valido"}')
+                            return
+                        output_root = session.output_dir.resolve(strict=True)
+                        if output_root != session.output_dir:
+                            self._headers(404, b'{"ok":false,"message":"El ZIP guardado no es valido"}')
+                            return
+                        resolved = zip_path.resolve(strict=True)
+                        metadata = resolved.stat()
+                    except FileNotFoundError:
+                        self._headers(409, b'{"ok":false,"message":"El ZIP guardado ya no existe"}')
+                        return
+                    except OSError:
+                        self._headers(404, b'{"ok":false,"message":"El ZIP guardado no es valido"}')
+                        return
+                    if resolved.parent != output_root or not stat.S_ISREG(metadata.st_mode):
+                        self._headers(404, b'{"ok":false,"message":"El ZIP guardado no es valido"}')
+                        return
+                    if metadata.st_size > _MAX_PACKAGE_BYTES:
+                        self._headers(422, b'{"ok":false,"message":"El ZIP guardado excede 4 MB"}')
+                        return
+                    try:
+                        with resolved.open("rb") as saved_zip:
+                            body = saved_zip.read(_MAX_PACKAGE_BYTES + 1)
+                    except OSError:
+                        self._headers(409, b'{"ok":false,"message":"No se pudo leer el ZIP guardado"}')
+                        return
+                    if (len(body) != metadata.st_size or len(body) > _MAX_PACKAGE_BYTES
+                            or type(expected_sha256) is not str
+                            or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+                            or not hmac.compare_digest(hashlib.sha256(body).hexdigest(),
+                                                       expected_sha256)):
+                        self._headers(422, b'{"ok":false,"message":"El ZIP guardado fue alterado"}')
+                        return
+                self._headers(200, body, "application/zip", filename)
                 return
             if parsed.path != "/" or parsed.query or not self._host_ok():
                 self._headers(404, b'{"ok":false,"message":"Ruta no disponible"}')
@@ -570,30 +667,34 @@ def create_server(session: EditorSession) -> HTTPServer:
     return server
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Editor local D19 nominal de CarpiNova")
-    parser.add_argument("--input", type=Path, required=True, help="05-solicitud.json o ZIP D19 validado")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Directorio absoluto NUEVO, no se sobrescribe")
-    parser.add_argument("--y-mm", type=int, required=True, help="Cota de sección existente en mm")
-    args = parser.parse_args(argv)
-    try:
-        source = _read_input(args.input)
-        target = args.output_dir
-        if (not target.is_absolute() or target.exists() or target.is_symlink()
-                or not target.parent.is_dir()):
-            raise EditorError("output-dir debe ser una ruta absoluta nueva con padre existente")
-        if type(args.y_mm) is not int or not 0 <= args.y_mm <= 20000:
-            raise EditorError("--y-mm debe ser un entero entre 0 y 20000")
-        target.mkdir(exist_ok=False)
-        if target.is_symlink() or target.resolve(strict=True) != target:
-            target.rmdir()
-            raise EditorError("output-dir debe ser un directorio real no enlazado")
-        session = EditorSession(source, target, args.y_mm)
-        session.initialize()
-    except Exception as exc:
-        parser.error(_safe_text(exc))
+def _serve_session(source_request: dict[str, Any], output_dir: Path, y_mm: int,
+                   *, open_browser: bool = False) -> int:
+    if type(y_mm) is not int or not 0 <= y_mm <= 20000:
+        raise EditorError("--y-mm debe ser un entero entre 0 y 20000")
+    if (not output_dir.is_absolute() or output_dir.exists() or output_dir.is_symlink()
+            or not output_dir.parent.is_dir()):
+        raise EditorError("output-dir debe ser una ruta absoluta nueva con padre existente")
+    output_dir.mkdir(exist_ok=False)
+    if (output_dir.is_symlink()
+            or (hasattr(output_dir, "is_junction") and output_dir.is_junction())
+            or output_dir.resolve(strict=True) != output_dir):
+        if output_dir.is_dir() and not output_dir.is_symlink():
+            output_dir.rmdir()
+        raise EditorError("output-dir debe ser un directorio real no enlazado")
+    session = EditorSession(source_request, output_dir, y_mm)
+    session.initialize()
     server = create_server(session)
-    print(f"Editor local CarpiNova · revisión nominal · NO_GO\nhttp://127.0.0.1:{server.server_port}/\nCtrl+C para cerrar", flush=True)
+    url = f"http://127.0.0.1:{server.server_port}/"
+    print(f"Editor local CarpiNova · revisión nominal · NO_GO\n{url}\nCtrl+C para cerrar", flush=True)
+    if open_browser:
+        try:
+            import webbrowser
+            if not webbrowser.open(url):
+                print("No se pudo abrir el navegador automáticamente; use la URL local indicada.",
+                      flush=True)
+        except Exception:
+            print("No se pudo abrir el navegador automáticamente; use la URL local indicada.",
+                  flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -601,6 +702,21 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         server.server_close()
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Editor local D19 nominal de CarpiNova")
+    parser.add_argument("--input", type=Path, required=True, help="05-solicitud.json o ZIP D19 validado")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Directorio absoluto NUEVO, no se sobrescribe")
+    parser.add_argument("--y-mm", type=int, required=True, help="Cota de sección existente en mm")
+    parser.add_argument("--open-browser", action="store_true", help="Abre el editor local tras iniciar el host")
+    args = parser.parse_args(argv)
+    try:
+        source = _read_input(args.input)
+        return _serve_session(source, args.output_dir, args.y_mm,
+                              open_browser=args.open_browser)
+    except Exception as exc:
+        parser.error(_safe_text(exc))
 
 
 if __name__ == "__main__":

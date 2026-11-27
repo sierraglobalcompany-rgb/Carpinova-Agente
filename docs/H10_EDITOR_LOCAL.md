@@ -2,6 +2,23 @@
 
 El editor local reabre un paquete D19 o una solicitud JSON, permite revisar cambios nominales y guarda cada aplicación como un nuevo D19. La revisión permanece en estado `REVIEW_ONLY`; no libera fabricación, corte, perforación, compra ni instalación.
 
+## Lanzador Windows y descarga del último D19 guardado (H10-M3)
+
+En Windows, ejecute `ABRIR_CARPINOVA.cmd` desde el explorador o una consola. Sin argumentos abre un selector de archivo; con un argumento acepta la ruta de un D19 `.zip` o una solicitud `.json`. El argumento puede contener espacios y caracteres Unicode. Para un ZIP, el valor de sección Y del manifiesto se conserva; para JSON, si falta, el lanzador lo solicita. El editor crea una sesión nueva bajo `work/editor-local` y muestra una dirección loopback temporal. Cierre únicamente esa ventana de consola para detener el servidor.
+
+Desde la raíz del repositorio también puede abrir una fuente explícita:
+
+```powershell
+python -m carpinova_agent.editor_launcher --input "C:\ruta\mi proyecto.zip"
+python -m carpinova_agent.editor_launcher --input "C:\ruta\solicitud.json" --y-mm 350
+```
+
+En el segundo ejemplo, sustituya `350` por la cota de sección ya acordada. `--output-root "C:\ruta\carpeta-existente"` permite elegir una carpeta absoluta existente; `--no-browser` deja la URL en consola sin abrir el navegador. No se instala Python ni se modifica el `PATH`.
+
+En una sesión host conectada, **Descargar proyecto guardado (ZIP)** descarga la última versión persistida, con nombre `editor-vNNNNNN-room-review.zip`. Los cambios pendientes del formulario no se aplican ni se incluyen: primero se requiere la acción explícita **Aplicar cambios y recalcular**. El endpoint requiere el token de la sesión y entrega solo el archivo guardado cuya suma coincide con el estado de la sesión. El HTML extraído del D19 permanece offline: permite inspección y exportar una solicitud JSON, no inicia el host, no recalcula y no valida geometría.
+
+La comprobación H10-M3 usó el D19 H10-M2 de ocho miembros; resultado `REVIEW_ONLY`, 45 piezas, dos perfiles franceses nominales. Los perfiles, fijación, montaje y geometría siguen sin validación física. Esta prueba no autoriza CAD nativo ni fabricación.
+
 ## Abrir el último D19 de la prueba H10-M1
 
 Desde la raíz de este checkout, en PowerShell, use una carpeta de salida absoluta que todavía no exista:

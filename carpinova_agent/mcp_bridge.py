@@ -215,8 +215,15 @@ def carpinova_generar_borrador(
             "warnings": [
                 "NO_FABRICAR: revisión nominal sin autorización de corte, perforación o compra.",
                 "LOCAL_PATH_NOT_BINARY_MCP: abra o adjunte la ruta local; MCP no devuelve bytes ZIP.",
+                "EDITOR_LOCAL: ejecute ABRIR_CARPINOVA.cmd y seleccione el ZIP devuelto; MCP no inicia el editor.",
             ],
         }
+        if "wall_fixation_sha256" in package:
+            fixation_sha256 = package["wall_fixation_sha256"]
+            if (type(fixation_sha256) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", fixation_sha256)):
+                raise PilotError("wall_fixation_sha256 del manifiesto no es un SHA-256 válido.")
+            result["wall_fixation_sha256"] = fixation_sha256
         if request["review_kind"] == "kitchen_spatial_v1":
             result["room_status"] = package["room_status"]
             if package["room_status"] == "INTERFERENCE_REVIEW_REQUIRED":
